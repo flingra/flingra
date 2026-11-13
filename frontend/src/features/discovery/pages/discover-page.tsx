@@ -1,6 +1,23 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, LocateFixed, MapPin, Menu as MenuIcon, Minus, Music, Camera, Plus, Trophy, Coffee, Laptop } from 'lucide-react'
+import {
+  ChevronDown,
+  LocateFixed,
+  MapPin,
+  Menu as MenuIcon,
+  Minus,
+  Music,
+  Camera,
+  Plus,
+  Trophy,
+  Coffee,
+  Laptop,
+  Shirt,
+  Plane,
+  Film,
+  Dumbbell,
+  PartyPopper,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState, ErrorState } from '@/components/ui/state-message'
@@ -19,6 +36,11 @@ const CATEGORY_CHIPS = [
   { interest: 'Football', label: 'Football', icon: Trophy },
   { interest: 'Cooking', label: 'Cooking', icon: Coffee },
   { interest: 'Tech', label: 'Tech', icon: Laptop },
+  { interest: 'Fashion', label: 'Fashion', icon: Shirt },
+  { interest: 'Travel', label: 'Travel', icon: Plane },
+  { interest: 'Movies', label: 'Movies', icon: Film },
+  { interest: 'Fitness', label: 'Fitness', icon: Dumbbell },
+  { interest: 'Nightlife', label: 'Nightlife', icon: PartyPopper },
 ]
 
 export function DiscoverPage() {

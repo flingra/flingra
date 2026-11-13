@@ -20,6 +20,33 @@ export async function listReferrals(): Promise<ReferralRecord[]> {
   return [...referralStore.referrals].sort((a, b) => b.joinedAt.localeCompare(a.joinedAt))
 }
 
+const SIGNUP_BONUS_NAIRA = 1000
+
+/** Credits the new member's own wallet for signing up with a friend's code (a standard two-sided referral bonus). */
+export function applyReferralCode(code: string) {
+  const trimmed = code.trim()
+  if (!trimmed) return
+
+  walletStore.balanceNaira += SIGNUP_BONUS_NAIRA
+  const referral: ReferralRecord = {
+    id: `ref-${Date.now()}`,
+    referredName: `Signup bonus (code ${trimmed})`,
+    bonusNaira: SIGNUP_BONUS_NAIRA,
+    joinedAt: new Date().toISOString(),
+  }
+  referralStore.referrals = [referral, ...referralStore.referrals]
+
+  const transaction: WalletTransaction = {
+    id: `txn-${Date.now()}-ref`,
+    type: 'referral-bonus',
+    amountNaira: SIGNUP_BONUS_NAIRA,
+    description: `Referral signup bonus (code ${trimmed})`,
+    status: 'completed',
+    createdAt: new Date().toISOString(),
+  }
+  transactionStore.transactions = [...transactionStore.transactions, transaction]
+}
+
 export async function listPayoutRequests(): Promise<PayoutRequest[]> {
   await delay(null, 300)
   return [...payoutRequestStore.requests].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))

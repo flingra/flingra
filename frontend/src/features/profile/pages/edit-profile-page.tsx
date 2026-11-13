@@ -1,6 +1,6 @@
 import { type ChangeEvent, useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Camera, Images, Video as VideoIcon, X } from 'lucide-react'
+import { Camera, Images, Lock, Unlock, Video as VideoIcon, X } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,7 @@ import { VideoThumbnail } from '@/components/ui/video-thumbnail'
 import { VideoPlayerDialog } from '@/components/ui/video-player-dialog'
 import { getOwnProfile, saveOwnProfile, uploadPhoto, uploadVideo } from '@/lib/api/profiles'
 import { listMyPosts } from '@/lib/api/posts'
+import type { ProfileVideo } from '@/lib/api/types'
 
 export function EditProfilePage() {
   const { showToast } = useToast()
@@ -24,7 +25,7 @@ export function EditProfilePage() {
   const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
   const [photos, setPhotos] = useState<string[]>([])
-  const [videos, setVideos] = useState<string[]>([])
+  const [videos, setVideos] = useState<ProfileVideo[]>([])
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -64,7 +65,7 @@ export function EditProfilePage() {
     setUploadingVideo(true)
     try {
       const url = await uploadVideo(file)
-      setVideos((current) => [...current, url])
+      setVideos((current) => [...current, { url }])
       setDirty(true)
     } finally {
       setUploadingVideo(false)
@@ -73,6 +74,18 @@ export function EditProfilePage() {
 
   function removeVideo(index: number) {
     setVideos((current) => current.filter((_, i) => i !== index))
+    setDirty(true)
+  }
+
+  function toggleVideoLock(index: number) {
+    setVideos((current) =>
+      current.map((video, i) => (i === index ? { ...video, locked: !video.locked, priceNaira: video.locked ? undefined : video.priceNaira ?? 1000 } : video)),
+    )
+    setDirty(true)
+  }
+
+  function setVideoPrice(index: number, priceNaira: number) {
+    setVideos((current) => current.map((video, i) => (i === index ? { ...video, priceNaira } : video)))
     setDirty(true)
   }
 
@@ -145,20 +158,58 @@ export function EditProfilePage() {
 
           <div>
             <p className="mb-2 text-sm font-medium text-ink-800">Videos</p>
-            <div className="flex flex-wrap gap-3">
-              {videos.map((video, index) => (
-                <div key={video} className="relative size-20">
-                  <VideoThumbnail src={video} onClick={() => setPlayingVideo(video)} />
-                  <button
-                    type="button"
-                    onClick={() => removeVideo(index)}
-                    aria-label="Remove video"
-                    className="absolute -right-1.5 -top-1.5 cursor-pointer rounded-full bg-ink-900 p-1 text-white hover:bg-ink-700"
-                  >
-                    <X className="size-3" aria-hidden="true" />
-                  </button>
-                </div>
-              ))}
+            {data?.identity === 'woman' && (
+              <p className="mb-3 text-xs text-ink-400">Lock a video and set a price — viewers pay to unlock it.</p>
+            )}
+            <div className={data?.identity === 'woman' ? 'grid grid-cols-2 gap-3 sm:grid-cols-3' : 'flex flex-wrap gap-3'}>
+              {videos.map((video, index) =>
+                data?.identity === 'woman' ? (
+                  <div key={video.url} className="rounded-2xl border border-ink-100 p-2">
+                    <div className="relative size-full aspect-square">
+                      <VideoThumbnail src={video.url} onClick={() => setPlayingVideo(video.url)} />
+                      <button
+                        type="button"
+                        onClick={() => removeVideo(index)}
+                        aria-label="Remove video"
+                        className="absolute -right-1.5 -top-1.5 cursor-pointer rounded-full bg-ink-900 p-1 text-white hover:bg-ink-700"
+                      >
+                        <X className="size-3" aria-hidden="true" />
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleVideoLock(index)}
+                      className="mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-full border border-ink-200 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-50"
+                    >
+                      {video.locked ? <Lock className="size-3" aria-hidden="true" /> : <Unlock className="size-3" aria-hidden="true" />}
+                      {video.locked ? 'Locked' : 'Free to view'}
+                    </button>
+                    {video.locked && (
+                      <input
+                        type="number"
+                        min={100}
+                        value={video.priceNaira ?? ''}
+                        onChange={(event) => setVideoPrice(index, Number(event.target.value))}
+                        aria-label="Price in Naira"
+                        placeholder="Price (₦)"
+                        className="mt-2 w-full rounded-full border border-ink-200 px-3 py-1.5 text-center text-xs"
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <div key={video.url} className="relative size-20">
+                    <VideoThumbnail src={video.url} onClick={() => setPlayingVideo(video.url)} />
+                    <button
+                      type="button"
+                      onClick={() => removeVideo(index)}
+                      aria-label="Remove video"
+                      className="absolute -right-1.5 -top-1.5 cursor-pointer rounded-full bg-ink-900 p-1 text-white hover:bg-ink-700"
+                    >
+                      <X className="size-3" aria-hidden="true" />
+                    </button>
+                  </div>
+                ),
+              )}
               <label className="flex size-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-ink-200 text-ink-400 hover:border-ink-300">
                 <VideoIcon className="size-5" aria-hidden="true" />
                 <span className="text-xs">{uploadingVideo ? 'Uploading' : 'Add'}</span>

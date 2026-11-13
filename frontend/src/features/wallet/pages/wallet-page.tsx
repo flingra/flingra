@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Gift, Share2, Wallet as WalletIcon, Landmark } from 'lucide-react'
+import { ChevronRight, Gift, Share2, Wallet as WalletIcon, Landmark, HeartHandshake } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
@@ -11,7 +11,7 @@ import { PageSpinner } from '@/components/ui/spinner'
 import { EmptyState } from '@/components/ui/state-message'
 import { useToast } from '@/components/ui/toast'
 import { formatNaira } from '@/lib/utils'
-import { fundWallet, getWalletBalance, listTransactions } from '@/lib/api/wallet'
+import { confirmMeetupPayment, fundWallet, getWalletBalance, listMeetupPayments, listTransactions, refundMeetupPayment } from '@/lib/api/wallet'
 import { ApiError, type WalletTransactionType } from '@/lib/api/types'
 
 const QUICK_AMOUNTS = [500, 1000, 5000, 10000]
@@ -24,6 +24,10 @@ const TRANSACTION_LABELS: Record<WalletTransactionType, string> = {
   'referral-bonus': 'Referral bonus',
   'call-bonus': 'Call bonus',
   payout: 'Payout',
+  'meetup-payment-held': 'Meetup payment held',
+  'meetup-payment-released': 'Meetup payment released',
+  'meetup-payment-refunded': 'Meetup payment refunded',
+  'video-unlock': 'Video unlocked',
 }
 
 const LINKS = [
@@ -41,8 +45,39 @@ export function WalletPage() {
   const [funding, setFunding] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [resolvingId, setResolvingId] = useState<string | null>(null)
+
   const { data: balance, isLoading: balanceLoading } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance })
   const { data: transactions, isLoading: transactionsLoading } = useQuery({ queryKey: ['wallet-transactions'], queryFn: listTransactions })
+  const { data: meetupPayments } = useQuery({ queryKey: ['meetup-payments'], queryFn: listMeetupPayments })
+
+  async function refreshWallet() {
+    await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
+    await queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] })
+    await queryClient.invalidateQueries({ queryKey: ['meetup-payments'] })
+  }
+
+  async function handleConfirmMeetup(paymentId: string) {
+    setResolvingId(paymentId)
+    try {
+      await confirmMeetupPayment(paymentId)
+      await refreshWallet()
+      showToast({ title: 'Meetup confirmed', description: 'The held payment has been released.', variant: 'success' })
+    } finally {
+      setResolvingId(null)
+    }
+  }
+
+  async function handleRefundMeetup(paymentId: string) {
+    setResolvingId(paymentId)
+    try {
+      await refundMeetupPayment(paymentId)
+      await refreshWallet()
+      showToast({ title: 'Payment refunded', variant: 'success' })
+    } finally {
+      setResolvingId(null)
+    }
+  }
 
   async function handleFund(amountNaira: number) {
     setError(null)
@@ -95,6 +130,74 @@ export function WalletPage() {
           </Link>
         ))}
       </div>
+
+      {meetupPayments && meetupPayments.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-lg font-bold text-ink-900">Meetup payments</h2>
+          <p className="mt-1 text-sm text-ink-500">
+            Payments stay held until both sides confirm the meetup happened, then funds release.
+          </p>
+          <ul className="mt-3 flex flex-col gap-3">
+            {meetupPayments.map((payment) => {
+              const amIRecipient = payment.toId === 'me'
+              const counterpart = amIRecipient ? payment.fromName : payment.toName
+              return (
+                <li key={payment.id} className="rounded-2xl border border-ink-100 bg-white p-4 shadow-soft">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
+                        <HeartHandshake className="size-5" aria-hidden="true" />
+                      </span>
+                      <div>
+                        <p className="font-semibold text-ink-900">
+                          {amIRecipient ? `From ${counterpart}` : `To ${counterpart}`}
+                        </p>
+                        <p className="text-xs text-ink-400">{new Date(payment.createdAt).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-ink-900">{formatNaira(payment.amountNaira)}</p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          payment.status === 'held'
+                            ? 'bg-warning/10 text-warning'
+                            : payment.status === 'released'
+                              ? 'bg-success/10 text-success'
+                              : 'bg-ink-100 text-ink-600'
+                        }`}
+                      >
+                        {payment.status}
+                      </span>
+                    </div>
+                  </div>
+                  {payment.status === 'held' && (
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1"
+                        loading={resolvingId === payment.id}
+                        onClick={() => handleConfirmMeetup(payment.id)}
+                      >
+                        Confirm meetup &amp; release
+                      </Button>
+                      {!amIRecipient && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          loading={resolvingId === payment.id}
+                          onClick={() => handleRefundMeetup(payment.id)}
+                        >
+                          Request refund
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
 
       <div className="mt-8">
         <h2 className="text-lg font-bold text-ink-900">Transactions</h2>

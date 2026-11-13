@@ -17,6 +17,7 @@ import { DiscoverPage } from '@/features/discovery/pages/discover-page'
 import { ProfileDetailPage } from '@/features/discovery/pages/profile-detail-page'
 import { EditProfilePage } from '@/features/profile/pages/edit-profile-page'
 import { SettingsPage } from '@/features/settings/pages/settings-page'
+import { VerificationPage } from '@/features/settings/pages/verification-page'
 import { SecurityPage } from '@/features/settings/pages/security-page'
 import { PrivacyPage as SettingsPrivacyPage } from '@/features/settings/pages/privacy-page'
 import { SafetyPage } from '@/features/safety/pages/safety-page'
@@ -96,6 +97,14 @@ export function AppRouter() {
           element={
             <ProtectedRoute allow={['active']}>
               <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="settings/verification"
+          element={
+            <ProtectedRoute allow={['active']}>
+              <VerificationPage />
             </ProtectedRoute>
           }
         />

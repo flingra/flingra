@@ -8,12 +8,19 @@ export interface Session {
   stage: AccountStage
 }
 
+export interface ProfileVideo {
+  url: string
+  /** Women-only: hide behind a paywall until a viewer pays `priceNaira` to unlock it. */
+  locked?: boolean
+  priceNaira?: number
+}
+
 export interface MemberProfile {
   id: string
   displayName: string
   bio: string
   photos: string[]
-  videos?: string[]
+  videos?: ProfileVideo[]
   ageRange: string
   area: string
   distanceKm: number
@@ -24,17 +31,29 @@ export interface MemberProfile {
   showIdentity: boolean
 }
 
+export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected'
+export type VerificationDocumentType = 'NIN' | 'BVN' | 'voters-card'
+
 export interface OwnProfile extends MemberProfile {
   moderationStatus: 'approved' | 'pending' | 'rejected'
   twoFactorEnabled?: boolean
   twoFactorMethod?: 'email' | 'authenticator'
   onboardingComplete?: boolean
+  /** Selfie liveness check captured during onboarding, required for every account. */
+  selfieVerification?: VerificationStatus
+  selfiePhoto?: string
+  /** Government ID check, required for female accounts to vet claimed age/identity. */
+  documentVerification?: VerificationStatus
+  documentType?: VerificationDocumentType
 }
 
 export interface DiscoveryFilters {
   minAge: number
   maxAge: number
   maxDistanceKm: number
+  interests: string[]
+  liveOnly: boolean
+  lookingFor: AudiencePreference
 }
 
 export interface PagedResult<T> {
@@ -122,7 +141,18 @@ export interface ReceivedGift {
   createdAt: string
 }
 
-export type WalletTransactionType = 'top-up' | 'gift-purchase' | 'gift-received' | 'redemption' | 'referral-bonus' | 'call-bonus' | 'payout'
+export type WalletTransactionType =
+  | 'top-up'
+  | 'gift-purchase'
+  | 'gift-received'
+  | 'redemption'
+  | 'referral-bonus'
+  | 'call-bonus'
+  | 'payout'
+  | 'meetup-payment-held'
+  | 'meetup-payment-released'
+  | 'meetup-payment-refunded'
+  | 'video-unlock'
 
 export interface WalletTransaction {
   id: string
@@ -151,6 +181,24 @@ export interface PayoutRequest {
   amountNaira: number
   status: 'pending' | 'completed'
   requestedAt: string
+}
+
+/**
+ * A payment a male member sends toward meeting a female member in person. Funds
+ * stay held (escrowed) until the meetup is confirmed, instead of crediting her
+ * wallet immediately — this mock only ever has one logged-in account, so the
+ * release/refund only ever touches that account's own balance (see wallet.ts).
+ */
+export interface MeetupPayment {
+  id: string
+  fromId: string
+  fromName: string
+  toId: string
+  toName: string
+  amountNaira: number
+  status: 'held' | 'released' | 'refunded'
+  createdAt: string
+  resolvedAt?: string
 }
 
 export interface AdminReviewRequest {

@@ -1,14 +1,32 @@
 import { delay } from './client'
 import { ownProfileStore, PROFILES } from './mock-db'
+import { getPresence } from './presence'
 import { ApiError, type DiscoveryFilters, type MemberProfile, type OwnProfile, type PagedResult } from './types'
 
 const PAGE_SIZE = 6
 
-export const DEFAULT_FILTERS: DiscoveryFilters = { minAge: 20, maxAge: 45, maxDistanceKm: 25 }
+export const DEFAULT_FILTERS: DiscoveryFilters = {
+  minAge: 20,
+  maxAge: 45,
+  maxDistanceKm: 25,
+  interests: [],
+  liveOnly: false,
+  lookingFor: 'everyone',
+}
 
 function matchesFilters(profile: MemberProfile, filters: DiscoveryFilters) {
   const [minAge] = profile.ageRange.split('–').map(Number)
-  return minAge >= filters.minAge && minAge <= filters.maxAge && profile.distanceKm <= filters.maxDistanceKm
+  if (minAge < filters.minAge || minAge > filters.maxAge) return false
+  if (profile.distanceKm > filters.maxDistanceKm) return false
+  if (filters.lookingFor !== 'everyone') {
+    const wanted = filters.lookingFor === 'men' ? 'man' : 'woman'
+    if (profile.identity !== wanted) return false
+  }
+  if (filters.interests.length > 0 && !profile.interests.some((interest) => filters.interests.includes(interest))) {
+    return false
+  }
+  if (filters.liveOnly && !getPresence(profile.id).isLive) return false
+  return true
 }
 
 export async function getDiscoveryFeed(
@@ -77,14 +95,17 @@ export interface NearbyVideo {
   video: string
 }
 
+/** Only free (unlocked) videos appear in this teaser feed — paid content only shows on the profile itself. */
 export async function listNearbyVideos(): Promise<NearbyVideo[]> {
   await delay(null, 400)
   return PROFILES.filter((profile) => profile.id !== 'me' && profile.videos && profile.videos.length > 0).flatMap((profile) =>
-    (profile.videos ?? []).map((video) => ({
-      authorId: profile.id,
-      authorName: profile.displayName,
-      authorPhoto: profile.photos[0],
-      video,
-    })),
+    (profile.videos ?? [])
+      .filter((video) => !video.locked)
+      .map((video) => ({
+        authorId: profile.id,
+        authorName: profile.displayName,
+        authorPhoto: profile.photos[0],
+        video: video.url,
+      })),
   )
 }

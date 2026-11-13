@@ -34,7 +34,7 @@ export async function startStream(title: string): Promise<LiveStream> {
     hostId: 'me',
     hostName: profile.displayName,
     hostPhoto: profile.photos[0] ?? '',
-    hostVideo: profile.videos?.[0],
+    hostVideo: profile.videos?.[0]?.url,
     title: title.trim() || `${profile.displayName} is live`,
     startedAt: new Date().toISOString(),
     participantIds: ['me'],

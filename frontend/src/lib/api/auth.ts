@@ -1,5 +1,6 @@
 import { delay } from './client'
 import { CURRENT_ACCOUNT, ownProfileStore, PROFILES, sessionStore } from './mock-db'
+import { applyReferralCode } from './payout'
 import { saveOwnProfile } from './profiles'
 import { ApiError, type AccountStage, type Session } from './types'
 
@@ -17,6 +18,7 @@ export interface SignUpInput {
   password: string
   dateOfBirth: string
   acceptedTerms: boolean
+  referralCode?: string
 }
 
 export async function signUp(input: SignUpInput): Promise<{ stage: AccountStage }> {
@@ -50,6 +52,7 @@ export async function signUp(input: SignUpInput): Promise<{ stage: AccountStage 
   // onboarding (needed for the livestream gender gate and other sex-specific
   // rules), while the public "identity" display preference stays editable later.
   await saveOwnProfile({ identity: input.sex })
+  if (input.referralCode) applyReferralCode(input.referralCode)
   return { stage: 'needs-verification' }
 }
 
@@ -105,6 +108,14 @@ export async function signOut(): Promise<void> {
 }
 
 export function currentSession(): Session | null {
+  return sessionStore.session
+}
+
+/** Marks the persisted session active once onboarding finishes, so a page reload doesn't bounce back to it. */
+export function completeOnboarding(): Session | null {
+  if (sessionStore.session) {
+    sessionStore.session = { ...sessionStore.session, stage: 'active' }
+  }
   return sessionStore.session
 }
 

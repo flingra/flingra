@@ -35,6 +35,7 @@ const schema = z
     dateOfBirth: z.string().min(1, 'Enter your date of birth.'),
     acceptedTerms: z.boolean().refine((value) => value === true, { message: 'Accept the terms to continue.' }),
     marketingOptIn: z.boolean().optional(),
+    referralCode: z.string().optional(),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: 'Passwords must match.',
@@ -91,6 +92,7 @@ export function SignUpPage() {
         password: values.password,
         dateOfBirth: values.dateOfBirth,
         acceptedTerms: values.acceptedTerms,
+        referralCode: values.referralCode,
       })
       setSession(currentSession())
       navigate('/verify-contact')
@@ -137,7 +139,7 @@ export function SignUpPage() {
         {step === 1 && (
           <div className="mt-5">
             <GoogleButton label="Sign up with Google" loading={googleLoading} onClick={handleGoogle} className="w-full" />
-            <div className="my-5 flex items-center gap-3 text-xs font-medium text-ink-400">
+            <div className="mt-5 flex items-center gap-3 text-xs font-medium text-ink-400">
               <span className="h-px flex-1 bg-ink-100" />
               or create an account
               <span className="h-px flex-1 bg-ink-100" />
@@ -147,7 +149,7 @@ export function SignUpPage() {
 
         <form
           key={step}
-          className="flex animate-page-enter flex-col gap-5"
+          className="mt-6 flex animate-page-enter flex-col gap-5"
           onSubmit={step === TOTAL_STEPS ? handleSubmit(onSubmit) : (event) => event.preventDefault()}
           noValidate
         >
@@ -243,6 +245,10 @@ export function SignUpPage() {
                   <span>Send me product updates (optional)</span>
                 </label>
               </div>
+
+              <Field id="referralCode" label="Referral code" optional hint="Have a friend's code? Enter it to claim a signup bonus.">
+                <Input id="referralCode" autoComplete="off" placeholder="FLINGRA-XXXX" {...register('referralCode')} />
+              </Field>
             </>
           )}
 

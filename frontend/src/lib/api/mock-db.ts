@@ -9,11 +9,13 @@ import type {
   GiftType,
   JoinRequest,
   LiveStream,
+  MeetupPayment,
   MemberProfile,
   OwnedGift,
   OwnProfile,
   PayoutRequest,
   Post,
+  ProfileVideo,
   ReceivedGift,
   ReferralRecord,
   ReportReason,
@@ -110,12 +112,26 @@ const NAMES: { name: string; identity: MemberProfile['identity'] }[] = [
   { name: 'Dayo', identity: 'man' },
 ]
 
+function seedVideos(person: { name: string; identity: MemberProfile['identity'] }, index: number): ProfileVideo[] | undefined {
+  const isWoman = person.identity === 'woman'
+  if (index % 4 === 0) {
+    return [
+      { url: SAMPLE_VIDEO, locked: isWoman, priceNaira: isWoman ? 1500 : undefined },
+      { url: SAMPLE_VIDEO_2 },
+    ]
+  }
+  if (index % 4 === 2) {
+    return [{ url: SAMPLE_VIDEO }]
+  }
+  return undefined
+}
+
 export const PROFILES: OwnProfile[] = NAMES.map((person, index) => ({
   id: `member-${index + 1}`,
   displayName: person.name,
   bio: 'Exploring the city, always up for good conversation and good food.',
   photos: avatarGallery(`${person.name}-${index}`),
-  videos: index % 4 === 0 ? [SAMPLE_VIDEO, SAMPLE_VIDEO_2] : index % 4 === 2 ? [SAMPLE_VIDEO] : undefined,
+  videos: seedVideos(person, index),
   ageRange: `${24 + (index % 10)}–${27 + (index % 10)}`,
   area: AREAS[index % AREAS.length],
   distanceKm: 2 + (index % 18),
@@ -125,6 +141,8 @@ export const PROFILES: OwnProfile[] = NAMES.map((person, index) => ({
   identity: person.identity,
   showIdentity: index % 3 !== 0,
   moderationStatus: 'approved',
+  selfieVerification: 'verified',
+  documentVerification: person.identity === 'woman' ? 'verified' : undefined,
 }))
 
 /** One mock member is pre-seeded as live so the viewer flow has something to watch. */
@@ -135,7 +153,7 @@ export const SEED_LIVE_STREAMS: LiveStream[] = [
     hostId: LIVE_HOST.id,
     hostName: LIVE_HOST.displayName,
     hostPhoto: LIVE_HOST.photos[0],
-    hostVideo: LIVE_HOST.videos?.[0],
+    hostVideo: LIVE_HOST.videos?.[0]?.url,
     title: `Hanging out with ${LIVE_HOST.displayName}`,
     startedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
     participantIds: [LIVE_HOST.id],
@@ -414,5 +432,37 @@ export const directMessageStore = {
   },
   set messages(value: DirectMessage[]) {
     directMessagesField.set(value)
+  },
+}
+
+const meetupPaymentsField = persistedField<MeetupPayment[]>('flingra:meetup-payments', [
+  {
+    id: 'meetup-seed-1',
+    fromId: 'member-2',
+    fromName: 'Tunde',
+    toId: 'me',
+    toName: 'You',
+    amountNaira: 5000,
+    status: 'held',
+    createdAt: new Date(Date.now() - 4 * 3600_000).toISOString(),
+  },
+])
+export const meetupPaymentStore = {
+  get payments() {
+    return meetupPaymentsField.get()
+  },
+  set payments(value: MeetupPayment[]) {
+    meetupPaymentsField.set(value)
+  },
+}
+
+/** Video URLs the signed-in viewer has paid to unlock on other members' profiles. */
+const unlockedVideosField = persistedField<string[]>('flingra:unlocked-videos', [])
+export const unlockedVideoStore = {
+  get urls() {
+    return unlockedVideosField.get()
+  },
+  set urls(value: string[]) {
+    unlockedVideosField.set(value)
   },
 }

@@ -1,6 +1,16 @@
 import { delay } from './client'
-import { GIFT_CATALOG, ownedGiftStore, receivedGiftStore, transactionStore, walletStore } from './mock-db'
-import { ApiError, type GiftType, type OwnedGift, type ReceivedGift, type WalletTransaction } from './types'
+import {
+  GIFT_CATALOG,
+  meetupPaymentStore,
+  ownedGiftStore,
+  ownProfileStore,
+  PROFILES,
+  receivedGiftStore,
+  transactionStore,
+  unlockedVideoStore,
+  walletStore,
+} from './mock-db'
+import { ApiError, type GiftType, type MeetupPayment, type OwnedGift, type ReceivedGift, type WalletTransaction } from './types'
 
 export { GIFT_CATALOG }
 
@@ -126,4 +136,121 @@ export async function redeemAllGifts(): Promise<number> {
   walletStore.balanceNaira += total
   addTransaction({ type: 'redemption', amountNaira: total, description: `Redeemed ${unredeemed.length} gifts`, status: 'completed' })
   return total
+}
+
+/**
+ * In-person meetup payments. A male member's payment is held in escrow, not
+ * credited immediately — it only releases once a meetup is confirmed. This mock
+ * only has one real logged-in account, so a payment's "other side" (the recipient
+ * crediting her own balance, or the sender releasing/refunding theirs) is modelled
+ * from whichever role the signed-in account currently holds on that record.
+ */
+export async function listMeetupPayments(): Promise<MeetupPayment[]> {
+  await delay(null, 300)
+  return [...meetupPaymentStore.payments].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+export async function sendMeetupPayment(toId: string, toName: string, amountNaira: number): Promise<MeetupPayment> {
+  await delay(null, 600)
+  const payer = ownProfileStore.profile
+  if (!payer || payer.identity !== 'man') {
+    throw new ApiError('PAYER_RESTRICTED', 'Only male accounts can send a meetup payment.')
+  }
+  const recipient = PROFILES.find((item) => item.id === toId)
+  if (!recipient || recipient.identity !== 'woman') {
+    throw new ApiError('RECIPIENT_RESTRICTED', 'Meetup payments can only be sent to female members.')
+  }
+  if (amountNaira <= 0) {
+    throw new ApiError('INVALID_AMOUNT', 'Enter an amount greater than ₦0.')
+  }
+  if (walletStore.balanceNaira < amountNaira) {
+    throw new ApiError('INSUFFICIENT_BALANCE', 'Fund your wallet to send this payment.')
+  }
+
+  walletStore.balanceNaira -= amountNaira
+  const payment: MeetupPayment = {
+    id: `meetup-${Date.now()}`,
+    fromId: 'me',
+    fromName: payer.displayName,
+    toId,
+    toName,
+    amountNaira,
+    status: 'held',
+    createdAt: new Date().toISOString(),
+  }
+  meetupPaymentStore.payments = [payment, ...meetupPaymentStore.payments]
+  addTransaction({
+    type: 'meetup-payment-held',
+    amountNaira: -amountNaira,
+    description: `₦${amountNaira.toLocaleString('en-NG')} held for meeting ${toName}`,
+    status: 'pending',
+  })
+  return payment
+}
+
+/** Releases a held payment once the meetup happened. Either side can confirm. */
+export async function confirmMeetupPayment(paymentId: string): Promise<void> {
+  await delay(null, 500)
+  const payment = meetupPaymentStore.payments.find((item) => item.id === paymentId)
+  if (!payment || payment.status !== 'held') return
+
+  meetupPaymentStore.payments = meetupPaymentStore.payments.map((item) =>
+    item.id === paymentId ? { ...item, status: 'released', resolvedAt: new Date().toISOString() } : item,
+  )
+
+  if (payment.toId === 'me') {
+    // We're the recipient: the escrowed amount lands in our own wallet now.
+    walletStore.balanceNaira += payment.amountNaira
+    addTransaction({
+      type: 'meetup-payment-released',
+      amountNaira: payment.amountNaira,
+      description: `Meetup payment released from ${payment.fromName}`,
+      status: 'completed',
+    })
+  } else {
+    addTransaction({
+      type: 'meetup-payment-released',
+      amountNaira: 0,
+      description: `Meetup payment to ${payment.toName} released`,
+      status: 'completed',
+    })
+  }
+}
+
+/** Only the payer can request a refund, and only while the payment is still held. */
+export async function refundMeetupPayment(paymentId: string): Promise<void> {
+  await delay(null, 500)
+  const payment = meetupPaymentStore.payments.find((item) => item.id === paymentId)
+  if (!payment || payment.status !== 'held' || payment.fromId !== 'me') return
+
+  meetupPaymentStore.payments = meetupPaymentStore.payments.map((item) =>
+    item.id === paymentId ? { ...item, status: 'refunded', resolvedAt: new Date().toISOString() } : item,
+  )
+  walletStore.balanceNaira += payment.amountNaira
+  addTransaction({
+    type: 'meetup-payment-refunded',
+    amountNaira: payment.amountNaira,
+    description: `Refunded held payment to ${payment.toName}`,
+    status: 'completed',
+  })
+}
+
+export function isVideoUnlocked(url: string): boolean {
+  return unlockedVideoStore.urls.includes(url)
+}
+
+export async function unlockVideo(url: string, priceNaira: number, authorName: string): Promise<void> {
+  await delay(null, 600)
+  if (isVideoUnlocked(url)) return
+  if (walletStore.balanceNaira < priceNaira) {
+    throw new ApiError('INSUFFICIENT_BALANCE', 'Fund your wallet to unlock this video.')
+  }
+  walletStore.balanceNaira -= priceNaira
+  unlockedVideoStore.urls = [...unlockedVideoStore.urls, url]
+  addTransaction({
+    type: 'video-unlock',
+    amountNaira: -priceNaira,
+    description: `Unlocked a video from ${authorName}`,
+    status: 'completed',
+  })
 }

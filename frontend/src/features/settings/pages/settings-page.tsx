@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, LogOut, Lock, Shield, User, Wallet } from 'lucide-react'
+import { ChevronRight, LogOut, Lock, Shield, User, Wallet, BadgeCheck } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { signOut } from '@/lib/api/auth'
@@ -9,6 +9,7 @@ import { useSessionStore } from '@/lib/stores/session-store'
 
 const ROWS = [
   { to: '/settings/profile', icon: User, label: 'Profile' },
+  { to: '/settings/verification', icon: BadgeCheck, label: 'Verification' },
   { to: '/settings/security', icon: Lock, label: 'Security' },
   { to: '/settings/privacy', icon: Shield, label: 'Privacy & data' },
   { to: '/wallet', icon: Wallet, label: 'Wallet & payments' },

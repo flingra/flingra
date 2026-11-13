@@ -1,18 +1,35 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Flag, MapPin, MessageCircle, ShieldOff, Heart, ShieldCheck, Phone, Radio, Video as VideoIcon } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  ArrowLeft,
+  Flag,
+  MapPin,
+  MessageCircle,
+  ShieldOff,
+  Heart,
+  ShieldCheck,
+  Phone,
+  Radio,
+  Video as VideoIcon,
+  Lock,
+  HeartHandshake,
+} from 'lucide-react'
 import { getPresence } from '@/lib/api/presence'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
+import { Field } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { PageSpinner } from '@/components/ui/spinner'
 import { ErrorState } from '@/components/ui/state-message'
-import { getProfile } from '@/lib/api/profiles'
+import { getOwnProfile, getProfile } from '@/lib/api/profiles'
 import { blockMember } from '@/lib/api/safety'
 import { getOrCreateThread } from '@/lib/api/chat'
+import { isVideoUnlocked, sendMeetupPayment, unlockVideo } from '@/lib/api/wallet'
+import { ApiError, type ProfileVideo } from '@/lib/api/types'
 import { useToast } from '@/components/ui/toast'
-import { cn } from '@/lib/utils'
+import { cn, formatNaira } from '@/lib/utils'
 import { ReportDialog } from '@/features/safety/components/report-dialog'
 import { CallScreen } from '@/features/calls/components/call-screen'
 import { VideoThumbnail } from '@/components/ui/video-thumbnail'
@@ -23,6 +40,7 @@ export function ProfileDetailPage() {
   const { profileId = '' } = useParams()
   const navigate = useNavigate()
   const { showToast } = useToast()
+  const queryClient = useQueryClient()
   const [reportOpen, setReportOpen] = useState(false)
   const [blockConfirmOpen, setBlockConfirmOpen] = useState(false)
   const [blocking, setBlocking] = useState(false)
@@ -33,11 +51,60 @@ export function ProfileDetailPage() {
   const [activePhoto, setActivePhoto] = useState(0)
   const [callMode, setCallMode] = useState<'video' | 'voice' | null>(null)
   const [playingVideo, setPlayingVideo] = useState<string | null>(null)
+  const [unlockTarget, setUnlockTarget] = useState<ProfileVideo | null>(null)
+  const [unlocking, setUnlocking] = useState(false)
+  const [paymentOpen, setPaymentOpen] = useState(false)
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [sendingPayment, setSendingPayment] = useState(false)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
 
   const { data: profile, isLoading, isError, refetch } = useQuery({
     queryKey: ['profile', profileId],
     queryFn: () => getProfile(profileId),
   })
+  const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
+
+  async function handleUnlockVideo() {
+    if (!unlockTarget?.priceNaira || !profile) return
+    setUnlocking(true)
+    try {
+      await unlockVideo(unlockTarget.url, unlockTarget.priceNaira, profile.displayName)
+      await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
+      showToast({ title: 'Video unlocked', variant: 'success' })
+      setPlayingVideo(unlockTarget.url)
+      setUnlockTarget(null)
+    } catch (error) {
+      showToast({
+        title: 'Could not unlock video',
+        description: error instanceof ApiError ? error.message : 'Try again.',
+        variant: 'error',
+      })
+    } finally {
+      setUnlocking(false)
+    }
+  }
+
+  async function handleSendPayment() {
+    if (!profile) return
+    setPaymentError(null)
+    setSendingPayment(true)
+    try {
+      await sendMeetupPayment(profile.id, profile.displayName, Number(paymentAmount))
+      await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
+      await queryClient.invalidateQueries({ queryKey: ['meetup-payments'] })
+      showToast({
+        title: 'Payment held',
+        description: `${formatNaira(Number(paymentAmount))} will release once you confirm you met up.`,
+        variant: 'success',
+      })
+      setPaymentOpen(false)
+      setPaymentAmount('')
+    } catch (error) {
+      setPaymentError(error instanceof ApiError ? error.message : 'Could not send payment. Try again.')
+    } finally {
+      setSendingPayment(false)
+    }
+  }
 
   async function handleShowInterest() {
     if (!profile) return
@@ -158,9 +225,22 @@ export function ProfileDetailPage() {
             <div className="mt-5">
               <p className="mb-2 text-sm font-medium text-ink-800">Videos</p>
               <div className="grid max-w-xs grid-cols-3 gap-2">
-                {profile.videos.map((video) => (
-                  <VideoThumbnail key={video} src={video} onClick={() => setPlayingVideo(video)} />
-                ))}
+                {profile.videos.map((video) => {
+                  const locked = video.locked && !isVideoUnlocked(video.url)
+                  return locked ? (
+                    <button
+                      key={video.url}
+                      type="button"
+                      onClick={() => setUnlockTarget(video)}
+                      className="group relative flex aspect-square w-full cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl bg-ink-800 text-white"
+                    >
+                      <Lock className="size-5" aria-hidden="true" />
+                      <span className="text-xs font-semibold">{formatNaira(video.priceNaira ?? 0)}</span>
+                    </button>
+                  ) : (
+                    <VideoThumbnail key={video.url} src={video.url} onClick={() => setPlayingVideo(video.url)} />
+                  )
+                })}
               </div>
             </div>
           )}
@@ -176,6 +256,11 @@ export function ProfileDetailPage() {
             {notified && chatThreadId && (
               <Button variant="accent" onClick={() => setChatOpen(true)}>
                 <MessageCircle className="size-4" aria-hidden="true" /> Chat
+              </Button>
+            )}
+            {ownProfile?.identity === 'man' && profile.identity === 'woman' && (
+              <Button variant="outline" onClick={() => setPaymentOpen(true)}>
+                <HeartHandshake className="size-4" aria-hidden="true" /> Send meetup payment
               </Button>
             )}
             <Button variant="outline" onClick={() => setCallMode('voice')}>
@@ -208,6 +293,49 @@ export function ProfileDetailPage() {
           </Button>
           <Button variant="destructive" className="flex-1" loading={blocking} onClick={handleBlock}>
             Block
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={!!unlockTarget}
+        onClose={() => setUnlockTarget(null)}
+        title="Unlock this video?"
+        description={`Pay ${formatNaira(unlockTarget?.priceNaira ?? 0)} to watch this video. This is a demo charge — no real payment is made.`}
+      >
+        <div className="flex gap-3">
+          <Button variant="secondary" className="flex-1" onClick={() => setUnlockTarget(null)}>
+            Cancel
+          </Button>
+          <Button className="flex-1" loading={unlocking} onClick={handleUnlockVideo}>
+            Pay &amp; unlock
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={paymentOpen}
+        onClose={() => setPaymentOpen(false)}
+        title={`Send a payment to ${profile.displayName}`}
+        description="Funds stay held until you confirm the meetup happened, then they release to her wallet."
+      >
+        <div className="flex flex-col gap-4">
+          {paymentError && (
+            <p role="alert" className="text-sm font-medium text-danger">
+              {paymentError}
+            </p>
+          )}
+          <Field id="payment-amount" label="Amount (₦)">
+            <Input
+              id="payment-amount"
+              type="number"
+              min={100}
+              value={paymentAmount}
+              onChange={(event) => setPaymentAmount(event.target.value)}
+            />
+          </Field>
+          <Button loading={sendingPayment} disabled={!paymentAmount || Number(paymentAmount) <= 0} onClick={handleSendPayment}>
+            Hold payment
           </Button>
         </div>
       </Dialog>
