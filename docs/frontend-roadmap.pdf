@@ -1,0 +1,130 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 6258 >>
+stream
+0.03 0.48 0.44 rg 0 798 595 44 re f
+1.000 1.000 1.000 rg BT /F2 10 Tf 1 0 0 1 48 815 Tm (FLINGRA  /  BUILD ROADMAP) Tj ET
+1.000 1.000 1.000 rg BT /F1 8 Tf 1 0 0 1 48 783 Tm (Frontend roadmap) Tj ET
+0.82 0.85 0.89 RG 48 43 m 547 43 l S
+0.340 0.390 0.470 rg BT /F1 8 Tf 1 0 0 1 48 28 Tm (Flingra planning document  |  Page 1 of 2) Tj ET
+0.030 0.480 0.440 rg BT /F2 9 Tf 1 0 0 1 48 770 Tm (Flingra - Delivery map - Frontend) Tj ET
+0.080 0.140 0.250 rg BT /F2 23 Tf 1 0 0 1 48 752.85 Tm (What to build next) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 709.8000000000001 Tm (A phased build path for the React + TypeScript web client, with backend handoffs and safety) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 696.975 Tm (checkpoints.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 679.15 Tm (Current state: scaffold only Routes and APIs below are targets, not implemented features. Follow) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 666.3249999999999 Tm (the detailed field and behavior rules in frontend/README.md.) Tj ET
+0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 648.4999999999999 Tm (Build sequence) Tj ET
+0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 619.2499999999999 Tm (0 - Align contract and unblock development) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 599.7249999999999 Tm (- Confirm signup identifier, age eligibility, contact verification, profile fields, photo) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 587.17 Tm (rules, and the discovery audience vocabulary with product/backend.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 572.615 Tm (- Agree API origin, cookie domain/SameSite strategy, CSRF header, CORS origins, error) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 560.0600000000001 Tm (envelope, and OpenAPI workflow.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 545.5050000000001 Tm (- Bootstrap Vite + React + TypeScript, Router, accessible app shell, lint/type-check/test) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 532.9500000000002 Tm (commands, and environment config.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 518.3950000000002 Tm (Done when: frontend and backend can run locally, and both teams use the same reviewed API) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 505.5700000000002 Tm (contract.) Tj ET
+0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 487.74500000000023 Tm (1 - App foundation and account access) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 468.22000000000025 Tm (- Public routes: landing, sign up, sign in, contact verification, forgot/reset password,) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 455.66500000000025 Tm (terms/privacy/safety.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 441.11000000000024 Tm (- Typed API client; cookie credentials; CSRF header for mutations; global session state and) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 428.55500000000023 Tm (protected-route UX.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 414.0000000000002 Tm (- Field validation, generic auth/recovery errors, rate-limit/network states, accessible forms.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 399.4450000000002 Tm (Backend handoff: auth endpoints, cookie and CSRF behavior, account state, stable error codes,) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 386.62000000000023 Tm (resend/expiry limits.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 368.79500000000024 Tm (Done when: signup  verification \(if required\)  sign-in/session and recovery flows pass) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 355.97000000000025 Tm (end-to-end.) Tj ET
+0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 338.14500000000027 Tm (2 - Onboarding and own profile) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 318.6200000000003 Tm (- Step-based onboarding for minimum basic profile and approved optional fields; show) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 306.0650000000003 Tm (visibility beside sensitive choices.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 291.5100000000003 Tm (- Separate private discovery preferences \("who I want to see"\) from visibility preferences) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 278.95500000000027 Tm (\("who can see me"\).) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 264.40000000000026 Tm (- Profile preview, edit/save, settings/security, and deletion-request UI once backend policy) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 251.84500000000025 Tm (is defined.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 237.29000000000025 Tm (- Defer photo upload UI until storage, file limits, moderation states, and upload contract are) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 224.73500000000024 Tm (ready.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 210.18000000000023 Tm (Backend handoff: `/me`, profile read/update, preference read/update, account state, approved) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 197.35500000000025 Tm (field enums and validation limits.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 179.53000000000026 Tm (Done when: a member can save, resume, and preview their profile without leaking private fields.) Tj ET
+0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 161.70500000000027 Tm (3 - Discovery and safety core) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 142.18000000000026 Tm (- Discovery cards, profile details, bounded filters, pagination, empty/error/retry states.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 127.62500000000026 Tm (- Ask for location only in context; handle denial and approved coarse/manual fallback.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 113.07000000000025 Tm (- Block/unblock, report form, blocked list, safety/help content; make safety actions reachable) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 100.51500000000024 Tm (from profiles.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 85.96000000000024 Tm (Backend handoff: server-filtered compatible candidates, public profile DTO, block/report) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 73.13500000000023 Tm (endpoints, reason list, cursor behavior.) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 4412 >>
+stream
+0.03 0.48 0.44 rg 0 798 595 44 re f
+1.000 1.000 1.000 rg BT /F2 10 Tf 1 0 0 1 48 815 Tm (FLINGRA  /  BUILD ROADMAP) Tj ET
+1.000 1.000 1.000 rg BT /F1 8 Tf 1 0 0 1 48 783 Tm (Frontend roadmap) Tj ET
+0.82 0.85 0.89 RG 48 43 m 547 43 l S
+0.340 0.390 0.470 rg BT /F1 8 Tf 1 0 0 1 48 28 Tm (Flingra planning document  |  Page 2 of 2) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 770 Tm (Done when: browser never receives an incompatible profile or exact/private location;) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 757.175 Tm (reporting/blocking behavior is verified.) Tj ET
+0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 739.3499999999999 Tm (4 - Quality, accessibility, and launch readiness) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 719.8249999999999 Tm (- Playwright core journeys: signup, recovery, onboarding, edit, location denied, report/block,) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 707.27 Tm (session expiry, account deletion request.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 692.715 Tm (- Test mobile layouts, keyboard/screen-reader behavior, focus handling, low bandwidth, stale) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 680.1600000000001 Tm (cache clearing, and error recovery.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 665.6050000000001 Tm (- Check CSP/deployment headers, remove sensitive analytics, and ensure logs/screenshots/traces) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 653.0500000000002 Tm (contain no real personal data.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 638.4950000000002 Tm (Done when: core acceptance criteria in the frontend specification pass against a staging API.) Tj ET
+0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 620.6700000000002 Tm (Integration handshake) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 591.4200000000002 Tm (Frontend owns  |  Backend must provide  |  Agree together) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 575.3500000000001 Tm (Page rendering, form UX, route transitions, accessibility, loading/empty/error states.  |  Auth,) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 564.2800000000001 Tm (eligibility, field validation, authorization, privacy filtering, persistence, stable errors.  |  OpenAPI) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 553.21 Tm (schemas, enums, account states, CORS/cookies/CSRF, pagination, exact field visibility.) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 537.14 Tm (Never persist secrets; clear user cache on sign-out/account switch.  |  Secure session cookie, CSRF) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 526.0699999999999 Tm (validation, revocation and expiry.  |  Local/staging origins and session-expiry UX.) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 509.9999999999999 Tm (Render only API-approved profile fields and candidates.  |  Mutual discovery/visibility compatibility) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 498.9299999999999 Tm (enforced server-side.  |  Audience options and matching semantics before implementation.) Tj ET
+0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 482.8599999999999 Tm (Keep out of the first build) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 453.6099999999999 Tm (Messaging, payments, identity verification, push notifications, calls, and staff moderation UI) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 440.7849999999999 Tm (are later modules. Do not start these until product scope, safety operations, provider) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 427.9599999999999 Tm (contracts, data retention, and backend endpoints are approved.) Tj ET
+0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 410.13499999999993 Tm (Next actions) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 380.88499999999993 Tm (- Frontend and backend review the API contract and resolve product decisions.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 366.3299999999999 Tm (- Bootstrap the client shell and typed API plumbing while backend creates the first) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 353.7749999999999 Tm (OpenAPI/auth slice.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 339.2199999999999 Tm (- Integrate incrementally by vertical slice: auth, profile/preferences, discovery, then) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 326.6649999999999 Tm (safety.) Tj ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000272 00000 n 
+0000000408 00000 n 
+0000006717 00000 n 
+0000006853 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+11316
+%%EOF

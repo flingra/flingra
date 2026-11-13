@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flingra Frontend Build Roadmap</title>
+  <style>
+    :root { color-scheme: light; --ink: #17233b; --muted: #526179; --brand: #5d43c2; --line: #dce2ed; --wash: #f3f2fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #e9edf4; color: var(--ink); font: 14px/1.5 Arial, sans-serif; }
+    main { max-width: 900px; margin: 28px auto; padding: 46px 54px; background: white; box-shadow: 0 8px 32px #1a2a4418; }
+    h1 { margin: 0 0 8px; font-size: 32px; line-height: 1.15; }
+    h2 { margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--line); font-size: 20px; }
+    h3 { margin: 12px 0 5px; font-size: 15px; color: var(--brand); }
+    p { margin: 6px 0 10px; }
+    .eyebrow { color: var(--brand); font-weight: 700; text-transform: uppercase; letter-spacing: .12em; font-size: 11px; }
+    .sub { color: var(--muted); font-size: 16px; }
+    .callout { margin: 18px 0; padding: 12px 16px; border-left: 4px solid var(--brand); background: var(--wash); }
+    .phase { margin: 12px 0; padding: 12px 15px; border: 1px solid var(--line); border-radius: 8px; break-inside: avoid; }
+    .phase strong { color: var(--ink); }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 99px; background: var(--wash); color: var(--brand); font-size: 11px; font-weight: 700; }
+    ul, ol { margin: 5px 0 8px; padding-left: 21px; }
+    li { margin: 3px 0; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+    th, td { padding: 8px 9px; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+    th { background: var(--wash); }
+    .footer { margin-top: 24px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    @media print {
+      @page { size: A4; margin: 15mm; }
+      body { background: white; font-size: 11pt; }
+      main { max-width: none; margin: 0; padding: 0; box-shadow: none; }
+      h1 { font-size: 25pt; } h2 { font-size: 16pt; }
+      .phase, table, .callout { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Flingra · Delivery map · Frontend</div>
+  <h1>What to build next</h1>
+  <p class="sub">A phased build path for the React + TypeScript web client, with backend handoffs and safety checkpoints.</p>
+  <div class="callout"><strong>Product direction:</strong> Build one shared Flingra app for all eligible adults. A member's identity does not determine whom they want to discover or who may discover them. Preferences stay private unless the member chooses to publish an identity field.</div>
+  <p><span class="tag">Current state: scaffold only</span> Routes and APIs below are targets, not implemented features. Follow the detailed field and behavior rules in <code>frontend/README.md</code>.</p>
+
+  <h2>Build sequence</h2>
+  <section class="phase">
+    <h3>0 · Align contract and unblock development</h3>
+    <ul>
+      <li>Confirm signup identifier, age eligibility, contact verification, profile fields, photo rules, and the discovery audience vocabulary with product/backend.</li>
+      <li>Agree API origin, cookie domain/SameSite strategy, CSRF header, CORS origins, error envelope, and OpenAPI workflow.</li>
+      <li>Bootstrap Vite + React + TypeScript, Router, accessible app shell, lint/type-check/test commands, and environment config.</li>
+    </ul>
+    <p><strong>Done when:</strong> frontend and backend can run locally, and both teams use the same reviewed API contract.</p>
+  </section>
+  <section class="phase">
+    <h3>1 · App foundation and account access</h3>
+    <ul>
+      <li>Public routes: landing, sign up, sign in, contact verification, forgot/reset password, terms/privacy/safety.</li>
+      <li>Typed API client; cookie credentials; CSRF header for mutations; global session state and protected-route UX.</li>
+      <li>Field validation, generic auth/recovery errors, rate-limit/network states, accessible forms.</li>
+    </ul>
+    <p><strong>Backend handoff:</strong> auth endpoints, cookie and CSRF behavior, account state, stable error codes, resend/expiry limits.</p>
+    <p><strong>Done when:</strong> signup → verification (if required) → sign-in/session and recovery flows pass end-to-end.</p>
+  </section>
+  <section class="phase">
+    <h3>2 · Onboarding and own profile</h3>
+    <ul>
+      <li>Step-based onboarding for minimum basic profile and approved optional fields; show visibility beside sensitive choices.</li>
+      <li>Separate private discovery preferences (“who I want to see”) from visibility preferences (“who can see me”).</li>
+      <li>Profile preview, edit/save, settings/security, and deletion-request UI once backend policy is defined.</li>
+      <li>Defer photo upload UI until storage, file limits, moderation states, and upload contract are ready.</li>
+    </ul>
+    <p><strong>Backend handoff:</strong> `/me`, profile read/update, preference read/update, account state, approved field enums and validation limits.</p>
+    <p><strong>Done when:</strong> a member can save, resume, and preview their profile without leaking private fields.</p>
+  </section>
+  <section class="phase">
+    <h3>3 · Discovery and safety core</h3>
+    <ul>
+      <li>Discovery cards, profile details, bounded filters, pagination, empty/error/retry states.</li>
+      <li>Ask for location only in context; handle denial and approved coarse/manual fallback.</li>
+      <li>Block/unblock, report form, blocked list, safety/help content; make safety actions reachable from profiles.</li>
+    </ul>
+    <p><strong>Backend handoff:</strong> server-filtered compatible candidates, public profile DTO, block/report endpoints, reason list, cursor behavior.</p>
+    <p><strong>Done when:</strong> browser never receives an incompatible profile or exact/private location; reporting/blocking behavior is verified.</p>
+  </section>
+  <section class="phase">
+    <h3>4 · Quality, accessibility, and launch readiness</h3>
+    <ul>
+      <li>Playwright core journeys: signup, recovery, onboarding, edit, location denied, report/block, session expiry, account deletion request.</li>
+      <li>Test mobile layouts, keyboard/screen-reader behavior, focus handling, low bandwidth, stale cache clearing, and error recovery.</li>
+      <li>Check CSP/deployment headers, remove sensitive analytics, and ensure logs/screenshots/traces contain no real personal data.</li>
+    </ul>
+    <p><strong>Done when:</strong> core acceptance criteria in the frontend specification pass against a staging API.</p>
+  </section>
+
+  <h2>Integration handshake</h2>
+  <table>
+    <thead><tr><th>Frontend owns</th><th>Backend must provide</th><th>Agree together</th></tr></thead>
+    <tbody>
+      <tr><td>Page rendering, form UX, route transitions, accessibility, loading/empty/error states.</td><td>Auth, eligibility, field validation, authorization, privacy filtering, persistence, stable errors.</td><td>OpenAPI schemas, enums, account states, CORS/cookies/CSRF, pagination, exact field visibility.</td></tr>
+      <tr><td>Never persist secrets; clear user cache on sign-out/account switch.</td><td>Secure session cookie, CSRF validation, revocation and expiry.</td><td>Local/staging origins and session-expiry UX.</td></tr>
+      <tr><td>Render only API-approved profile fields and candidates.</td><td>Mutual discovery/visibility compatibility enforced server-side.</td><td>Audience options and matching semantics before implementation.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Keep out of the first build</h2>
+  <p>Messaging, payments, identity verification, push notifications, calls, and staff moderation UI are later modules. Do not start these until product scope, safety operations, provider contracts, data retention, and backend endpoints are approved.</p>
+
+  <h2>Next actions</h2>
+  <ol>
+    <li>Frontend and backend review the API contract and resolve product decisions.</li>
+    <li>Bootstrap the client shell and typed API plumbing while backend creates the first OpenAPI/auth slice.</li>
+    <li>Integrate incrementally by vertical slice: auth, profile/preferences, discovery, then safety.</li>
+  </ol>
+  <div class="footer">Flingra · Frontend build roadmap · Based on the project frontend specification and system blueprint · Planning document, not a feature-complete acceptance contract.</div>
+</main>
+</body>
+</html>
