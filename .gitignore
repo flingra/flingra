@@ -1,0 +1,66 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Build and distribution artifacts
+dist/
+build/
+out/
+coverage/
+.next/
+.nuxt/
+.svelte-kit/
+
+# Runtime and logs
+*.log
+logs/
+pids/
+*.pid
+
+# Cache and temporary files
+.cache/
+.tmp/
+tmp/
+*.tmp
+.eslintcache
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Java
+*.class
+.gradle/
+
+# Go
+bin/
+
+# Rust
+target/
+
+# Terraform and infra
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Database and local data dumps
+*.sqlite
+*.sqlite3
+*.db
+*.sql
