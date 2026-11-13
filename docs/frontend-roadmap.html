@@ -40,14 +40,14 @@
   <div class="eyebrow">Flingra · Delivery map · Frontend</div>
   <h1>What to build next</h1>
   <p class="sub">A phased build path for the React + TypeScript web client, with backend handoffs and safety checkpoints.</p>
-  <div class="callout"><strong>Product direction:</strong> Build one shared Flingra app for all eligible adults. A member's identity does not determine whom they want to discover or who may discover them. Preferences stay private unless the member chooses to publish an identity field.</div>
+  <div class="callout"><strong>Product direction:</strong> One shared app; male/female categories only; members are 21+. Male members request female members; she approves/declines. Require GPS while active, but show approximate location only. Payment, biometric, and emergency workflows are gated on legal/provider readiness.</div>
   <p><span class="tag">Current state: scaffold only</span> Routes and APIs below are targets, not implemented features. Follow the detailed field and behavior rules in <code>frontend/README.md</code>.</p>
 
   <h2>Build sequence</h2>
   <section class="phase">
     <h3>0 · Align contract and unblock development</h3>
     <ul>
-      <li>Confirm signup identifier, age eligibility, contact verification, profile fields, photo rules, and the discovery audience vocabulary with product/backend.</li>
+      <li>Confirm privacy/legal go/no-go for 21+ ID checks, face-based gender detection, required GPS, archived accounts, payment holds, calls/live, and safety escalation.</li>
       <li>Agree API origin, cookie domain/SameSite strategy, CSRF header, CORS origins, error envelope, and OpenAPI workflow.</li>
       <li>Bootstrap Vite + React + TypeScript, Router, accessible app shell, lint/type-check/test commands, and environment config.</li>
     </ul>
@@ -56,7 +56,7 @@
   <section class="phase">
     <h3>1 · App foundation and account access</h3>
     <ul>
-      <li>Public routes: landing, sign up, sign in, contact verification, forgot/reset password, terms/privacy/safety.</li>
+      <li>Email/password + verified email and Google sign-in; DOB, government proof, gender check and required emergency contact.</li>
       <li>Typed API client; cookie credentials; CSRF header for mutations; global session state and protected-route UX.</li>
       <li>Field validation, generic auth/recovery errors, rate-limit/network states, accessible forms.</li>
     </ul>
@@ -66,10 +66,9 @@
   <section class="phase">
     <h3>2 · Onboarding and own profile</h3>
     <ul>
-      <li>Step-based onboarding for minimum basic profile and approved optional fields; show visibility beside sensitive choices.</li>
-      <li>Separate private discovery preferences (“who I want to see”) from visibility preferences (“who can see me”).</li>
-      <li>Profile preview, edit/save, settings/security, and deletion-request UI once backend policy is defined.</li>
-      <li>Defer photo upload UI until storage, file limits, moderation states, and upload contract are ready.</li>
+      <li>Require 3-10 moderated photos and 2-10 moderated videos (30 seconds max); show review states and profile completion.</li>
+      <li>Build male/female selection, separate discovery/visibility preferences, and GPS + approximate location with a separate search-area selector.</li>
+      <li>Profile preview/edit, security settings, emergency contact, archived deactivation and restoration application UI.</li>
     </ul>
     <p><strong>Backend handoff:</strong> `/me`, profile read/update, preference read/update, account state, approved field enums and validation limits.</p>
     <p><strong>Done when:</strong> a member can save, resume, and preview their profile without leaking private fields.</p>
@@ -78,16 +77,34 @@
     <h3>3 · Discovery and safety core</h3>
     <ul>
       <li>Discovery cards, profile details, bounded filters, pagination, empty/error/retry states.</li>
-      <li>Ask for location only in context; handle denial and approved coarse/manual fallback.</li>
+      <li>Require GPS to use member features; handle permission denial clearly; show approximate location only.</li>
       <li>Block/unblock, report form, blocked list, safety/help content; make safety actions reachable from profiles.</li>
     </ul>
     <p><strong>Backend handoff:</strong> server-filtered compatible candidates, public profile DTO, block/report endpoints, reason list, cursor behavior.</p>
     <p><strong>Done when:</strong> browser never receives an incompatible profile or exact/private location; reporting/blocking behavior is verified.</p>
   </section>
   <section class="phase">
-    <h3>4 · Quality, accessibility, and launch readiness</h3>
+    <h3>4 · Connection, messaging, live, and calls</h3>
     <ul>
-      <li>Playwright core journeys: signup, recovery, onboarding, edit, location denied, report/block, session expiry, account deletion request.</li>
+      <li>Connection requests, female approval/decline, rejection cap of 3 per requester-recipient pair, and requester-first messaging.</li>
+      <li>Female-only live hosting; eligible male viewers can join. Add accepted audio/video calls and call-credit purchase/balance UI.</li>
+      <li>New verified female profile promotion notification to active eligible males; let the female opt out; respect push permission.</li>
+    </ul>
+    <p><strong>Backend handoff:</strong> connection state/errors, first-message rule, live/call tokens, server prices, call credit ledger, notification settings.</p>
+  </section>
+  <section class="phase">
+    <h3>5 · Booking, payment, check-ins</h3>
+    <ul>
+      <li>Booking date, start time, duration, and agreed location; show exact location only to participants after both accept.</li>
+      <li>Requester confirmation, staff-reviewed payment states, dispute handling, one-minute check-in prompts, immediate SOS, and 3-missed-prompt emergency call state.</li>
+      <li>Do not enable real payments/emergency calls until approved providers, legal review, staff coverage, and failure handling exist.</li>
+    </ul>
+    <p><strong>Done when:</strong> end-to-end booking and safety states are tested; the client never signals a payment release or emergency delivery without server confirmation.</p>
+  </section>
+  <section class="phase">
+    <h3>6 · Quality, accessibility, and launch readiness</h3>
+    <ul>
+      <li>Playwright journeys: signup/verification, media review, discovery, connection/rejection cap, first message, live/call, booking, missed check-ins, SOS, report/block, deactivation.</li>
       <li>Test mobile layouts, keyboard/screen-reader behavior, focus handling, low bandwidth, stale cache clearing, and error recovery.</li>
       <li>Check CSP/deployment headers, remove sensitive analytics, and ensure logs/screenshots/traces contain no real personal data.</li>
     </ul>
@@ -104,8 +121,8 @@
     </tbody>
   </table>
 
-  <h2>Keep out of the first build</h2>
-  <p>Messaging, payments, identity verification, push notifications, calls, and staff moderation UI are later modules. Do not start these until product scope, safety operations, provider contracts, data retention, and backend endpoints are approved.</p>
+  <h2>Defer or gate</h2>
+  <p>VIP/VVIP memberships and fixed host rewards are deferred. Call-credit and meetup-payment interfaces may be designed, but real money movement must remain disabled until written legal and provider approval. Face-based gender checks, ID handling, location sharing, and emergency-contact calls also require privacy review and operational readiness.</p>
 
   <h2>Next actions</h2>
   <ol>

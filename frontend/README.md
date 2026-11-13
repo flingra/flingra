@@ -44,25 +44,37 @@ src/
     safety/            # Block, report, safety information
     profile/           # Own profile and profile editing
     settings/          # Account, privacy, security, preferences
-    messaging/         # Add only after messaging is approved
+    messaging/         # Approved connection messaging
   components/          # Reusable UI primitives and shared components
   lib/                 # Typed API client and cross-feature utilities
 ```
 
 Keep feature-specific components and schemas with their feature. Promote code to shared folders only when it has a real second use.
 
-## 4. Product assumptions and decisions to confirm
+## 4. Confirmed product direction and launch gates
 
-The present product summary does not settle the following. Build the minimum safe default, and get a product decision before finalizing associated forms or navigation:
+The decisions below are the current product direction. They are not yet implemented. Legal/provider approval and detailed operational policies remain required before production.
 
-1. What does a user do to express interest: like, request a connection, or another action? Is mutual approval required?
-2. Is messaging included in the first release, and who can message whom?
-3. What identity options and discovery preferences will be supported, and which are optional/private versus shown to other members?
-4. Is age eligibility established by date-of-birth declaration, a verification provider, or another age-assurance method? The frontend cannot establish age securely by itself.
-5. Which location level is needed (city, area, or approximate distance), and is browser location optional?
-6. Are profile photos mandatory, how many are allowed, and what moderation/review states apply?
-7. Are payments, identity verification, notifications, or calls part of launch? Treat them as later modules until explicitly approved.
-8. What user-visible account deletion, data export, and retention behavior is required for launch markets?
+- One shared app; account gender choices are male/female only. Do not add a sexual-orientation/lesbian field.
+- Minimum age is 21. Sign up with email/password and verified email, or Google sign-in. Account phone-number login is not supported.
+- Date of birth, government-approved proof, admin age review, and a face-based gender check are required before member features. The stated outcome of a gender-check mismatch is rejection.
+- Emergency contact name and phone are required at signup. The contact is not verified or notified at signup; contact them only following a user-triggered SOS or the agreed missed-check-in escalation.
+- GPS permission is required while using the app; show approximate location to compatible discovery users. A manually selected discovery area is separate from the member's reported current location.
+- Profiles require 3-10 approved photos and 2-10 approved videos (up to 30 seconds each). Proposed upload caps: 10 MB per image and 100 MB per video. Server moderation must approve media before it is public.
+- A male member requests a connection with a female member. She approves or declines. The requester must send the first message after approval. After three rejections from the same recipient, no further requests to that person are allowed.
+- Only verified/eligible female members may start live streams.
+- Calls, call credits, meetup bookings/payments, notifications, verification, and safety check-ins are in launch scope, subject to legal and provider go/no-go.
+- New verified/active female profiles notify all active/eligible male accounts in-app and by push unless the female member opts out of promotion.
+- Call package prices in the concept brief are draft only. VIP/VVIP and fixed host rewards are deferred.
+- Meetups have a date, start time, duration, and location. Requester confirms satisfactory completion; payment release is manual. Check-ins prompt every minute during a booking; three unanswered prompts trigger an emergency-contact phone call. SOS can be triggered immediately.
+- Account removal is soft deactivation/archive; profile becomes inactive/invisible. Restoration requires an application and staff decision. The request to retain user records indefinitely needs legal/privacy review before launch.
+
+### Production gates
+
+- Obtain legal/privacy review for age and gender checks, biometric processing, mandatory GPS, promotional notifications, archived accounts, live/call features, and meetup payments.
+- Validate the face-check approach across intended users and define support/appeal handling for false rejection.
+- Confirm payment provider approval, call pricing, payout/refund/dispute rules, and exact data retention.
+- Define location update limits, emergency-call reliability/failure response, and staffed safety coverage.
 
 ## 5. Route and access map
 
@@ -73,7 +85,8 @@ Route names are proposed. Protect routes in the client for user experience, but 
 | `/` | Landing / welcome | Public | Core |
 | `/signup` | Create account | Public | Core |
 | `/login` | Sign in | Public | Core |
-| `/verify-contact` | Verify email or phone | Public, verification session | Core if contact verification is required |
+| `/verify-contact` | Verify email | Public, verification session | Core |
+| `/verify/identity` | Submit age proof and read review status | Signed in, email verified | Core |
 | `/password/forgot` | Request password reset | Public | Core |
 | `/password/reset` | Set a new password from a single-use link | Public, reset token | Core |
 | `/terms`, `/privacy` | Legal/policy information | Public | Core; publish approved content before launch |
@@ -84,15 +97,18 @@ Route names are proposed. Protect routes in the client for user experience, but 
 | `/settings` | Account overview and sign out | Signed in | Core |
 | `/settings/security` | Password/session controls | Signed in | Core |
 | `/settings/privacy` | Privacy and account/data requests | Signed in | Core |
+| `/settings/safety` | Emergency contact and safety settings | Signed in | Core |
 | `/safety`, `/help` | Safety guidance and support | Public/member | Core |
 | `/reports/new` or report dialog | Report a member/content | Signed in | Core |
 | `/blocked` | View/manage blocked accounts | Signed in | Core if blocking is supported |
-| `/connections` | Accepted connections/interest state | Signed in | Product decision |
-| `/inbox`, `/inbox/:conversationId` | Conversations | Signed in | Later; only after messaging safety design |
-| `/settings/notifications` | Notification preferences | Signed in | Later, when notifications exist |
-| `/settings/verification` | Verification status/action | Signed in | Later, after verification policy/provider decision |
-| `/payments`, `/payments/:paymentId` | Payment and transaction history | Signed in | Later, only if payments are approved |
-| `/calls/:callId` | Live call | Signed in | Later, only if calls are approved |
+| `/connections` | Incoming/outgoing requests and accepted connections | Signed in | Core |
+| `/inbox`, `/inbox/:conversationId` | Conversations | Signed in, accepted connection | Core |
+| `/live`, `/live/:streamId` | Live-stream directory and player | Signed in; women host, eligible men join | Core |
+| `/calls/:callId` | Accepted audio/video call | Signed in, connected participants | Core |
+| `/bookings`, `/bookings/:bookingId` | Meetup proposals, booking, check-ins, completion | Signed in, connected participants | Core, payment gated |
+| `/settings/notifications` | Notification and promotion preferences | Signed in | Core |
+| `/settings/verification` | Age/gender review state | Signed in | Core |
+| `/payments`, `/payments/:paymentId` | Call credits, booking payments, transaction status | Signed in | Core, provider/legal gated |
 | Staff console | Moderation tools | Authorized staff only | Separate restricted app is preferred |
 
 Unknown routes show a not-found page. A signed-out request for a protected route returns to sign-in; preserve only a safe internal destination and never put private profile, message, or report content into a redirect URL.
@@ -121,7 +137,7 @@ Every page or component that depends on remote data must handle:
 - Recoverable errors with retry; never convert a failed request into a success-looking empty state.
 - Offline/network interruption where relevant.
 - Expired session and revoked/disabled account.
-- Permission denied (especially location), with a non-location fallback when supported.
+- Permission denied (especially GPS), with a clear explanation if the feature is required.
 - Pending moderation/review states where applicable.
 - Success confirmation that does not reveal sensitive information on a shared screen or notification.
 
@@ -148,16 +164,20 @@ The fields below describe the proposed frontend contract. **Required** means req
 
 | Field | Required | Rules and UI behavior |
 | --- | --- | --- |
-| Email address or mobile number | One contact method required; decide if both are collected. Verification happens in the separate verification step if required. | Normalize on the client for display; backend is authoritative. If phone is accepted, show country calling code explicitly (Nigeria default may be suggested but must be changeable). Do not expose whether an account already exists in error text. |
-| Password | Required unless a passwordless design is chosen | Use the backend's documented minimum/maximum policy; provide show/hide control and a password-manager-compatible input. Do not trim or silently alter passwords. |
-| Confirm password | Required for password setup | Must match; never send this field to the API. |
-| Date of birth / adult eligibility | Collect only if required by the approved age-assurance design; eligibility must be established before member features are available. | Use an accessible date entry; do not accept an underage user. Do not treat browser-only calculation or checkbox as proof of age. Do not show the date on the public profile. |
+| Email address | Required for email/password signup; verified before active use | Normalize for display; backend is authoritative. Do not expose whether an account already exists in errors. |
+| Password | Required for email/password signup | Use backend policy; show/hide and password-manager compatible. Do not trim or silently alter. |
+| Confirm password | Required for email/password signup | Must match; never send to API. |
+| Google sign-in | Alternative signup/sign-in action | Use provider redirect/OIDC flow; do not collect Google passwords in Flingra. |
+| Date of birth | Required; minimum age 21 | Accessible date entry. Backend/admin establishes eligibility; never show full DOB publicly. |
+| Gender category | Required: male or female | Must match the product's verification rules. Do not add orientation fields. The check outcome is subject to server review/decision. |
+| Age-proof document | Required before account activation | Upload only through the private verification flow; show accepted government document types and review status. Never place evidence in public profile or analytics. |
+| Emergency contact name and phone | Required at signup; distinct from account login | Explain the number is not verified at signup and is used only for SOS or missed booking check-ins. Get confirmation that this is a trusted contact; do not send a signup notification. |
 | Accept terms and privacy notice | Required, separate consent action | Link to current versions; record acceptance/version server-side. Do not pre-check. |
 | Optional product updates consent | Optional, if marketing is offered | Separate, unchecked opt-in; not a condition of account creation. |
 
-**Actions:** Submit, sign in instead, open legal pages. On successful registration, continue to contact verification or onboarding as dictated by backend state.
+**Actions:** Submit, continue with Google, sign in instead, open legal pages. On successful registration, continue to email verification, age-proof review, or onboarding according to server-owned account state.
 
-**Validation/states:** Required field errors adjacent to fields; generic account-exists response; password-policy hint; submission in progress; network/rate-limit response; adult eligibility failure must stop account setup without suggesting workarounds. Prevent duplicate submission while in flight.
+**Validation/states:** Required field errors adjacent to fields; generic account-exists response; password-policy hint; submission in progress; network/rate-limit response; under-21, rejected gender check, and pending admin-review states. Prevent duplicate submission while in flight.
 
 **Security:** Never store the password in local storage, analytics, crash reports, or logs. Avoid third-party analytics on credential and recovery screens.
 
@@ -177,8 +197,8 @@ The fields below describe the proposed frontend contract. **Required** means req
 
 **Fields**
 
-- One-time code from email/SMS, with a documented digit/character count from the backend.
-- Destination shown in masked form (for example, partially hidden phone/email).
+- One-time code sent to the member's email, with digit/character count from the backend.
+- Destination shown in masked email form.
 
 **Actions:** Verify, resend code, change destination if policy permits, return to sign-in.
 
@@ -186,7 +206,7 @@ The fields below describe the proposed frontend contract. **Required** means req
 
 ### 7.5 Password recovery — `/password/forgot` and `/password/reset`
 
-**Request form:** Email/mobile identifier (required).
+**Request form:** Email address (required).
 
 **Response:** Always show a neutral confirmation such as “If an account matches those details, recovery instructions will be sent.” Apply server-side rate limits.
 
@@ -203,37 +223,34 @@ The fields below describe the proposed frontend contract. **Required** means req
 | Field | Suggested rule | Visibility |
 | --- | --- | --- |
 | Display name | Required; length and allowed characters configured with backend; reject whitespace-only values | Shown to other members; avoid requiring legal name unless verified need exists |
-| Profile photo(s) | Product decision whether one is required; accepted formats/count/size supplied by service | Public only after upload/review policy allows |
+| Profile photos | At least 3 and at most 10; JPEG/PNG/WebP; max 10 MB each | Public only after moderation approval |
+| Profile videos | At least 2 and at most 10; maximum 30 seconds; MP4/WebM; max 100 MB each | Public only after moderation approval |
 | Bio / about me | Optional; length cap from backend; plain text | Shown to members; render as text, not HTML |
 
-#### Step B: Identity and discovery preferences
+#### Step B: Gender and discovery preferences
 
-Flingra is one shared application for all eligible adults, not separate apps by gender or sexual orientation. Onboarding should let members configure their experience without requiring them to disclose a sensitive identity publicly.
-
-Proposed fields, pending product/privacy approval:
+Flingra is one shared application for all eligible adults, not separate apps by gender. The only account gender categories are male and female; no sexual-orientation field is included in the current scope.
 
 | Field | Required | Behavior and visibility |
 | --- | --- | --- |
-| Gender / identity | Optional; use inclusive, reviewed options and allow self-description or “prefer not to say” where appropriate | Private by default. Display only if the member explicitly chooses to show it. Never infer from name, photo, or behavior. |
-| Who they want to discover | Member-selected one or more eligible audiences, with an inclusive “all”/custom choice if supported | Used as a private discovery preference, not automatically shown on profile. |
-| Who may discover them | Member-selected audience(s), configurable separately from who they want to see | Applied by the server to discovery eligibility; explain that it controls discoverability, not guaranteed privacy from screenshots or prior interactions. |
-| Connection intention / interests | Optional, only if approved for launch | Member chooses what is public; do not make sensitive answers mandatory. |
+| Gender category | Required: male or female | Used for access/connection rules. Do not expose face-check result or verification evidence. Whether to display the member's category on their public profile must be confirmed. |
+| Who they want to discover | Required preference, choose male and/or female according to product rules | Private discovery preference; do not automatically publish it. |
+| Who may discover them | Required preference, choose male and/or female according to product rules | Private visibility rule applied server-side; explain that it cannot prevent screenshots or exposure outside the platform. |
+| Interests | Optional, if enabled | Member selects public items. |
 
-These are separate concepts: a person's identity does not determine whom they want to meet, and wanting to discover a group does not automatically make the person visible to that group. Avoid reducing matching to fixed “men's app” and “women's app” experiences.
+**Discovery rule:** A profile can be returned only when it passes account/eligibility and safety rules, fits the viewer's discovery preferences, and the profile owner's visibility preferences allow that viewer. For the current connection workflow, male members request female members; female members decide whether to approve or decline.
 
-**Discovery rule:** A profile can be returned only when it passes account/eligibility and safety rules, fits the viewer's discovery preferences, and the profile owner's visibility preferences allow that viewer. Apply this compatibility on the backend, not just as a client-side filter. For example, a man who chooses to discover women should see eligible women who have also allowed discovery by men; a woman who chooses to discover women should see eligible women who have allowed discovery by women. These examples depend on each member's selected preferences and must not be used to infer or publicly label anyone's identity.
-
-Show a review step explaining which profile fields are public and which preferences remain private. Allow members to change their discovery and visibility preferences later in settings.
+Show a review step explaining which profile fields are public and which preferences remain private. Allow members to change discovery and visibility preferences later in settings.
 
 #### Step C: Location
 
 | Field | Suggested rule | Visibility |
 | --- | --- | --- |
-| City/area | Prefer user-selected coarse area; required only if discovery depends on it | Show an approximate area only if user consents |
-| Browser location | Optional permission prompt after explaining benefit | Never display exact coordinates to other members; support denial/manual location if product allows |
-| Discovery distance | Optional preference, bounded values supplied by API | Used for filtering; exact current location remains private |
+| Current GPS location | Required permission while using the platform | Update while actively using; show only approximate area/distance to compatible discovery users. Never show exact coordinates. |
+| Discovery/search area | User can select a different area to browse | Affects search only; does not change or spoof reported current location. |
+| Discovery distance | Bounded preference supplied by API | Used for filtering; exact current location remains private. |
 
-**Actions:** Back, continue, save/skip optional step, finish. Show a review screen summarizing public profile fields and clearly distinguish private account data.
+**Actions:** Back, continue, save/skip optional step, finish. Explain why GPS is required; if permission is denied or unavailable, explain that member features cannot be used and provide a route to device settings. Show a review screen summarizing public profile fields and clearly distinguish private account data.
 
 **Validation/states:** Per-step validation, upload progress/failure/retry, photo review/pending/rejected states if applicable, location permission granted/denied/unavailable, duplicate submit protection. Do not discard completed steps silently.
 
@@ -241,25 +258,26 @@ Show a review step explaining which profile fields are public and which preferen
 
 **Purpose:** Browse server-selected profiles while exposing as little location and personal data as possible.
 
-**Profile card content:** approved photo, display name, age or age range only if policy permits, coarse location/distance only if consented and precision policy permits, and a short public bio/selected interests. Never render internal IDs, exact coordinates, contact details, DOB, moderation notes, or verification evidence.
+**Profile card content:** approved photos/videos, display name, approved age display, approximate area/distance, public bio/selected interests, and live status. Never render internal IDs, exact coordinates, contact details, DOB, moderation notes, or verification evidence.
 
 **Controls**
 
 - Filters button opens an accessible dialog/drawer.
-- Proposed filter fields (confirm policy/product): age range, coarse distance, and profile attributes explicitly approved for filtering. Discovery preferences for who a member wants to see are configured in onboarding/settings and applied as matching rules, not as a substitute for identity fields.
+- Filters include approved age range, distance, and selected discovery area. Gender preferences are configured in onboarding/settings and applied as server-side matching rules.
 - Filter values have backend-defined bounds and defaults; provide **Reset** and **Apply**.
-- If location is not available, explain the impact and offer manual coarse-area selection if supported; browsing should not silently request permission.
+- GPS must be enabled to use member features. Members may choose a different search area without changing the app's current-location signal. If GPS is denied/unavailable, explain why member features are locked and how to enable it.
 - Only show profiles the backend has determined are mutually compatible with the viewer's discovery preferences and the profile owner's visibility preferences. Never fetch a broad list and rely on the browser to hide incompatible profiles.
+- Approximate location may update while a member is actively using the app. Do not display exact coordinates; disclose that background updates may stop when a browser is suspended or closed.
 
-**Card actions:** Open profile and, only after product decision, express-interest action. Avoid implying mutual interest or creating a connection before server confirmation.
+**Card actions:** Open profile, request connection (male to female only), report, and block. The server enforces the maximum three rejections from the same recipient.
 
-**States:** Loading/skeleton; results; no matches with filter-reset suggestion; end of results/pagination; network error/retry; account ineligible; location denied; profile removed/unavailable. Support keyboard navigation and a non-swipe alternative if swipe gestures are ever added.
+**States:** Loading/skeleton; results; no matches with filter-reset suggestion; end of results/pagination; network error/retry; account ineligible; location unavailable; profile removed/unavailable. Support keyboard navigation and a non-swipe alternative if swipe gestures are ever added.
 
 ### 7.8 Member profile — `/profiles/:profileId`
 
 **Display only API-approved public fields:** photos, display name, approved age display, coarse location, bio, and optional interests/attributes that the member chose to publish. Do not reveal private account information or exact location.
 
-**Actions:** Back, optional connect/interest action (name and behavior are product decisions), block, report. Confirm before block; explain that blocking affects visibility/contact according to backend behavior. Do not expose report details to the reported member.
+**Actions:** Back, connect (male viewer only), block, report. Confirm before block; explain that blocking affects visibility/contact according to backend behavior. Do not expose report details to the reported member.
 
 **States:** Loading; profile unavailable/deleted/blocked; private/limited profile; action pending/success/failure; report confirmation. Ensure a profile disappearing or changing while open is handled safely.
 
@@ -269,16 +287,16 @@ Show a review step explaining which profile fields are public and which preferen
 
 - Display name (required).
 - Bio (optional, bounded plain text).
-- Profile photos (add, reorder, set primary, remove; only if photo policy is approved).
+- 3-10 profile photos and 2-10 videos up to 30 seconds (add, reorder, set primary, remove).
 - Any approved public attributes/interests from onboarding, with visibility labels.
 
 **Actions:** Save, cancel/discard confirmation when there are unsaved changes, preview public profile.
 
-**Upload behavior:** Restrict client picker to allowed formats and show file-size guidance, but validate content/type/size server-side too. Show upload progress and retry. Do not include image metadata/location in public delivery; stripping metadata is a backend/media-pipeline responsibility. Explain moderation status and do not show rejected content as published.
+**Upload behavior:** JPEG/PNG/WebP photos up to 10 MB and MP4/WebM videos up to 100 MB each; videos max 30 seconds. Backend enforces actual file type, limits, and moderation. Show progress, retry, and pending/approved/rejected states. Do not show pending or rejected media publicly. Do not include image metadata/location in public delivery.
 
 ### 7.10 Account settings — `/settings`
 
-Show verified contact in masked form, account status, links to profile/security/privacy/help, and sign out. Contact changes must use a separate re-verification flow. Do not allow the frontend to edit trusted/verified status directly.
+Show verified email in masked form, account status, links to profile/security/privacy/safety/help, emergency-contact settings, and sign out. Email changes must use a separate re-verification flow. Do not allow the frontend to edit trusted/verified status directly.
 
 ### 7.11 Security settings — `/settings/security`
 
@@ -290,7 +308,7 @@ Show verified contact in masked form, account status, links to profile/security/
 
 **Controls:** Profile visibility choices only if supported by backend; location permission explanation; data export request if offered; account deletion request.
 
-**Deletion confirmation:** Explain consequences, grace period (if any), and what happens to data before the final action. Require explicit confirmation, optionally re-authentication, and show request status. Do not promise immediate erasure unless backend policy guarantees it.
+**Deletion confirmation:** Explain that the profile becomes inactive/invisible, sessions end, data is archived rather than erased under the current product plan, and restoration requires an application and staff decision. Require explicit confirmation and show inactive/restoration-request status. Do not promise indefinite retention until privacy/legal review is complete.
 
 ### 7.13 Report member/content — report page or accessible dialog
 
@@ -314,26 +332,32 @@ List only the signed-in member's blocked accounts with the minimum identifier ne
 
 Provide reviewed, plain-language guidance for safe interactions and meetups, how to block/report, support contact, and emergency guidance appropriate to the markets served. Do not claim Flingra can guarantee a safe meetup or provide emergency response unless a staffed process exists. Keep policy content versioned and accessible without sign-in.
 
-### 7.16 Connections and messaging — later, gated by product/safety approval
+### 7.16 Connections and messaging
 
-These routes are not part of the confirmed first-release scope. Before implementing them, decide consent/matching rules, who may initiate messages, blocking/reporting behavior, moderation access, retention, notification previews, and abuse response.
+A male member can request a connection with a female member. She can approve or decline. After three rejections from the same recipient, the requester cannot send another request to that member. Show server-confirmed pending, approved, declined, or request-limit-reached states.
 
-If approved:
+Approval opens a conversation, but the requester must send the first message; only after that can both members message. Include request status, inbox, message history, send/pending/failed states, and accessible safety controls. Render text safely, paginate history, and never imply delivery until confirmed by the API.
 
-- Connection list shows only server-confirmed states (pending, accepted, declined/expired as applicable); do not infer a match from a client-side action.
-- Inbox lists conversation participants, safe preview text, timestamp, and unread state. Let users control sensitive previews in notifications.
-- Conversation screen needs message text limits, send/pending/failed states, pagination, report/block access, and handling for a blocked/deleted participant.
-- Render messages as plain text; do not execute HTML or links automatically. Uploads require a separate moderation/security design.
-- WebSocket failure must fall back to a visible reconnect/polling behavior where supported; never silently drop a message.
+### 7.17 Live streams and calls
 
-### 7.17 Payments, verification, notifications, and calls — later modules
+- Only a verified female member can start a live stream. Eligible male members can browse/join. Show live status and visible leave/report/block controls.
+- Calls are available after connection approval and require the other participant to accept.
+- Display server-priced call credits before purchase. Draft concept prices are NGN 2,000/10 min, NGN 4,000/15 min, NGN 7,000/30 min; retrieve current prices from the API.
+- Request camera/microphone only after a user action. Show call connection state, remaining credits, end-call control, and reconnect/failure feedback. Do not record calls/live streams by default.
 
-Only add these page families once approved in product scope and supported by backend/provider workflows:
+### 7.18 Meetup booking, payment, and safety check-ins
 
-- **Payments:** show server-confirmed amount, currency, status, and provider/reference-safe receipt. Use provider-hosted/tokenized payment UI; never collect or store card details in Flingra forms. Distinguish pending, failed, refunded, and confirmed.
-- **Identity verification:** explain purpose, provider, data handling, and review/appeal states before redirect/upload. Do not collect identity evidence until retention, access, deletion, and support responsibilities are defined.
-- **Notifications:** separate channel toggles from category preferences; provide safe preview controls and explain OS/browser permission is optional.
-- **Calls:** request camera/microphone permission only after a user action, show clear live indicators and device errors, and provide prominent hang-up/report/block controls. Recording is off unless a separately approved consent and retention design says otherwise.
+Booking request fields: date, start time, duration, agreed location, and the payment/terms returned by the API. The other member must review the full booking and accept it; changes after acceptance require renewed approval. Keep precise meeting location off public profiles and discovery; show it to participants only after both accept.
+
+During the accepted booking, prompt **I'm okay** every minute. After three unanswered prompts (about three minutes), explain that an emergency-contact call is triggered. Provide a clear countdown, immediate SOS, and a false-alarm cancel action where supported. Prompts run only for the agreed booking window.
+
+The requester confirms satisfactory completion. Display payment as pending until manual staff review/release; missing confirmation and disputes are also staff-reviewed. Show only backend-confirmed payment states and never collect card details directly.
+
+### 7.19 Verification, notifications, and emergency contact
+
+- **Verification:** collect DOB (21+), accepted government proof, and face-check consent; show pending admin review, approved, and rejected states. Face-check mismatch is currently configured to reject; provide a support route for appeal decisions as defined by policy. Do not imply approval guarantees safety.
+- **Female-profile promotion:** in-app and push notification to active/eligible male users when a verified female profile becomes active. Female user can opt out. Respect browser/device push permission and avoid sensitive text in previews.
+- **Emergency contact:** collect name and phone at signup. Explain the number is not verified and will be called only after explicit SOS or three missed one-minute check-ins during an accepted booking. Show what booking details may be shared before the booking begins.
 
 ## 8. Form, content, and validation conventions
 
@@ -373,12 +397,17 @@ Use typed request/response definitions and explicit view models; never render OR
 
 ## 11. Acceptance criteria for core flows
 
-- A new eligible user can create an account, verify contact if required, complete required onboarding, and reach discovery; a failed step explains how to recover.
-- An ineligible or unverified account cannot reach protected member features, even if it manually enters a route.
+- A new eligible user can register using verified email/password or Google, submit DOB/proof and required profile/emergency-contact fields, and see admin verification state.
+- An under-21, unverified, inactive, or gender-check-rejected account cannot reach protected member features, even if it manually enters a route.
 - A member can inspect the public profile preview and understand which fields are visible before saving.
-- Discovery works when location is denied or unavailable, using the product-approved fallback or a clear explanation.
+- Discovery returns only compatible profiles with approximate location; denied/unavailable GPS clearly blocks member features and explains recovery.
+- Three profile photos and two approved videos are required before discovery; pending/rejected media stays private.
+- A female member can approve/decline a male connection request; after three rejections from that recipient the requester cannot retry. Only the requester sends the first message.
+- Female-only live hosting, accepted calls, credit balance, booking payment states, and location safety check-ins show server-confirmed status.
+- Three missed one-minute check-ins during a booking show the emergency escalation state; immediate SOS is available.
 - A member can report and block from the profile; success/failure is clear, and no private report content leaks into a URL or analytics.
 - Account/session expiry returns the member to sign-in without false success or exposure of stale account data.
+- Account deactivation hides the member and clearly explains archive/restoration application behavior.
 - Every core screen works at mobile widths, with keyboard navigation and screen-reader labels for controls and errors.
 - Client failures do not bypass backend validation, authorization, age/eligibility, or rate limits.
 
@@ -386,7 +415,7 @@ Use typed request/response definitions and explicit view models; never render OR
 
 - **Vitest:** field validation, conditional steps, formatters, API error mapping, and privacy-sensitive UI behavior.
 - **Component tests:** keyboard-operable forms/dialogs, focus management, loading/empty/error states, and photo/location permission states.
-- **Playwright:** signup/recovery, onboarding, profile edit, discovery with location denied, profile block/report, account deletion request, sign-out/session expiry, and mobile navigation.
+- **Playwright:** email/Google signup, DOB proof pending/rejected/approved, onboarding media moderation, discovery and approximate location, connection rejection limit and first-message rule, female live hosting, call credits, booking acceptance/check-ins/SOS, block/report, soft deactivation, sign-out/session expiry, and mobile navigation.
 - Use synthetic accounts and content. Do not put production personal data, secrets, OTPs, or report contents in fixtures, screenshots, traces, or CI logs.
 
 ## 13. Implementation status and development commands

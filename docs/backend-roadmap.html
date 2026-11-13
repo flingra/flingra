@@ -40,14 +40,14 @@
   <div class="eyebrow">Flingra · Delivery map · Backend</div>
   <h1>What to build next</h1>
   <p class="sub">A phased implementation path for the Go API, with deliverables the frontend can integrate against.</p>
-  <div class="callout"><strong>Product direction:</strong> One shared app. Backend owns eligibility, authorization, privacy, and discovery compatibility. A candidate is returned only if the viewer's discovery preferences and the owner's visibility preferences are mutually compatible.</div>
+  <div class="callout"><strong>Product direction:</strong> One app; male/female categories only; minimum age 21. Backend owns eligibility, connection rules, discovery privacy, payment state, and safety escalation. Legal/provider approval is a go/no-go for payment holds, biometric checks, mandatory GPS, and emergency calling.</div>
   <p><span class="tag">Current state: scaffold only</span> Proposed endpoints and payloads are documented in <code>backend/README.md</code>; implement and freeze them in OpenAPI before integration.</p>
 
   <h2>Build sequence</h2>
   <section class="phase">
     <h3>0 · Contract and project foundation</h3>
     <ul>
-      <li>Resolve signup identifier, age assurance, contact verification, identity/audience vocabulary, discovery semantics, and frontend/API deployment origins.</li>
+      <li>Get written legal/privacy/payment-provider go/no-go for ID and gender checks, GPS, archived accounts, live/calls, meetup money flow, and check-in escalation.</li>
       <li>Create Go module/toolchain, `cmd/api`, focused `internal` packages, config validation, Docker/local MySQL, migrations, CI formatting/tests.</li>
       <li>Define `/api/v1`, common error envelope, request IDs, OpenAPI conventions, cookie/CSRF/CORS policy.</li>
     </ul>
@@ -57,9 +57,9 @@
   <section class="phase">
     <h3>1 · Account, session, and eligibility foundation</h3>
     <ul>
-      <li>Registration, login/logout, current session, contact verification if required, password recovery/change.</li>
+      <li>Email/password + verified email and Google OIDC; require DOB 21+, government-proof upload/admin review, male/female gender check, and emergency-contact phone.</li>
       <li>Argon2id password hashing; opaque server-side session cookie; CSRF and exact-origin checks; rate limits and generic auth responses.</li>
-      <li>Server-owned account states and guard middleware for incomplete, ineligible, suspended, or deletion-pending accounts.</li>
+      <li>Server-owned account states for verification pending/rejected, profile incomplete, active, suspended, and archived.</li>
     </ul>
     <p><strong>Deliverable:</strong> stable auth endpoints and contract-tested session/account-state responses.</p>
     <p><strong>Frontend handoff:</strong> signup/login payloads, cookie behavior, CSRF token/header, recovery and error states.</p>
@@ -68,27 +68,45 @@
     <h3>2 · Profile, preferences, and discovery</h3>
     <ul>
       <li>Member/profile schema and migration; private owner DTO separate from public profile DTO.</li>
-      <li>Profile create/update/read; validate lengths/enums; add explicit public/private field allowlists.</li>
-      <li>Store discovery preferences separately from identity and profile visibility; validate controlled values.</li>
-      <li>Implement bounded cursor discovery with compatibility, eligibility, blocks, and safety filtering in SQL/domain logic.</li>
-      <li>Return coarse location only when approved; do not expose exact coordinates.</li>
+      <li>Profile fields/media minimums and moderation queue; 3-10 photos, 2-10 videos, max 30 seconds; proposed caps 10/100 MB.</li>
+      <li>GPS updates and separate manual search area; return only approximate location; implement server-side preference-compatible discovery.</li>
     </ul>
     <p><strong>Deliverable:</strong> `/me`, profile, preference, public-profile, and discovery operations with MySQL integration tests.</p>
     <p><strong>Frontend handoff:</strong> exact DTOs/enums, field validation limits, cursor rules, empty result and profile-unavailable behavior.</p>
   </section>
   <section class="phase">
-    <h3>3 · Safety and member controls</h3>
+    <h3>3 · Connections, messaging, live, and calls</h3>
+    <ul>
+      <li>Male-to-female connection requests, approve/decline and hard cap after 3 rejections from the same recipient.</li>
+      <li>Conversation opened on approval, requester sends first message; both can message afterward.</li>
+      <li>Female-only live stream, accepted audio/video calls, call-credit ledger, in-app/push notification fan-out.</li>
+    </ul>
+    <p><strong>Deliverable:</strong> tested authorization, participant rules, tokens, server-side call metering, provider adapters.</p>
+    <p><strong>Frontend handoff:</strong> request states, message rules, live/call lifecycle, prices, notification preferences.</p>
+  </section>
+  <section class="phase">
+    <h3>4 · Booking, payment, and safety operations</h3>
+    <ul>
+      <li>Booking date, time, duration, and exact location; share destination only after both accept.</li>
+      <li>Provider-held meetup funds, requester confirmation, manual staff release, disputes/refunds; no automatic payout.</li>
+      <li>One-minute check-ins during accepted booking; after 3 missed prompts call emergency contact; allow immediate SOS.</li>
+      <li>Admin review queues for age proof/media/reports/safety/payment/restoration; MFA, least privilege and audit events.</li>
+    </ul>
+    <p><strong>Gate:</strong> no fund flow or emergency automation without approved providers, legal review, trained staff, and tested escalation/fallback.</p>
+  </section>
+  <section class="phase">
+    <h3>5 · Block/report and soft deactivation</h3>
     <ul>
       <li>Block/unblock/list with immediate bidirectional discovery exclusion.</li>
       <li>Report reasons and report submission with restricted staff access, redacted logs, idempotency/duplicate handling.</li>
-      <li>Account settings, contact-change verification, deletion request/status/cancellation only after retention policy is defined.</li>
-      <li>Audit sensitive staff actions; staff console APIs require a separate reviewed authorization contract.</li>
+      <li>Soft-deactivate and archive account, hide everywhere, revoke sessions; restoration by staff application only.</li>
+      <li>Block/report endpoints, safety review and event audit; define account archive retention with counsel.</li>
     </ul>
     <p><strong>Deliverable:</strong> safety endpoints, privacy/deletion behavior, authorization and abuse tests.</p>
     <p><strong>Frontend handoff:</strong> report categories, neutral receipts, block effects, deletion status/grace period.</p>
   </section>
   <section class="phase">
-    <h3>4 · Reliability, security, and launch readiness</h3>
+    <h3>6 · Reliability, security, and launch readiness</h3>
     <ul>
       <li>Timeouts, graceful shutdown, structured redacted logs, health/readiness, Sentry/equivalent, backup and restore runbook.</li>
       <li>OpenAPI validation/contract tests; migration upgrade tests; MySQL integration and concurrency/idempotency tests.</li>
@@ -106,7 +124,8 @@
       <tr><td>Member/profile</td><td>me, profile read/update, account state</td><td>Onboarding, profile editor/preview, settings</td></tr>
       <tr><td>Discovery</td><td>preference read/update, paginated discovery, public profile</td><td>Preference setup, discovery cards/filters, member details</td></tr>
       <tr><td>Safety</td><td>block/unblock/list, report reasons/submit</td><td>Block confirmation, blocked list, report form/receipt</td></tr>
-      <tr><td>Privacy</td><td>deletion request/status, contact change if approved</td><td>Privacy settings and deletion status</td></tr>
+      <tr><td>Bookings/safety</td><td>booking, agreement, check-in, SOS, manual payment release</td><td>Booking, check-in, payment and escalation UI</td></tr>
+      <tr><td>Operations</td><td>admin age/media/report/safety/payment/restore queues</td><td>Staff review console (restricted access)</td></tr>
     </tbody>
   </table>
 
@@ -119,8 +138,8 @@
     <li>Frontend receives example payloads and an integration note; contract changes are communicated before merge.</li>
   </ol>
 
-  <h2>Defer until explicitly approved</h2>
-  <p>Messaging, payments, identity verification, push, calls, media uploads, Redis, and background workers. Each adds provider/security/retention responsibilities; do not add them simply because they appeared in the initial technology wishlist.</p>
+  <h2>Defer or gate</h2>
+  <p>VIP/VVIP memberships and fixed host rewards are deferred. Real money movement, face-based gender rejection, mandatory GPS, indefinite archive retention, calls/live, and automated emergency contact need documented legal/privacy/provider approval and operational readiness before launch.</p>
 
   <h2>Next actions</h2>
   <ol>

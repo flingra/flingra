@@ -19,7 +19,7 @@ This repository is currently a scaffold. The technology choices below are a reco
 | Client data and forms | TanStack Query, React Hook Form, Zod; add Zustand only for genuinely shared client-only state |
 | API | Go, `net/http`, OpenAPI |
 | Data | MySQL 8.4 LTS, Go SQL driver, versioned SQL migrations |
-| Runtime services | Redis and a job queue when asynchronous workloads require them |
+| Runtime services | Durable worker for moderation, notifications, and booking check-ins; Redis only if needed |
 | Testing | Vitest and Playwright; Go's `testing` package |
 | Delivery | Docker, GitHub Actions, Sentry |
 

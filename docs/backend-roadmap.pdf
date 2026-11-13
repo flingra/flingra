@@ -16,7 +16,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
 endobj
 6 0 obj
-<< /Length 6210 >>
+<< /Length 6182 >>
 stream
 0.03 0.48 0.44 rg 0 798 595 44 re f
 1.000 1.000 1.000 rg BT /F2 10 Tf 1 0 0 1 48 815 Tm (FLINGRA  /  BUILD ROADMAP) Tj ET
@@ -31,8 +31,8 @@ stream
 0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 666.3249999999999 Tm (backend/README.md; implement and freeze them in OpenAPI before integration.) Tj ET
 0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 648.4999999999999 Tm (Build sequence) Tj ET
 0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 619.2499999999999 Tm (0 - Contract and project foundation) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 599.7249999999999 Tm (- Resolve signup identifier, age assurance, contact verification, identity/audience) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 587.17 Tm (vocabulary, discovery semantics, and frontend/API deployment origins.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 599.7249999999999 Tm (- Get written legal/privacy/payment-provider go/no-go for ID and gender checks, GPS, archived) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 587.17 Tm (accounts, live/calls, meetup money flow, and check-in escalation.) Tj ET
 0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 572.615 Tm (- Create Go module/toolchain, `cmd/api`, focused `internal` packages, config validation,) Tj ET
 0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 560.0600000000001 Tm (Docker/local MySQL, migrations, CI formatting/tests.) Tj ET
 0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 545.5050000000001 Tm (- Define `/api/v1`, common error envelope, request IDs, OpenAPI conventions, cookie/CSRF/CORS) Tj ET
@@ -42,104 +42,124 @@ stream
 0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 487.74500000000023 Tm (Frontend handoff: API base URL, CORS/origin requirements, error schema, cookie/CSRF integration) Tj ET
 0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 474.92000000000024 Tm (notes.) Tj ET
 0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 457.09500000000025 Tm (1 - Account, session, and eligibility foundation) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 437.5700000000003 Tm (- Registration, login/logout, current session, contact verification if required, password) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 425.01500000000027 Tm (recovery/change.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 437.5700000000003 Tm (- Email/password + verified email and Google OIDC; require DOB 21+, government-proof) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 425.01500000000027 Tm (upload/admin review, male/female gender check, and emergency-contact phone.) Tj ET
 0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 410.46000000000026 Tm (- Argon2id password hashing; opaque server-side session cookie; CSRF and exact-origin checks;) Tj ET
 0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 397.90500000000026 Tm (rate limits and generic auth responses.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 383.35000000000025 Tm (- Server-owned account states and guard middleware for incomplete, ineligible, suspended, or) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 370.79500000000024 Tm (deletion-pending accounts.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 383.35000000000025 Tm (- Server-owned account states for verification pending/rejected, profile incomplete, active,) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 370.79500000000024 Tm (suspended, and archived.) Tj ET
 0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 356.24000000000024 Tm (Deliverable: stable auth endpoints and contract-tested session/account-state responses.) Tj ET
 0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 338.41500000000025 Tm (Frontend handoff: signup/login payloads, cookie behavior, CSRF token/header, recovery and error) Tj ET
 0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 325.59000000000026 Tm (states.) Tj ET
 0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 307.76500000000027 Tm (2 - Profile, preferences, and discovery) Tj ET
 0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 288.2400000000003 Tm (- Member/profile schema and migration; private owner DTO separate from public profile DTO.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 273.6850000000003 Tm (- Profile create/update/read; validate lengths/enums; add explicit public/private field) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 261.1300000000003 Tm (allowlists.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 246.57500000000027 Tm (- Store discovery preferences separately from identity and profile visibility; validate) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 234.02000000000027 Tm (controlled values.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 219.46500000000026 Tm (- Implement bounded cursor discovery with compatibility, eligibility, blocks, and safety) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 206.91000000000025 Tm (filtering in SQL/domain logic.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 192.35500000000025 Tm (- Return coarse location only when approved; do not expose exact coordinates.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 177.80000000000024 Tm (Deliverable: `/me`, profile, preference, public-profile, and discovery operations with MySQL) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 164.97500000000025 Tm (integration tests.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 147.15000000000026 Tm (Frontend handoff: exact DTOs/enums, field validation limits, cursor rules, empty result and) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 134.32500000000027 Tm (profile-unavailable behavior.) Tj ET
-0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 116.50000000000027 Tm (3 - Safety and member controls) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 96.97500000000026 Tm (- Block/unblock/list with immediate bidirectional discovery exclusion.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 82.42000000000026 Tm (- Report reasons and report submission with restricted staff access, redacted logs,) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 69.86500000000025 Tm (idempotency/duplicate handling.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 273.6850000000003 Tm (- Profile fields/media minimums and moderation queue; 3-10 photos, 2-10 videos, max 30) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 261.1300000000003 Tm (seconds; proposed caps 10/100 MB.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 246.57500000000027 Tm (- GPS updates and separate manual search area; return only approximate location; implement) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 234.02000000000027 Tm (server-side preference-compatible discovery.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 219.46500000000026 Tm (Deliverable: `/me`, profile, preference, public-profile, and discovery operations with MySQL) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 206.64000000000027 Tm (integration tests.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 188.81500000000028 Tm (Frontend handoff: exact DTOs/enums, field validation limits, cursor rules, empty result and) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 175.9900000000003 Tm (profile-unavailable behavior.) Tj ET
+0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 158.1650000000003 Tm (3 - Connections, messaging, live, and calls) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 138.6400000000003 Tm (- Male-to-female connection requests, approve/decline and hard cap after 3 rejections from the) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 126.08500000000029 Tm (same recipient.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 111.53000000000029 Tm (- Conversation opened on approval, requester sends first message; both can message afterward.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 96.97500000000028 Tm (- Female-only live stream, accepted audio/video calls, call-credit ledger, in-app/push) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 84.42000000000027 Tm (notification fan-out.) Tj ET
 endstream
 endobj
 7 0 obj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
 endobj
 8 0 obj
-<< /Length 6236 >>
+<< /Length 6645 >>
 stream
 0.03 0.48 0.44 rg 0 798 595 44 re f
 1.000 1.000 1.000 rg BT /F2 10 Tf 1 0 0 1 48 815 Tm (FLINGRA  /  BUILD ROADMAP) Tj ET
 1.000 1.000 1.000 rg BT /F1 8 Tf 1 0 0 1 48 783 Tm (Backend roadmap) Tj ET
 0.82 0.85 0.89 RG 48 43 m 547 43 l S
 0.340 0.390 0.470 rg BT /F1 8 Tf 1 0 0 1 48 28 Tm (Flingra planning document  |  Page 2 of 3) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 770 Tm (- Account settings, contact-change verification, deletion request/status/cancellation only) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 757.445 Tm (after retention policy is defined.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 742.8900000000001 Tm (- Audit sensitive staff actions; staff console APIs require a separate reviewed authorization) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 730.3350000000002 Tm (contract.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 715.7800000000002 Tm (Deliverable: safety endpoints, privacy/deletion behavior, authorization and abuse tests.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 697.9550000000002 Tm (Frontend handoff: report categories, neutral receipts, block effects, deletion status/grace) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 685.1300000000001 Tm (period.) Tj ET
-0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 667.3050000000001 Tm (4 - Reliability, security, and launch readiness) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 647.7800000000001 Tm (- Timeouts, graceful shutdown, structured redacted logs, health/readiness, Sentry/equivalent,) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 635.2250000000001 Tm (backup and restore runbook.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 620.6700000000002 Tm (- OpenAPI validation/contract tests; migration upgrade tests; MySQL integration and) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 608.1150000000002 Tm (concurrency/idempotency tests.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 593.5600000000003 Tm (- Review CORS/cookies/CSRF, rate limits, least privilege, secret handling, data retention, and) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 581.0050000000003 Tm (abuse cases.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 566.4500000000004 Tm (- Staging contract walkthrough with frontend; resolve all mismatched DTOs/errors before) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 553.8950000000004 Tm (launch.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 539.3400000000005 Tm (Done when: core APIs pass security and integration cases and the frontend can complete key) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 526.5150000000004 Tm (journeys against staging.) Tj ET
-0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 508.6900000000004 Tm (Contract-first API slices) Tj ET
-0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 479.4400000000004 Tm (Slice  |  Core operations  |  Frontend can build) Tj ET
-0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 463.3700000000004 Tm (Auth  |  register, verify, login, session, logout, recovery  |  Sign-up, sign-in, verification, reset,) Tj ET
-0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 452.3000000000004 Tm (protected routes) Tj ET
-0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 436.2300000000004 Tm (Member/profile  |  me, profile read/update, account state  |  Onboarding, profile editor/preview,) Tj ET
-0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 425.1600000000004 Tm (settings) Tj ET
-0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 409.09000000000043 Tm (Discovery  |  preference read/update, paginated discovery, public profile  |  Preference setup, discovery) Tj ET
-0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 398.02000000000044 Tm (cards/filters, member details) Tj ET
-0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 381.95000000000044 Tm (Safety  |  block/unblock/list, report reasons/submit  |  Block confirmation, blocked list, report) Tj ET
-0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 370.88000000000045 Tm (form/receipt) Tj ET
-0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 354.81000000000046 Tm (Privacy  |  deletion request/status, contact change if approved  |  Privacy settings and deletion status) Tj ET
-0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 338.74000000000046 Tm (Definition of ready for each endpoint) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 309.49000000000046 Tm (- OpenAPI operation includes request/response, auth, field visibility, limits, and error) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 296.93500000000046 Tm (codes.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 282.38000000000045 Tm (- Authorization and abuse/rate-limit behavior are decided and tested.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 267.82500000000044 Tm (- Responses omit private data by construction; handlers do not serialize database models.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 253.27000000000044 Tm (- Tests cover success, validation, forbidden access, and failure states.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 238.71500000000043 Tm (- Frontend receives example payloads and an integration note; contract changes are) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 226.16000000000042 Tm (communicated before merge.) Tj ET
-0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 211.60500000000042 Tm (Defer until explicitly approved) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 182.35500000000042 Tm (Messaging, payments, identity verification, push, calls, media uploads, Redis, and background) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 169.53000000000043 Tm (workers. Each adds provider/security/retention responsibilities; do not add them simply because) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 156.70500000000044 Tm (they appeared in the initial technology wishlist.) Tj ET
-0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 138.88000000000045 Tm (Next actions) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 109.63000000000045 Tm (- Confirm the product decisions in 16 of backend/README.md with the product owner.) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 95.07500000000044 Tm (- Bootstrap the Go service, MySQL migrations, CI, health endpoints, and OpenAPI file.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 770 Tm (Deliverable: tested authorization, participant rules, tokens, server-side call metering,) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 757.175 Tm (provider adapters.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 739.3499999999999 Tm (Frontend handoff: request states, message rules, live/call lifecycle, prices, notification) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 726.5249999999999 Tm (preferences.) Tj ET
+0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 708.6999999999998 Tm (4 - Booking, payment, and safety operations) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 689.1749999999998 Tm (- Booking date, time, duration, and exact location; share destination only after both accept.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 674.6199999999999 Tm (- Provider-held meetup funds, requester confirmation, manual staff release, disputes/refunds;) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 662.0649999999999 Tm (no automatic payout.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 647.51 Tm (- One-minute check-ins during accepted booking; after 3 missed prompts call emergency contact;) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 634.955 Tm (allow immediate SOS.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 620.4000000000001 Tm (- Admin review queues for age proof/media/reports/safety/payment/restoration; MFA, least) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 607.8450000000001 Tm (privilege and audit events.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 593.2900000000002 Tm (Gate: no fund flow or emergency automation without approved providers, legal review, trained) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 580.4650000000001 Tm (staff, and tested escalation/fallback.) Tj ET
+0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 562.6400000000001 Tm (5 - Block/report and soft deactivation) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 543.1150000000001 Tm (- Block/unblock/list with immediate bidirectional discovery exclusion.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 528.5600000000002 Tm (- Report reasons and report submission with restricted staff access, redacted logs,) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 516.0050000000002 Tm (idempotency/duplicate handling.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 501.4500000000002 Tm (- Soft-deactivate and archive account, hide everywhere, revoke sessions; restoration by staff) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 488.8950000000002 Tm (application only.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 474.3400000000002 Tm (- Block/report endpoints, safety review and event audit; define account archive retention with) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 461.7850000000002 Tm (counsel.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 447.2300000000002 Tm (Deliverable: safety endpoints, privacy/deletion behavior, authorization and abuse tests.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 429.4050000000002 Tm (Frontend handoff: report categories, neutral receipts, block effects, deletion status/grace) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 416.5800000000002 Tm (period.) Tj ET
+0.030 0.480 0.440 rg BT /F2 11.5 Tf 1 0 0 1 48 398.7550000000002 Tm (6 - Reliability, security, and launch readiness) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 379.23000000000025 Tm (- Timeouts, graceful shutdown, structured redacted logs, health/readiness, Sentry/equivalent,) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 366.67500000000024 Tm (backup and restore runbook.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 352.12000000000023 Tm (- OpenAPI validation/contract tests; migration upgrade tests; MySQL integration and) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 339.5650000000002 Tm (concurrency/idempotency tests.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 325.0100000000002 Tm (- Review CORS/cookies/CSRF, rate limits, least privilege, secret handling, data retention, and) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 312.4550000000002 Tm (abuse cases.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 297.9000000000002 Tm (- Staging contract walkthrough with frontend; resolve all mismatched DTOs/errors before) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 285.3450000000002 Tm (launch.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 270.7900000000002 Tm (Done when: core APIs pass security and integration cases and the frontend can complete key) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 257.9650000000002 Tm (journeys against staging.) Tj ET
+0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 240.1400000000002 Tm (Contract-first API slices) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 210.8900000000002 Tm (Slice  |  Core operations  |  Frontend can build) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 194.82000000000022 Tm (Auth  |  register, verify, login, session, logout, recovery  |  Sign-up, sign-in, verification, reset,) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 183.75000000000023 Tm (protected routes) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 167.68000000000023 Tm (Member/profile  |  me, profile read/update, account state  |  Onboarding, profile editor/preview,) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 156.61000000000024 Tm (settings) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 140.54000000000025 Tm (Discovery  |  preference read/update, paginated discovery, public profile  |  Preference setup, discovery) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 129.47000000000025 Tm (cards/filters, member details) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 113.40000000000026 Tm (Safety  |  block/unblock/list, report reasons/submit  |  Block confirmation, blocked list, report) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 102.33000000000027 Tm (form/receipt) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 86.26000000000028 Tm (Bookings/safety  |  booking, agreement, check-in, SOS, manual payment release  |  Booking, check-in,) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 75.19000000000028 Tm (payment and escalation UI) Tj ET
 endstream
 endobj
 9 0 obj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 10 0 R >>
 endobj
 10 0 obj
-<< /Length 560 >>
+<< /Length 2873 >>
 stream
 0.03 0.48 0.44 rg 0 798 595 44 re f
 1.000 1.000 1.000 rg BT /F2 10 Tf 1 0 0 1 48 815 Tm (FLINGRA  /  BUILD ROADMAP) Tj ET
 1.000 1.000 1.000 rg BT /F1 8 Tf 1 0 0 1 48 783 Tm (Backend roadmap) Tj ET
 0.82 0.85 0.89 RG 48 43 m 547 43 l S
 0.340 0.390 0.470 rg BT /F1 8 Tf 1 0 0 1 48 28 Tm (Flingra planning document  |  Page 3 of 3) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 770 Tm (- Implement and hand off one vertical slice at a time: auth  profile/preferences  discovery) Tj ET
-0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 757.445 Tm (safety.) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 770 Tm (Operations  |  admin age/media/report/safety/payment/restore queues  |  Staff review console \(restricted) Tj ET
+0.220 0.270 0.350 rg BT /F1 8.2 Tf 1 0 0 1 48 758.93 Tm (access\)) Tj ET
+0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 742.8599999999999 Tm (Definition of ready for each endpoint) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 713.6099999999999 Tm (- OpenAPI operation includes request/response, auth, field visibility, limits, and error) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 701.055 Tm (codes.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 686.5 Tm (- Authorization and abuse/rate-limit behavior are decided and tested.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 671.945 Tm (- Responses omit private data by construction; handlers do not serialize database models.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 657.3900000000001 Tm (- Tests cover success, validation, forbidden access, and failure states.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 642.8350000000002 Tm (- Frontend receives example payloads and an integration note; contract changes are) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 630.2800000000002 Tm (communicated before merge.) Tj ET
+0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 615.7250000000003 Tm (Defer or gate) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 586.4750000000003 Tm (VIP/VVIP memberships and fixed host rewards are deferred. Real money movement, face-based gender) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 573.6500000000002 Tm (rejection, mandatory GPS, indefinite archive retention, calls/live, and automated emergency) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.5 Tf 1 0 0 1 48 560.8250000000002 Tm (contact need documented legal/privacy/provider approval and operational readiness before launch.) Tj ET
+0.030 0.480 0.440 rg BT /F2 15 Tf 1 0 0 1 48 543.0000000000001 Tm (Next actions) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 513.7500000000001 Tm (- Confirm the product decisions in 16 of backend/README.md with the product owner.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 499.1950000000001 Tm (- Bootstrap the Go service, MySQL migrations, CI, health endpoints, and OpenAPI file.) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 484.6400000000001 Tm (- Implement and hand off one vertical slice at a time: auth  profile/preferences  discovery) Tj ET
+0.220 0.270 0.350 rg BT /F1 9.3 Tf 1 0 0 1 48 472.0850000000001 Tm (safety.) Tj ET
 endstream
 endobj
 xref
@@ -151,12 +171,12 @@ xref
 0000000203 00000 n 
 0000000278 00000 n 
 0000000414 00000 n 
-0000006675 00000 n 
-0000006811 00000 n 
-0000013098 00000 n 
-0000013235 00000 n 
+0000006647 00000 n 
+0000006783 00000 n 
+0000013479 00000 n 
+0000013616 00000 n 
 trailer
 << /Size 11 /Root 1 0 R >>
 startxref
-13846
+16541
 %%EOF
