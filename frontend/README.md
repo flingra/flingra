@@ -57,7 +57,7 @@ The present product summary does not settle the following. Build the minimum saf
 
 1. What does a user do to express interest: like, request a connection, or another action? Is mutual approval required?
 2. Is messaging included in the first release, and who can message whom?
-3. Which profile attributes are needed for discovery? In particular, do not assume gender identity, orientation, relationship status, or preferences are mandatory.
+3. What identity options and discovery preferences will be supported, and which are optional/private versus shown to other members?
 4. Is age eligibility established by date-of-birth declaration, a verification provider, or another age-assurance method? The frontend cannot establish age securely by itself.
 5. Which location level is needed (city, area, or approximate distance), and is browser location optional?
 6. Are profile photos mandatory, how many are allowed, and what moderation/review states apply?
@@ -206,9 +206,24 @@ The fields below describe the proposed frontend contract. **Required** means req
 | Profile photo(s) | Product decision whether one is required; accepted formats/count/size supplied by service | Public only after upload/review policy allows |
 | Bio / about me | Optional; length cap from backend; plain text | Shown to members; render as text, not HTML |
 
-#### Step B: Discovery profile — confirm product needs before enabling
+#### Step B: Identity and discovery preferences
 
-Potential fields (optional unless product has a justified requirement): gender identity, pronouns, relationship intentions, interests, and preferred connection attributes. Explain who sees each answer; allow “prefer not to say” where appropriate. Avoid inferring sensitive identity from photos, name, or behavior. Do not make sexual orientation or other sensitive attributes mandatory without an explicit product and privacy decision.
+Flingra is one shared application for all eligible adults, not separate apps by gender or sexual orientation. Onboarding should let members configure their experience without requiring them to disclose a sensitive identity publicly.
+
+Proposed fields, pending product/privacy approval:
+
+| Field | Required | Behavior and visibility |
+| --- | --- | --- |
+| Gender / identity | Optional; use inclusive, reviewed options and allow self-description or “prefer not to say” where appropriate | Private by default. Display only if the member explicitly chooses to show it. Never infer from name, photo, or behavior. |
+| Who they want to discover | Member-selected one or more eligible audiences, with an inclusive “all”/custom choice if supported | Used as a private discovery preference, not automatically shown on profile. |
+| Who may discover them | Member-selected audience(s), configurable separately from who they want to see | Applied by the server to discovery eligibility; explain that it controls discoverability, not guaranteed privacy from screenshots or prior interactions. |
+| Connection intention / interests | Optional, only if approved for launch | Member chooses what is public; do not make sensitive answers mandatory. |
+
+These are separate concepts: a person's identity does not determine whom they want to meet, and wanting to discover a group does not automatically make the person visible to that group. Avoid reducing matching to fixed “men's app” and “women's app” experiences.
+
+**Discovery rule:** A profile can be returned only when it passes account/eligibility and safety rules, fits the viewer's discovery preferences, and the profile owner's visibility preferences allow that viewer. Apply this compatibility on the backend, not just as a client-side filter. For example, a man who chooses to discover women should see eligible women who have also allowed discovery by men; a woman who chooses to discover women should see eligible women who have allowed discovery by women. These examples depend on each member's selected preferences and must not be used to infer or publicly label anyone's identity.
+
+Show a review step explaining which profile fields are public and which preferences remain private. Allow members to change their discovery and visibility preferences later in settings.
 
 #### Step C: Location
 
@@ -231,9 +246,10 @@ Potential fields (optional unless product has a justified requirement): gender i
 **Controls**
 
 - Filters button opens an accessible dialog/drawer.
-- Proposed filter fields (confirm policy/product): age range, coarse distance, and profile attributes explicitly approved for filtering.
+- Proposed filter fields (confirm policy/product): age range, coarse distance, and profile attributes explicitly approved for filtering. Discovery preferences for who a member wants to see are configured in onboarding/settings and applied as matching rules, not as a substitute for identity fields.
 - Filter values have backend-defined bounds and defaults; provide **Reset** and **Apply**.
 - If location is not available, explain the impact and offer manual coarse-area selection if supported; browsing should not silently request permission.
+- Only show profiles the backend has determined are mutually compatible with the viewer's discovery preferences and the profile owner's visibility preferences. Never fetch a broad list and rely on the browser to hide incompatible profiles.
 
 **Card actions:** Open profile and, only after product decision, express-interest action. Avoid implying mutual interest or creating a connection before server confirmation.
 

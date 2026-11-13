@@ -14,6 +14,14 @@ This repository is currently a scaffold. This blueprint captures a practical dir
 4. **Trust without overclaiming.** Verification signals must explain what was and was not checked; verification is not a guarantee of identity, safety, or conduct.
 5. **Ship a narrow, reliable first release.** Defer costly integrations and real-time features until product value, safety readiness, and operational ownership are established.
 
+## One shared member experience
+
+Flingra is planned as one application for all eligible adults, not separate apps for men, women, lesbian, or gay users. Members should configure who they want to discover separately from who may discover them. Identity is not a proxy for those preferences, and sensitive identity details remain private unless a member chooses to display them.
+
+Discovery must be filtered server-side: a profile is eligible to appear only when it meets the viewer's discovery preferences and the profile owner's visibility preferences, in addition to account eligibility and safety rules. For example, a man choosing to discover women should see eligible women whose visibility preferences include men; a woman choosing to discover women should see eligible women whose visibility preferences include women. These examples describe preference compatibility, not assumptions about a member's identity or a separate product experience.
+
+The exact identity choices, preference options, and matching semantics remain product/privacy decisions to confirm before implementation. Keep the model flexible enough for members to select multiple audiences and change preferences without creating separate apps or disclosing private identity fields.
+
 ## Proposed first release
 
 Define launch scope with product and safety stakeholders. A reasonable first increment is:
