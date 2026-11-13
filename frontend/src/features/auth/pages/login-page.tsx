@@ -8,7 +8,8 @@ import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Button } from '@/components/ui/button'
-import { seedSignedInSession, signIn } from '@/lib/api/auth'
+import { GoogleButton } from '@/components/ui/google-button'
+import { continueWithGoogle, seedSignedInSession, signIn } from '@/lib/api/auth'
 import { ApiError } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
 
@@ -30,6 +31,7 @@ export function LoginPage() {
   const location = useLocation()
   const setSession = useSessionStore((state) => state.setSession)
   const [formError, setFormError] = useState<string | null>(null)
+  const [googleLoading, setGoogleLoading] = useState(false)
   const {
     register,
     handleSubmit,
@@ -54,12 +56,32 @@ export function LoginPage() {
     navigate('/discover')
   }
 
+  async function handleGoogle() {
+    setFormError(null)
+    setGoogleLoading(true)
+    try {
+      const { stage } = await continueWithGoogle()
+      setSession({ accountId: 'me', maskedContact: 'demo.google@gmail.com', stage })
+      navigate(STAGE_ROUTE[stage])
+    } finally {
+      setGoogleLoading(false)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-md px-4 py-12">
       <h1 className="text-2xl font-bold text-ink-900">Sign in</h1>
       <p className="mt-1 text-sm text-ink-500">Welcome back to Flingra.</p>
 
       <Card className="mt-6">
+        <GoogleButton label="Continue with Google" loading={googleLoading} onClick={handleGoogle} className="w-full" />
+
+        <div className="my-5 flex items-center gap-3 text-xs font-medium text-ink-400">
+          <span className="h-px flex-1 bg-ink-100" />
+          or sign in with email
+          <span className="h-px flex-1 bg-ink-100" />
+        </div>
+
         <form className="flex flex-col gap-5" onSubmit={handleSubmit(onSubmit)} noValidate>
           {formError && (
             <p role="alert" className="rounded-xl bg-danger/10 px-4 py-3 text-sm font-medium text-danger">

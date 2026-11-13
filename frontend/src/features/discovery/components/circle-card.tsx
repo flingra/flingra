@@ -7,7 +7,7 @@ export function CircleCard({ profile, showDistance }: { profile: MemberProfile; 
   return (
     <Link
       to={`/profiles/${profile.id}`}
-      className="group flex shrink-0 items-center gap-3 rounded-full border border-ink-100 bg-white py-2 pl-2 pr-3 shadow-soft transition-shadow hover:shadow-float"
+      className="group flex w-full items-center gap-3 rounded-full border border-ink-100 bg-white py-2 pl-2 pr-3 shadow-soft transition-shadow hover:shadow-float"
     >
       <MemberAvatar id={profile.id} name={profile.displayName} photo={profile.photos[0]} size="md" />
       <div className="min-w-0">

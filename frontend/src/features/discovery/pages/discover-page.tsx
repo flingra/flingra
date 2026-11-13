@@ -74,7 +74,7 @@ export function DiscoverPage() {
   const googleMapsReady = isGoogleMapsConfigured()
 
   return (
-    <div className="mx-auto max-w-5xl px-4 pb-10 pt-4 sm:px-6">
+    <div className="mx-auto max-w-5xl overflow-x-hidden px-4 pb-10 pt-4 sm:px-6">
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -133,7 +133,7 @@ export function DiscoverPage() {
         </p>
       )}
 
-      <div className="relative mt-4 h-[420px] overflow-hidden rounded-3xl shadow-soft sm:h-[480px]">
+      <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] mt-4 h-[80vh] min-h-[520px] w-screen overflow-hidden shadow-soft">
         {googleMapsReady ? (
           <GoogleMapView profiles={items} highlightedId={items[0]?.id} />
         ) : (
@@ -207,7 +207,7 @@ export function DiscoverPage() {
       </div>
 
       {items.length > 0 && (
-        <div className="-mx-4 mt-4 flex gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
+        <div className="mt-4 flex flex-col gap-3">
           {items.map((profile) => (
             <CircleCard key={profile.id} profile={profile} showDistance={locationEnabled} />
           ))}

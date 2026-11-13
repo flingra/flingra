@@ -108,6 +108,13 @@ export function currentSession(): Session | null {
   return sessionStore.session
 }
 
+export async function continueWithGoogle(): Promise<{ stage: AccountStage }> {
+  await delay(null, 900)
+  const stage: AccountStage = ownProfileStore.profile?.onboardingComplete ? 'active' : 'needs-onboarding'
+  sessionStore.session = { accountId: 'me', maskedContact: 'demo.google@gmail.com', stage }
+  return { stage }
+}
+
 export function seedSignedInSession() {
   sessionStore.session = { accountId: 'me', maskedContact: CURRENT_ACCOUNT.maskedContact, stage: 'active' }
   ownProfileStore.profile = {

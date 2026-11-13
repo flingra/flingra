@@ -20,7 +20,36 @@ import { useSessionStore } from '@/lib/stores/session-store'
 
 const DEMO_2FA_CODE = '123456'
 
-const INTERESTS = ['Afrobeats', 'Photography', 'Football', 'Cooking', 'Tech', 'Fashion', 'Hiking', 'Movies', 'Books', 'Travel']
+const INTERESTS = [
+  'Afrobeats',
+  'Photography',
+  'Football',
+  'Cooking',
+  'Tech',
+  'Fashion',
+  'Hiking',
+  'Movies',
+  'Books',
+  'Travel',
+  'Fitness',
+  'Gaming',
+  'Comedy',
+  'Dancing',
+  'Art',
+  'Music festivals',
+  'Nightlife',
+  'Fine dining',
+  'Volunteering',
+  'Faith & spirituality',
+  'Entrepreneurship',
+  'Cars',
+  'Pets',
+  'Wine & cocktails',
+  'Yoga',
+  'Poetry',
+  'Anime',
+  'Politics & current affairs',
+]
 const AREAS = ['Lekki, Lagos', 'Yaba, Lagos', 'Wuse, Abuja', 'GRA, Port Harcourt', 'Bodija, Ibadan', 'Asokoro, Abuja']
 
 interface Draft {
