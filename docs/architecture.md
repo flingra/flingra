@@ -31,7 +31,7 @@ Messaging, identity verification, payments, push notifications, and live audio/v
 Browser
   └── React + TypeScript web client
         └── HTTPS API
-              └── FastAPI modular monolith
+              └── Go modular monolith (HTTP API)
                     ├── MySQL: durable application data
                     ├── Optional Redis: cache, rate limits, or queue broker
                     ├── Optional worker: bounded asynchronous jobs
@@ -48,12 +48,12 @@ Keep the API as the authority for identity, authorization, validation, and busin
 | UI and navigation | Tailwind CSS, shadcn/ui, React Router | Consistent responsive interface |
 | Client data/forms | TanStack Query, React Hook Form, Zod | API state, form state, immediate feedback |
 | Shared client state | Zustand | Only cross-route client state not owned by URL, form, or server cache |
-| API | Python, FastAPI, Pydantic | Typed HTTP API and generated OpenAPI |
-| Persistence | MySQL 8.4 LTS, SQLAlchemy, Alembic | Durable relational data and controlled migrations |
-| Tests | Vitest, Playwright, Pytest | Client units/components, user journeys, backend rules/APIs |
+| API | Go, standard `net/http` library, OpenAPI contract | Small HTTP API with minimal framework/runtime dependencies |
+| Persistence | MySQL 8.4 LTS, Go SQL driver, versioned SQL migrations | Durable relational data and controlled schema changes |
+| Tests | Vitest, Playwright, Go `testing` package | Client units/components, user journeys, backend rules/APIs |
 | Delivery/operations | Docker, GitHub Actions, Sentry | Repeatable builds, CI, error visibility |
 
-Redis, Celery, WebSockets, LiveKit, Google Maps, payment providers, Termii, Firebase Cloud Messaging, and S3-compatible storage are optional integrations, not baseline requirements. Choose providers after confirming regional availability, privacy and contractual terms, cost, reliability, and a tested fallback/failure path.
+Redis, a job queue, WebSockets, LiveKit, Google Maps, payment providers, Termii, Firebase Cloud Messaging, and S3-compatible storage are optional integrations, not baseline requirements. Choose providers after confirming regional availability, privacy and contractual terms, cost, reliability, and a tested fallback/failure path.
 
 ## Shared security baseline
 

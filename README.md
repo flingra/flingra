@@ -17,10 +17,10 @@ This repository is currently a scaffold. The technology choices below are a reco
 | --- | --- |
 | Web client | React, TypeScript, Vite, Tailwind CSS, shadcn/ui, React Router |
 | Client data and forms | TanStack Query, React Hook Form, Zod; add Zustand only for genuinely shared client-only state |
-| API | Python, FastAPI, Pydantic, OpenAPI |
-| Data | MySQL 8.4 LTS, SQLAlchemy, Alembic |
+| API | Go, `net/http`, OpenAPI |
+| Data | MySQL 8.4 LTS, Go SQL driver, versioned SQL migrations |
 | Runtime services | Redis and a job queue when asynchronous workloads require them |
-| Testing | Vitest and Playwright; Pytest |
+| Testing | Vitest and Playwright; Go's `testing` package |
 | Delivery | Docker, GitHub Actions, Sentry |
 
 Integrations such as payments, SMS, push notifications, maps, object storage, and real-time audio/video should be selected and enabled only for a defined product requirement. Keep provider credentials server-side and verify regional availability, legal requirements, costs, and operational support before committing to a vendor.
