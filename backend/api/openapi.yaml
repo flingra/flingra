@@ -1,0 +1,191 @@
+openapi: 3.1.0
+info:
+  title: Flingra API
+  version: 1.0.0
+  description: Initial account registration, email verification, and browser session contract.
+servers:
+  - url: http://localhost:8080
+paths:
+  /health/live:
+    get:
+      summary: Check whether the API process is alive
+      responses:
+        "204":
+          description: Process is alive
+  /health/ready:
+    get:
+      summary: Check whether required dependencies are ready
+      responses:
+        "204":
+          description: API and database are ready
+        "503":
+          description: Required dependency unavailable
+  /api/v1/auth/register:
+    post:
+      summary: Create a pending member account and send email verification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "202":
+          description: Registration accepted; verify the email address
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, next_step]
+                properties:
+                  status: { type: string, const: accepted }
+                  next_step: { type: string, const: verify_email }
+        "413":
+          description: Request body too large
+        "422":
+          $ref: "#/components/responses/APIError"
+        "503":
+          $ref: "#/components/responses/APIError"
+  /api/v1/auth/email-verification/confirm:
+    post:
+      summary: Consume a single-use email verification token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, minLength: 1, maxLength: 256 }
+      responses:
+        "200":
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [member_id, account_state]
+                properties:
+                  member_id: { type: string }
+                  account_state: { type: string, const: age_review_required }
+        "422":
+          $ref: "#/components/responses/APIError"
+  /api/v1/auth/login:
+    post:
+      summary: Create a server-side browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier: { type: string, format: email, maxLength: 254 }
+                password: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        "200":
+          description: Session created; session cookie set
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/APIError"
+        "403":
+          $ref: "#/components/responses/APIError"
+  /api/v1/auth/session:
+    get:
+      summary: Read the current member session and CSRF token
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Current session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/APIError"
+  /api/v1/auth/logout:
+    post:
+      summary: Revoke the current session
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Session revoked and cookie expired
+        "401":
+          $ref: "#/components/responses/APIError"
+        "403":
+          $ref: "#/components/responses/APIError"
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-flingra_session
+  schemas:
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, date_of_birth, gender, emergency_contact, terms_version, privacy_version]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 12, maxLength: 128, writeOnly: true }
+        date_of_birth: { type: string, format: date }
+        gender: { type: string, enum: [male, female] }
+        emergency_contact:
+          type: object
+          additionalProperties: false
+          required: [name, phone_e164]
+          properties:
+            name: { type: string, minLength: 1, maxLength: 100 }
+            phone_e164: { type: string, pattern: "^\\+[1-9][0-9]{6,14}$" }
+        terms_version: { type: string, minLength: 1, maxLength: 64 }
+        privacy_version: { type: string, minLength: 1, maxLength: 64 }
+    Session:
+      type: object
+      required: [member_id, account_state, contact_verified, csrf_token]
+      properties:
+        member_id: { type: string }
+        account_state: { type: string }
+        contact_verified: { type: boolean }
+        csrf_token: { type: string }
+    APIError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            request_id: { type: string }
+            field_errors:
+              type: array
+              items:
+                type: object
+                required: [field, code, message]
+                properties:
+                  field: { type: string }
+                  code: { type: string }
+                  message: { type: string }
+  responses:
+    APIError:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
