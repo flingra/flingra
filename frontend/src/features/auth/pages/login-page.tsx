@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Button } from '@/components/ui/button'
 import { GoogleButton } from '@/components/ui/google-button'
+import { AuthPageShell } from '../components/auth-page-shell'
 import { continueWithGoogle, seedSignedInSession, signIn } from '@/lib/api/auth'
 import { ApiError } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
@@ -69,11 +70,31 @@ export function LoginPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-12">
-      <h1 className="text-2xl font-bold text-ink-900">Sign in</h1>
-      <p className="mt-1 text-sm text-ink-500">Welcome back to Flingra.</p>
-
-      <Card className="mt-6">
+    <AuthPageShell
+      title="Sign in"
+      subtitle="Welcome back to Flingra."
+      footer={
+        <>
+          <p className="text-xs text-ink-400">Demo credentials: you@example.com / Password1!</p>
+          <p className="mt-3">
+            New to Flingra?{' '}
+            <Link to="/signup" className="font-semibold text-primary-600 hover:underline">
+              Create an account
+            </Link>
+          </p>
+          <p className="mt-2">
+            <button
+              type="button"
+              onClick={handleDemo}
+              className="cursor-pointer font-semibold text-ink-400 underline-offset-4 transition-colors hover:text-ink-700 hover:underline"
+            >
+              Continue with a demo profile
+            </button>
+          </p>
+        </>
+      }
+    >
+      <Card className="transition-shadow duration-300 hover:shadow-float">
         <GoogleButton label="Continue with Google" loading={googleLoading} onClick={handleGoogle} className="w-full" />
 
         <div className="my-5 flex items-center gap-3 text-xs font-medium text-ink-400">
@@ -108,23 +129,6 @@ export function LoginPage() {
           </Button>
         </form>
       </Card>
-
-      <p className="mt-6 text-center text-xs text-ink-400">
-        Demo credentials: you@example.com / Password1!
-      </p>
-
-      <p className="mt-3 text-center text-sm text-ink-500">
-        New to Flingra?{' '}
-        <Link to="/signup" className="font-semibold text-primary-600 hover:underline">
-          Create an account
-        </Link>
-      </p>
-
-      <p className="mt-2 text-center text-sm">
-        <button type="button" onClick={handleDemo} className="cursor-pointer font-semibold text-ink-400 underline-offset-4 hover:text-ink-700 hover:underline">
-          Continue with a demo profile
-        </button>
-      </p>
-    </div>
+    </AuthPageShell>
   )
 }

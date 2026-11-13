@@ -207,7 +207,7 @@ export function DiscoverPage() {
       </div>
 
       {items.length > 0 && (
-        <div className="mt-4 flex flex-col gap-3">
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {items.map((profile) => (
             <CircleCard key={profile.id} profile={profile} showDistance={locationEnabled} />
           ))}

@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { AuthPageShell } from '../components/auth-page-shell'
 import { requestPasswordReset } from '@/lib/api/auth'
 
 const schema = z.object({ identifier: z.string().min(1, 'Enter your email or mobile number.') })
@@ -26,11 +27,16 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-12">
-      <h1 className="text-2xl font-bold text-ink-900">Reset your password</h1>
-      <p className="mt-1 text-sm text-ink-500">We'll send recovery instructions if an account matches.</p>
-
-      <Card className="mt-6">
+    <AuthPageShell
+      title="Reset your password"
+      subtitle="We'll send recovery instructions if an account matches."
+      footer={
+        <Link to="/login" className="font-semibold text-primary-600 hover:underline">
+          Back to sign in
+        </Link>
+      }
+    >
+      <Card className="transition-shadow duration-300 hover:shadow-float">
         {sent ? (
           <p role="status" className="text-sm text-ink-700">
             If an account matches those details, recovery instructions will be sent. Check your email or
@@ -47,12 +53,6 @@ export function ForgotPasswordPage() {
           </form>
         )}
       </Card>
-
-      <p className="mt-6 text-center text-sm text-ink-500">
-        <Link to="/login" className="font-semibold text-primary-600 hover:underline">
-          Back to sign in
-        </Link>
-      </p>
-    </div>
+    </AuthPageShell>
   )
 }

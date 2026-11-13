@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Button } from '@/components/ui/button'
+import { AuthPageShell } from '../components/auth-page-shell'
 import { resetPassword } from '@/lib/api/auth'
 import { ApiError } from '@/lib/api/types'
 
@@ -44,10 +45,8 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-12">
-      <h1 className="text-2xl font-bold text-ink-900">Set a new password</h1>
-
-      <Card className="mt-6">
+    <AuthPageShell title="Set a new password">
+      <Card className="transition-shadow duration-300 hover:shadow-float">
         {done ? (
           <div className="flex flex-col gap-4">
             <p role="status" className="text-sm text-ink-700">
@@ -84,6 +83,6 @@ export function ResetPasswordPage() {
           </form>
         )}
       </Card>
-    </div>
+    </AuthPageShell>
   )
 }

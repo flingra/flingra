@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { AuthPageShell } from '../components/auth-page-shell'
 import { resendCode, verifyContact } from '@/lib/api/auth'
 import { ApiError } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
@@ -47,13 +48,16 @@ export function VerifyContactPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-12">
-      <h1 className="text-2xl font-bold text-ink-900">Verify your contact</h1>
-      <p className="mt-1 text-sm text-ink-500">
-        We sent a 6-digit code to {session?.maskedContact ?? 'your contact'}.
-      </p>
-
-      <Card className="mt-6">
+    <AuthPageShell
+      title="Verify your contact"
+      subtitle={`We sent a 6-digit code to ${session?.maskedContact ?? 'your contact'}.`}
+      footer={
+        <Link to="/login" className="font-semibold text-primary-600 hover:underline">
+          Back to sign in
+        </Link>
+      }
+    >
+      <Card className="transition-shadow duration-300 hover:shadow-float">
         <form className="flex flex-col gap-5" onSubmit={onSubmit} noValidate>
           {error && (
             <p role="alert" className="rounded-xl bg-danger/10 px-4 py-3 text-sm font-medium text-danger">
@@ -81,12 +85,6 @@ export function VerifyContactPage() {
           </Button>
         </form>
       </Card>
-
-      <p className="mt-6 text-center text-sm text-ink-500">
-        <Link to="/login" className="font-semibold text-primary-600 hover:underline">
-          Back to sign in
-        </Link>
-      </p>
-    </div>
+    </AuthPageShell>
   )
 }

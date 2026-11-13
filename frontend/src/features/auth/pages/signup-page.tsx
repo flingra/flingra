@@ -12,6 +12,7 @@ import { Chip } from '@/components/ui/chip'
 import { Button } from '@/components/ui/button'
 import { GoogleButton } from '@/components/ui/google-button'
 import { ProgressSteps } from '@/components/ui/progress-steps'
+import { AuthPageShell } from '../components/auth-page-shell'
 import { continueWithGoogle, currentSession, signUp } from '@/lib/api/auth'
 import { ApiError, type AccountStage } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
@@ -118,11 +119,19 @@ export function SignUpPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-12">
-      <h1 className="text-2xl font-bold text-ink-900">Create your account</h1>
-      <p className="mt-1 text-sm text-ink-500">Flingra is for consenting adults.</p>
-
-      <Card className="mt-6">
+    <AuthPageShell
+      title="Create your account"
+      subtitle="Flingra is for consenting adults."
+      footer={
+        <>
+          Already have an account?{' '}
+          <Link to="/login" className="font-semibold text-primary-600 hover:underline">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      <Card className="transition-shadow duration-300 hover:shadow-float">
         <ProgressSteps current={step} total={TOTAL_STEPS} label="Sign-up progress" />
 
         {step === 1 && (
@@ -255,13 +264,6 @@ export function SignUpPage() {
           </div>
         </form>
       </Card>
-
-      <p className="mt-6 text-center text-sm text-ink-500">
-        Already have an account?{' '}
-        <Link to="/login" className="font-semibold text-primary-600 hover:underline">
-          Sign in
-        </Link>
-      </p>
-    </div>
+    </AuthPageShell>
   )
 }
