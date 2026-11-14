@@ -1,6 +1,6 @@
 # Flingra frontend → backend handoff
 
-Status: the entire frontend (`frontend/`, branch `test`) is built and working against a mock API layer — no real backend exists yet. This document is the contract: every endpoint, data shape, business rule, and edge case the frontend already assumes. Build the real API to match this, not the other way around, unless something here is wrong or needs to change — in that case flag it so the frontend gets updated too.
+Status: the frontend (`frontend/`, branch `test`) is built and working against a mock API layer. The Python backend now has an initial auth/session and own-profile API slice, but the frontend is not yet connected to it and most endpoints remain mock-only. This document is the contract: every endpoint, data shape, business rule, and edge case the frontend already assumes. Build the real API to match this, not the other way around, unless something here is wrong or needs to change — in that case flag it so the frontend gets updated too.
 
 The mock layer lives in `frontend/src/lib/api/*.ts`. Each file below is both the mock implementation today and the target REST contract tomorrow. Every function is `async`, called from React Query hooks or event handlers, and returns/throws exactly what's described. Swap the body of each function for a real `fetch` call; keep the same function signature and return shape so none of the ~40 page/component files need to change.
 
@@ -60,8 +60,6 @@ interface OwnProfile extends MemberProfile {
   twoFactorEnabled?: boolean
   twoFactorMethod?: 'email' | 'authenticator'
   onboardingComplete?: boolean
-  selfieVerification?: VerificationStatus   // required for every account
-  selfiePhoto?: string
   documentVerification?: VerificationStatus // required for female accounts only (NIN/BVN/voter's card)
   documentType?: VerificationDocumentType
   vipExpiresAt?: string        // ISO date; past this, tier reverts to 'free'
@@ -162,9 +160,9 @@ interface SafetyCheckIn { id: string; message: string; notifiedContacts: string[
 | `signOut()` | `POST /auth/logout` | Clears session. |
 | `currentSession()` | n/a (client reads cached session) | Real client reads session from cookie/local state, not a live call every time. |
 | `completeOnboarding()` | implicit side-effect of the last onboarding step | Marks the session `active` once onboarding finishes — **this must be a real, durable server-side state transition**, not just client state, or a page reload mid-flow bounces the user back into onboarding (this was an actual bug fixed in the frontend; don't reintroduce it server-side). |
-| `continueWithGoogle()` → `{ stage }` | `POST /auth/oauth/google` (or redirect flow) | Google sign-ups still go through the full onboarding flow (profile, selfie verification, etc.) — there is no "skip onboarding because OAuth" shortcut anywhere in the frontend. |
+| `continueWithGoogle()` → `{ stage }` | `POST /auth/oauth/google` (or redirect flow) | Google sign-ups still go through the full onboarding flow; there is no "skip onboarding because OAuth" shortcut anywhere in the frontend. |
 
-**Session model**: cookie-based, `HttpOnly`, server-authoritative stage (`needs-verification` → `needs-onboarding` → `active`). The frontend's route guards (`ProtectedRoute`/`PublicOnlyRoute` in `app/protected-route.tsx`) gate entire route trees on `session.stage`, so the backend must be the source of truth for which stage an account is in at all times — the frontend never infers stage from anything else.
+**Session model**: cookie-based, `HttpOnly`, server-authoritative stage (`needs-verification` → `needs-onboarding` → `active`). The frontend's route guards (`ProtectedRoute`/`PublicOnlyRoute` in `app/protected-route.tsx`) gate entire route trees on `session.stage`, so the backend must be the source of truth for which stage an account is in at all times — the frontend never infers stage from anything else. Requests to `/auth/verify-contact`, `/auth/resend-code`, `/auth/logout`, `/auth/onboarding/complete`, and authenticated profile mutations must send the `flingra_csrf` cookie value in the `X-CSRF-Token` header. In configured deployments, also send an `Origin` matching the backend's allowlist.
 
 ## 4. Profiles & discovery (`lib/api/profiles.ts`)
 
@@ -212,7 +210,7 @@ A free viewer can always **see** a VIP member's profile, but cannot message, cal
 ### 6.4 Gender-gated features
 - **Livestreaming is female-only**: `startStream` throws `LIVESTREAM_RESTRICTED` if `profile.identity !== 'woman'`. Enforce server-side.
 - **Meetup payments only flow man → woman**: `proposeMeetupPayment` throws `PAYER_RESTRICTED` if the proposer isn't a man, `RECIPIENT_RESTRICTED` if the target isn't a woman. Enforce server-side.
-- **Document verification (NIN/BVN/voter's card) is required for women only**; selfie verification is required for **every** account regardless of gender. See §9.
+- **Document verification (NIN/BVN/voter's card) is required for women only.** Accounts are subject to manual admin review; no facial-recognition or selfie verification is used.
 
 ### 6.5 Meetup payment escrow — explicit propose/accept handshake
 This is the most stateful flow in the app and was deliberately redesigned mid-project from an instant-hold model into a two-step handshake (per product decision — do not regress to instant-hold):
@@ -278,9 +276,8 @@ Real payment: this currently debits the mock in-app wallet, which itself is only
 
 Not its own API file yet — reads/writes land on `OwnProfile` fields directly via `saveOwnProfile`. Model it as a first-class verification resource if useful, but preserve these semantics:
 
-- **Selfie liveness check**: mandatory for **every** account, captured as a blocking step during onboarding (users cannot continue onboarding without it). Mock does a ~1.4s fake check and sets `selfieVerification: 'verified'` — **real backend needs an actual liveness/selfie-match provider**, and must support `'pending'`/`'rejected'` outcomes (the mock always "succeeds" for demo purposes; don't assume real checks always pass).
 - **Government ID (NIN / BVN / voter's card)**: required for **female accounts only**, uploaded from `/settings/verification`, stays `'pending'` after upload (not auto-approved — modeled as realistic: a human/automated review step happens after submission, out of scope of this frontend). `documentType` records which ID type was submitted.
-- Google OAuth sign-ups go through the exact same selfie + (if female) document verification steps — there is no OAuth shortcut around verification.
+- Google OAuth sign-ups go through the same onboarding and manual admin-review flow; there is no OAuth shortcut around review.
 
 ## 10. Wallet, payments & payouts — what's real vs. what's a placeholder
 

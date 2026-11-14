@@ -1,7 +1,7 @@
 import { type ChangeEvent, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Camera, KeyRound, Mail, MapPin as MapPinIcon, QrCode, ShieldCheck, UserRound } from 'lucide-react'
+import { Camera, KeyRound, Mail, MapPin as MapPinIcon, QrCode } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { MapBackground } from '@/components/ui/map-background'
 import { Field } from '@/components/ui/field'
@@ -58,17 +58,12 @@ export function OnboardingPage() {
   const setSession = useSessionStore((state) => state.setSession)
   const { data: existingProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
   const isWoman = existingProfile?.identity === 'woman'
-  const totalSteps = isWoman ? 6 : 5
+  const totalSteps = isWoman ? 5 : 4
 
   const [step, setStep] = useState(1)
   const [draft, setDraft] = useState<Draft>(initialDraft)
   const [uploading, setUploading] = useState(false)
   const [finishing, setFinishing] = useState(false)
-
-  const [selfiePhoto, setSelfiePhoto] = useState<string | null>(null)
-  const [uploadingSelfie, setUploadingSelfie] = useState(false)
-  const [verifyingSelfie, setVerifyingSelfie] = useState(false)
-  const [selfieVerified, setSelfieVerified] = useState(false)
 
   const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | 'authenticator' | null>(null)
   const [codeSent, setCodeSent] = useState(false)
@@ -106,29 +101,6 @@ export function OnboardingPage() {
     }
   }
 
-  async function handleSelfieChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    setUploadingSelfie(true)
-    setSelfieVerified(false)
-    try {
-      const url = await uploadPhoto(file)
-      setSelfiePhoto(url)
-    } finally {
-      setUploadingSelfie(false)
-    }
-  }
-
-  function handleVerifySelfie() {
-    setVerifyingSelfie(true)
-    // Mock liveness/face check — a real integration would call a verification provider here.
-    setTimeout(() => {
-      setVerifyingSelfie(false)
-      setSelfieVerified(true)
-      showToast({ title: 'Identity verified', description: 'Your selfie matches your profile photo.', variant: 'success' })
-    }, 1400)
-  }
-
   async function finish() {
     setFinishing(true)
     try {
@@ -145,8 +117,6 @@ export function OnboardingPage() {
         distanceKm: 0,
         moderationStatus: 'pending',
         onboardingComplete: true,
-        selfieVerification: 'verified',
-        selfiePhoto: selfiePhoto ?? undefined,
         ...(isWoman ? { documentVerification: 'unverified' as const } : {}),
         ...(twoFactorMethod ? { twoFactorEnabled: true, twoFactorMethod } : {}),
       })
@@ -211,61 +181,6 @@ export function OnboardingPage() {
       {step === 2 && (
         <div className="mt-6 flex flex-col gap-5">
           <div>
-            <h1 className="text-xl font-bold text-ink-900">Verify it's you</h1>
-            <p className="mt-1 text-sm text-ink-500">
-              A quick selfie confirms a real person is behind this account and helps keep Flingra safe. Required
-              for every member.
-            </p>
-          </div>
-
-          <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-50 p-6">
-            <div className="relative">
-              <Avatar name="?" src={selfiePhoto ?? undefined} size="xl" className="size-28" />
-              {selfieVerified && (
-                <span className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full bg-success text-white shadow-soft">
-                  <ShieldCheck className="size-4" aria-hidden="true" />
-                </span>
-              )}
-            </div>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-ink-200 bg-white px-4 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50">
-              <UserRound className="size-4" aria-hidden="true" />
-              {uploadingSelfie ? 'Uploading…' : selfiePhoto ? 'Retake selfie' : 'Take a selfie'}
-              <input
-                type="file"
-                accept="image/*"
-                capture="user"
-                className="sr-only"
-                onChange={handleSelfieChange}
-                disabled={uploadingSelfie}
-              />
-            </label>
-          </div>
-
-          {selfiePhoto && !selfieVerified && (
-            <Button loading={verifyingSelfie} onClick={handleVerifySelfie}>
-              Verify my identity
-            </Button>
-          )}
-          {selfieVerified && (
-            <p className="flex items-center gap-1.5 text-sm font-medium text-success">
-              <ShieldCheck className="size-4" aria-hidden="true" /> Verified
-            </p>
-          )}
-
-          <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={() => setStep(1)}>
-              Back
-            </Button>
-            <Button className="flex-1" disabled={!selfieVerified} onClick={() => setStep(3)}>
-              Continue
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {step === 3 && (
-        <div className="mt-6 flex flex-col gap-5">
-          <div>
             <h1 className="text-xl font-bold text-ink-900">Identity &amp; discovery</h1>
             <p className="mt-1 text-sm text-ink-500">
               Your identity stays private unless you choose to show it. This only controls who you see and
@@ -321,7 +236,7 @@ export function OnboardingPage() {
           </Field>
 
           <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={() => setStep(2)}>
+            <Button variant="secondary" className="flex-1" onClick={() => setStep(1)}>
               Back
             </Button>
             <Button className="flex-1" onClick={() => setStep(4)}>
@@ -331,7 +246,7 @@ export function OnboardingPage() {
         </div>
       )}
 
-      {step === 4 && (
+      {step === 3 && (
         <div className="mt-6 flex flex-col gap-5">
           <div>
             <h1 className="text-xl font-bold text-ink-900">Location</h1>
@@ -373,17 +288,17 @@ export function OnboardingPage() {
           </Field>
 
           <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={() => setStep(3)}>
+            <Button variant="secondary" className="flex-1" onClick={() => setStep(2)}>
               Back
             </Button>
-            <Button className="flex-1" onClick={() => setStep(5)}>
+            <Button className="flex-1" onClick={() => setStep(4)}>
               Continue
             </Button>
           </div>
         </div>
       )}
 
-      {step === 5 && (
+      {step === 4 && (
         <div className="mt-6 flex flex-col gap-5">
           <div>
             <h1 className="text-xl font-bold text-ink-900">Review &amp; finish</h1>
@@ -397,6 +312,12 @@ export function OnboardingPage() {
               {draft.showIdentity && draft.identity !== 'private' ? ` · ${draft.identity}` : ''}
             </p>
             {draft.interests.length > 0 && <p className="mt-1 text-sm text-ink-600">{draft.interests.join(', ')}</p>}
+          </div>
+          <div className="rounded-2xl border border-primary-200 bg-primary-50 p-4">
+            <p className="text-sm font-semibold text-primary-800">Manual account review</p>
+            <p className="mt-1 text-sm text-primary-700">
+              Our admin team will review your account and may approve or block it if it does not meet our requirements.
+            </p>
           </div>
           <div className="rounded-2xl bg-ink-50 p-4">
             <p className="text-sm font-semibold text-ink-900">Stays private</p>
@@ -416,11 +337,11 @@ export function OnboardingPage() {
           )}
 
           <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={() => setStep(4)}>
+            <Button variant="secondary" className="flex-1" onClick={() => setStep(3)}>
               Back
             </Button>
             {isWoman ? (
-              <Button className="flex-1" onClick={() => setStep(6)}>
+              <Button className="flex-1" onClick={() => setStep(5)}>
                 Continue
               </Button>
             ) : (
@@ -432,7 +353,7 @@ export function OnboardingPage() {
         </div>
       )}
 
-      {step === 6 && isWoman && (
+      {step === 5 && isWoman && (
         <div className="mt-6 flex flex-col gap-5">
           <div>
             <h1 className="text-xl font-bold text-ink-900">Set up two-factor authentication</h1>
@@ -531,7 +452,7 @@ export function OnboardingPage() {
                   setTwoFactorCode('')
                   setTwoFactorError(null)
                 } else {
-                  setStep(5)
+                  setStep(4)
                 }
               }}
             >

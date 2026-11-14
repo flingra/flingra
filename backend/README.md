@@ -1,5 +1,5 @@
 # Backend
- 
+
 The backend API is being built with Python and FastAPI, using MySQL as described in
 [`frontend/architecture.md`](../frontend/architecture.md). It is designed to
 implement the contract in [`frontend/docs/backend-handoff.md`](../frontend/docs/backend-handoff.md).
@@ -66,9 +66,10 @@ database provider does not grant these privileges to the application user, set
 have the database administrator apply the SQL migrations. Do not grant the
 runtime account broad DDL privileges just to make the application start.
 
-The migration command applies the existing account/session migrations and the
+The migration command applies the existing account/session migrations, the
 forward migration aligning account identifiers, genders, and profiles with the
-frontend contract. It records applied migration filenames in `schema_migrations`.
+frontend contract, and the migration removing facial-verification data. It
+records applied migration filenames in `schema_migrations`.
 For a database containing the legacy tables but no migration history, it marks
 the four existing migrations as the baseline, then applies the new migration.
 Review and back up a non-disposable database before applying schema changes.
@@ -83,7 +84,7 @@ python -m uvicorn app.main:app --reload
 checks that the database is configured and reachable. Database migrations must be
 applied before feature endpoints are enabled. On startup, the Uvicorn terminal
 logs whether the database connection check succeeded or failed; the API still
-starts if the database is unavailable so the liveness endpoint remains usable.
+starts if the database is unavailable so the process liveness endpoint remains usable.
 
 ## Current scope
 
@@ -102,8 +103,8 @@ headers. Email verification
 and password resets use Brevo's transactional email API and require a configured
 API key and verified sender address. The API key is loaded as a secret and is
 never included in logs or API error responses. Phone-based signup is
-currently unavailable until an SMS provider is configured. Selfie verification
-cannot be marked verified by the client, so onboarding completion remains
-blocked until a real verification provider is connected. The frontend still
-uses its mock API and will need an API-client integration before it calls these
-routes.
+currently unavailable until an SMS provider is configured. Facial/selfie
+verification is not used. Completed profiles enter pending moderation for
+manual admin review; admin review and approval/blocking controls are not yet
+implemented. The frontend still uses its mock API and will need an API-client
+integration before it calls these routes.

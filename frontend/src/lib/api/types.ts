@@ -49,9 +49,6 @@ export interface OwnProfile extends MemberProfile {
   twoFactorEnabled?: boolean
   twoFactorMethod?: 'email' | 'authenticator'
   onboardingComplete?: boolean
-  /** Selfie liveness check captured during onboarding, required for every account. */
-  selfieVerification?: VerificationStatus
-  selfiePhoto?: string
   /** Government ID check, required for female accounts to vet claimed age/identity. */
   documentVerification?: VerificationStatus
   documentType?: VerificationDocumentType

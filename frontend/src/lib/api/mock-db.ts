@@ -142,7 +142,6 @@ export const PROFILES: OwnProfile[] = NAMES.map((person, index) => ({
   identity: person.identity,
   showIdentity: index % 3 !== 0,
   moderationStatus: 'approved',
-  selfieVerification: 'verified',
   documentVerification: person.identity === 'woman' ? 'verified' : undefined,
   subscriptionTier: index % 5 === 1 ? ('vip' as const) : ('free' as const),
 }))

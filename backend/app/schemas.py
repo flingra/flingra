@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -24,7 +24,7 @@ class SignUpRequest(BaseModel):
 
     sex: Literal["man", "woman"]
     identifier: str = Field(min_length=1, max_length=254)
-    password: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
     date_of_birth: date = Field(alias="dateOfBirth")
     accepted_terms: bool = Field(alias="acceptedTerms")
     referral_code: str | None = Field(default=None, alias="referralCode", max_length=64)
@@ -49,10 +49,25 @@ class VerifyContactRequest(BaseModel):
     code: str = Field(min_length=1, max_length=12)
 
 
+class PasswordResetRequest(BaseModel):
+    identifier: str = Field(min_length=1, max_length=254)
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=256)
+    password: str = Field(min_length=8, max_length=128)
+
+
 class ProfileVideo(BaseModel):
-    url: str
+    model_config = ConfigDict(populate_by_name=True)
+
+    url: str = Field(min_length=1, max_length=2048)
     locked: bool | None = None
-    price_naira: int | None = Field(default=None, serialization_alias="priceNaira")
+    price_naira: int | None = Field(
+        default=None,
+        validation_alias="priceNaira",
+        serialization_alias="priceNaira",
+    )
 
 
 class OwnProfileResponse(BaseModel):
@@ -80,10 +95,6 @@ class OwnProfileResponse(BaseModel):
         default=None, serialization_alias="twoFactorMethod"
     )
     onboarding_complete: bool | None = Field(default=None, serialization_alias="onboardingComplete")
-    selfie_verification: VerificationStatus | None = Field(
-        default=None, serialization_alias="selfieVerification"
-    )
-    selfie_photo: str | None = Field(default=None, serialization_alias="selfiePhoto")
     document_verification: VerificationStatus | None = Field(
         default=None, serialization_alias="documentVerification"
     )
@@ -98,10 +109,17 @@ class OwnProfilePatch(BaseModel):
 
     display_name: str | None = Field(default=None, alias="displayName", max_length=100)
     bio: str | None = Field(default=None, max_length=2000)
-    photos: list[str] | None = None
-    videos: list[ProfileVideo] | None = None
+    photos: list[Annotated[str, Field(min_length=1, max_length=2048)]] | None = Field(
+        default=None,
+        max_length=10,
+    )
+    videos: list[ProfileVideo] | None = Field(default=None, max_length=10)
+    distance_km: float | None = Field(default=None, alias="distanceKm", ge=0)
     area: str | None = Field(default=None, max_length=160)
-    interests: list[str] | None = None
+    interests: list[Annotated[str, Field(min_length=1, max_length=100)]] | None = Field(
+        default=None,
+        max_length=30,
+    )
     discoverable_by: AudiencePreference | None = Field(default=None, alias="discoverableBy")
     wants_to_discover: AudiencePreference | None = Field(default=None, alias="wantsToDiscover")
     identity: Literal["man", "woman", "private"] | None = None
@@ -110,12 +128,6 @@ class OwnProfilePatch(BaseModel):
     two_factor_method: Literal["email", "authenticator"] | None = Field(
         default=None, alias="twoFactorMethod"
     )
-    selfie_verification: VerificationStatus | None = Field(default=None, alias="selfieVerification")
-    selfie_photo: str | None = Field(default=None, alias="selfiePhoto")
-    document_verification: VerificationStatus | None = Field(
-        default=None, alias="documentVerification"
-    )
-    document_type: VerificationDocumentType | None = Field(default=None, alias="documentType")
 
 
 class CurrentSessionResponse(SessionResponse):

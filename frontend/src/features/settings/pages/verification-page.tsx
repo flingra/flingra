@@ -1,6 +1,6 @@
 import { type ChangeEvent, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { BadgeCheck, Clock, FileText, ShieldAlert, ShieldCheck, UserRound } from 'lucide-react'
+import { BadgeCheck, Clock, FileText, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Select } from '@/components/ui/select'
 import { PageSpinner } from '@/components/ui/spinner'
@@ -68,21 +68,8 @@ export function VerificationPage() {
         Verification keeps Flingra safe by confirming members are who they say they are.
       </p>
 
-      <Card className="mt-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
-            <UserRound className="size-5" aria-hidden="true" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-bold text-ink-900">Selfie verification</h2>
-            <p className="text-sm text-ink-500">Confirmed during onboarding for every account.</p>
-          </div>
-          <StatusBadge status={profile.selfieVerification ?? 'unverified'} />
-        </div>
-      </Card>
-
       {isWoman && (
-        <Card className="mt-4">
+        <Card className="mt-6">
           <div className="flex flex-wrap items-center gap-3">
             <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
               <BadgeCheck className="size-5" aria-hidden="true" />
