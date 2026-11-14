@@ -40,6 +40,8 @@ Thumbs.db
 .idea/
 
 # Python
+.venv/
+*.egg-info/
 __pycache__/
 *.py[cod]
 .pytest_cache/
