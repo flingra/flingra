@@ -4,13 +4,14 @@ import logging
 import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Request, Response
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.audit import record_audit_event
 from app.config import Settings
 from app.dependencies import db_session
 from app.errors import ApiException, ServiceUnavailable
@@ -136,19 +137,49 @@ def _clear_session_cookies(response: Response, request: Request) -> None:
 
 def require_csrf(
     request: Request,
+    db: DbSession,
     csrf_header: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
 ) -> None:
     settings = get_app_settings(request)
     origin = request.headers.get("origin")
-    if settings.allowed_origins and (
-        origin is None or origin not in settings.allowed_origins
-    ):
-        raise ApiException("CSRF_FAILED", "Refresh the page and try again.", 403)
+    failure_reason = (
+        "origin_not_allowed"
+        if settings.allowed_origins and (origin is None or origin not in settings.allowed_origins)
+        else None
+    )
 
     cookie_token = request.cookies.get("flingra_csrf")
     if not cookie_token or not csrf_header or not re.fullmatch(r"[A-Za-z0-9_-]{20,128}", csrf_header):
-        raise ApiException("CSRF_FAILED", "Refresh the page and try again.", 403)
-    if not hmac.compare_digest(cookie_token, csrf_header):
+        failure_reason = failure_reason or "token_missing_or_malformed"
+    elif not hmac.compare_digest(cookie_token, csrf_header):
+        failure_reason = failure_reason or "token_mismatch"
+    if failure_reason is not None:
+        raw_token = request.cookies.get(settings.session_cookie_name)
+        account_id = (
+            db.execute(
+                text(
+                    """
+                    SELECT account_id FROM sessions
+                    WHERE session_token_hash = :token_hash
+                      AND revoked_at IS NULL AND expires_at > :now
+                    """
+                ),
+                {"token_hash": hash_token(raw_token), "now": _now()},
+            ).scalar_one_or_none()
+            if raw_token
+            else None
+        )
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.csrf.denied",
+            actor_type="user" if account_id is not None else "anonymous",
+            actor_id=str(account_id) if account_id is not None else None,
+            subject_account_id=str(account_id) if account_id is not None else None,
+            outcome="denied",
+            metadata={"reason": failure_reason},
+        )
+        db.commit()
         raise ApiException("CSRF_FAILED", "Refresh the page and try again.", 403)
 
 
@@ -240,6 +271,27 @@ def _new_verification_code(db: Session, account_id: str) -> str:
     return code
 
 
+def _record_rejected_signup(
+    db: Session,
+    request: Request,
+    reason: str,
+    *,
+    outcome: Literal["denied", "failure"] = "denied",
+    subject_account_id: str | None = None,
+) -> None:
+    record_audit_event(
+        db,
+        request,
+        event_type="auth.signup",
+        actor_type="anonymous",
+        actor_id=None,
+        subject_account_id=subject_account_id,
+        outcome=outcome,
+        metadata={"reason": reason},
+    )
+    db.commit()
+
+
 @router.post("/signup", response_model=StageResponse, status_code=201)
 def sign_up(
     body: SignUpRequest,
@@ -249,9 +301,14 @@ def sign_up(
     settings: SettingsDependency,
 ) -> StageResponse:
     if not body.accepted_terms:
+        _record_rejected_signup(db, request, "terms_not_accepted")
         raise ApiException("TERMS_REQUIRED", "Accept the terms and privacy notice to continue.")
 
-    normalized, identifier_type, email = _normalize_identifier(body.identifier, body.sex)
+    try:
+        normalized, identifier_type, email = _normalize_identifier(body.identifier, body.sex)
+    except ApiException as exc:
+        _record_rejected_signup(db, request, exc.code)
+        raise
     age = _age_on(body.date_of_birth, date.today())
     minimum_age = 21 if body.sex == "woman" else 18
     if age < minimum_age:
@@ -260,15 +317,25 @@ def sign_up(
             if body.sex == "woman"
             else "Flingra is only available to adults 18 and older."
         )
+        _record_rejected_signup(db, request, "minimum_age_not_met")
         raise ApiException("INELIGIBLE_AGE", message)
 
     if identifier_type != "email":
+        _record_rejected_signup(db, request, "sms_provider_unavailable", outcome="failure")
         raise ServiceUnavailable("SMS verification is not configured for phone accounts.")
 
-    if db.execute(
-        text("SELECT 1 FROM accounts WHERE identifier = :identifier"),
+    existing_account_id = db.execute(
+        text("SELECT id FROM accounts WHERE identifier = :identifier"),
         {"identifier": normalized},
-    ).first():
+    ).scalar_one_or_none()
+    if existing_account_id is not None:
+        _record_rejected_signup(
+            db,
+            request,
+            "account_exists",
+            outcome="failure",
+            subject_account_id=str(existing_account_id),
+        )
         raise ApiException(
             "ACCOUNT_EXISTS",
             "If an account already exists for these details, sign in instead or reset your password.",
@@ -334,6 +401,16 @@ def sign_up(
         )
         _create_session(db, account_id, request, response)
         _send_contact_code(settings, normalized, identifier_type, code)
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.signup",
+            actor_type="user",
+            actor_id=account_id,
+            subject_account_id=account_id,
+            outcome="success",
+            metadata={"identifierType": identifier_type},
+        )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -367,10 +444,32 @@ def sign_in(
         {"identifier": identifier},
     ).mappings().first()
     if account is None:
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=None,
+            outcome="failure",
+            metadata={"reason": "invalid_credentials"},
+        )
+        db.commit()
         raise ApiException("INVALID_CREDENTIALS", "That email/password combination doesn't match our records.", 401)
 
     now = _now()
     if account["locked_until"] is not None and _as_datetime(account["locked_until"]) > now:
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=str(account["id"]),
+            outcome="denied",
+            metadata={"reason": "account_locked"},
+        )
+        db.commit()
         raise ApiException("ACCOUNT_LOCKED", "Too many attempts. Try again later or reset your password.", 423)
 
     if not verify_password(account["password_hash"], body.password):
@@ -385,6 +484,16 @@ def sign_in(
                 """
             ),
             {"failures": failures, "locked_until": locked_until, "account_id": account["id"]},
+        )
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=str(account["id"]),
+            outcome="failure",
+            metadata={"reason": "invalid_credentials"},
         )
         db.commit()
         if locked_until is not None:
@@ -411,6 +520,15 @@ def sign_in(
         }
     )
     _create_session(db, account["id"], request, response)
+    record_audit_event(
+        db,
+        request,
+        event_type="auth.login",
+        actor_type="user",
+        actor_id=str(account["id"]),
+        subject_account_id=str(account["id"]),
+        outcome="success",
+    )
     db.commit()
     return _session_response(authenticated)
 
@@ -422,6 +540,7 @@ def sign_in(
 )
 def verify_contact(
     body: VerifyContactRequest,
+    request: Request,
     account: CurrentAccount,
     db: DbSession,
 ) -> StageResponse:
@@ -443,6 +562,16 @@ def verify_contact(
         or int(token["attempt_count"]) >= 5
         or not hmac.compare_digest(token["token_hash"], hash_token(body.code))
     ):
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.contact_verification",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="failure",
+            metadata={"reason": "invalid_or_expired_code"},
+        )
         if token is not None and int(token["attempt_count"]) < 5:
             db.execute(
                 text(
@@ -454,7 +583,7 @@ def verify_contact(
                 ),
                 {"account_id": account.account_id},
             )
-            db.commit()
+        db.commit()
         raise ApiException("INVALID_CODE", "That code didn't work. Check the digits and try again.")
 
     db.execute(
@@ -471,23 +600,68 @@ def verify_contact(
         text("DELETE FROM email_verification_tokens WHERE account_id = :account_id"),
         {"account_id": account.account_id},
     )
+    record_audit_event(
+        db,
+        request,
+        event_type="auth.contact_verification",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=account.account_id,
+        outcome="success",
+    )
     db.commit()
     return StageResponse(stage="needs-onboarding")
 
 
 @router.post("/resend-code", status_code=204, dependencies=[Depends(require_csrf)])
-def resend_code(account: CurrentAccount, db: DbSession, settings: SettingsDependency) -> Response:
+def resend_code(
+    request: Request,
+    account: CurrentAccount,
+    db: DbSession,
+    settings: SettingsDependency,
+) -> Response:
     if account.stage != "needs-verification":
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.verification_code_resend",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="denied",
+            metadata={"reason": "verification_not_required"},
+        )
+        db.commit()
         return Response(status_code=204)
     existing = db.execute(
         text("SELECT created_at FROM email_verification_tokens WHERE account_id = :account_id"),
         {"account_id": account.account_id},
     ).first()
     if existing is not None and _as_datetime(existing[0]) > _now() - timedelta(seconds=60):
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.verification_code_resend",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="denied",
+            metadata={"reason": "cooldown"},
+        )
+        db.commit()
         raise ApiException("CODE_RESEND_TOO_SOON", "Wait a minute before requesting another code.", 429)
 
     code = _new_verification_code(db, account.account_id)
     _send_contact_code(settings, account["identifier"], account["identifier_type"], code)
+    record_audit_event(
+        db,
+        request,
+        event_type="auth.verification_code_resend",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=account.account_id,
+        outcome="success",
+    )
     db.commit()
     return Response(status_code=204)
 
@@ -495,6 +669,7 @@ def resend_code(account: CurrentAccount, db: DbSession, settings: SettingsDepend
 @router.post("/password/forgot", status_code=204)
 def request_password_reset(
     body: PasswordResetRequest,
+    request: Request,
     db: DbSession,
     settings: SettingsDependency,
 ) -> Response:
@@ -503,6 +678,7 @@ def request_password_reset(
         text("SELECT id, email FROM accounts WHERE identifier = :identifier"),
         {"identifier": identifier},
     ).mappings().first()
+    reset_email: tuple[str, str] | None = None
     if account is not None and account["email"]:
         token = generate_token()
         db.execute(
@@ -522,16 +698,31 @@ def request_password_reset(
                 "expires_at": _now() + RESET_LIFETIME,
             },
         )
-        db.commit()
+        reset_email = account["email"], token
+    record_audit_event(
+        db,
+        request,
+        event_type="auth.password_reset_requested",
+        actor_type="anonymous",
+        actor_id=None,
+        subject_account_id=str(account["id"]) if account is not None else None,
+        outcome="success",
+    )
+    db.commit()
+    if reset_email is not None:
         try:
-            send_password_reset(settings, account["email"], token)
+            send_password_reset(settings, *reset_email)
         except ServiceUnavailable as exc:
             logger.error("Password-reset email delivery failed: %s", exc.message)
     return Response(status_code=204)
 
 
 @router.post("/password/reset", status_code=204)
-def reset_password(body: PasswordResetConfirmRequest, db: DbSession) -> Response:
+def reset_password(
+    body: PasswordResetConfirmRequest,
+    request: Request,
+    db: DbSession,
+) -> Response:
     reset = db.execute(
         text(
             """
@@ -543,6 +734,17 @@ def reset_password(body: PasswordResetConfirmRequest, db: DbSession) -> Response
         {"token_hash": hash_token(body.token)},
     ).mappings().first()
     if reset is None or _as_datetime(reset["expires_at"]) <= _now():
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.password_reset_completed",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=str(reset["account_id"]) if reset is not None else None,
+            outcome="failure",
+            metadata={"reason": "invalid_or_expired_token"},
+        )
+        db.commit()
         raise ApiException("TOKEN_EXPIRED", "This reset link has expired. Request a new one.")
 
     db.execute(
@@ -562,6 +764,15 @@ def reset_password(body: PasswordResetConfirmRequest, db: DbSession) -> Response
     db.execute(
         text("DELETE FROM password_reset_tokens WHERE account_id = :account_id"),
         {"account_id": reset["account_id"]},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="auth.password_reset_completed",
+        actor_type="anonymous",
+        actor_id=None,
+        subject_account_id=str(reset["account_id"]),
+        outcome="success",
     )
     db.commit()
     return Response(status_code=204)
@@ -602,6 +813,15 @@ def sign_out(
     settings = get_app_settings(request)
     raw_token = request.cookies.get(settings.session_cookie_name)
     if raw_token:
+        account_id = db.execute(
+            text(
+                """
+                SELECT account_id FROM sessions
+                WHERE session_token_hash = :token_hash AND revoked_at IS NULL
+                """
+            ),
+            {"token_hash": hash_token(raw_token)},
+        ).scalar_one_or_none()
         db.execute(
             text(
                 """
@@ -611,6 +831,16 @@ def sign_out(
             ),
             {"now": _now(), "token_hash": hash_token(raw_token)},
         )
+        if account_id is not None:
+            record_audit_event(
+                db,
+                request,
+                event_type="auth.logout",
+                actor_type="user",
+                actor_id=str(account_id),
+                subject_account_id=str(account_id),
+                outcome="success",
+            )
         db.commit()
     _clear_session_cookies(response, request)
     response.status_code = 204
@@ -619,6 +849,7 @@ def sign_out(
 
 @router.post("/onboarding/complete", response_model=SessionResponse, dependencies=[Depends(require_csrf)])
 def complete_onboarding(
+    request: Request,
     account: CurrentAccount,
     db: DbSession,
 ) -> SessionResponse:
@@ -636,6 +867,15 @@ def complete_onboarding(
     db.execute(
         text("UPDATE profiles SET onboarding_complete = TRUE WHERE account_id = :account_id"),
         {"account_id": account.account_id},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="profile.onboarding_completed",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=account.account_id,
+        outcome="success",
     )
     db.commit()
     completed = AuthenticatedAccount({**account, "onboarding_complete": True})

@@ -35,6 +35,21 @@ class SignInRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class AdminLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AdminSessionResponse(BaseModel):
+    admin_id: str = Field(serialization_alias="adminId")
+    email: str
+
+
+class AdminReviewDecisionRequest(BaseModel):
+    decision: Literal["approved", "rejected"]
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 class StageResponse(BaseModel):
     stage: AccountStage
 

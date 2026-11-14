@@ -34,6 +34,9 @@ Optional settings include:
   runtime `FLINGRA_DATABASE_URL` or `FLINGRA_DB_*` settings remain more
   restricted.
 - `FLINGRA_ALLOWED_ORIGINS` — JSON list of trusted frontend origins.
+- `FLINGRA_ADMIN_ALLOWED_ORIGINS` — optional narrower JSON list accepted by
+  admin login and admin CSRF checks; include those origins in
+  `FLINGRA_ALLOWED_ORIGINS` as well when the admin UI is cross-origin.
 - `FLINGRA_SESSION_COOKIE_SECURE` — keep enabled outside local HTTP development.
 - `FLINGRA_SESSION_TTL_HOURS` — session lifetime.
 - `FLINGRA_RATE_LIMIT_REDIS_URL` — Redis URL used by shared auth-abuse limits.
@@ -64,7 +67,8 @@ python -m app.migrate
 ```
 
 The migration account needs permission to create the migration-history table,
-create and alter application tables, and add indexes/foreign keys. If your
+create and alter application tables, add indexes/foreign keys, and create
+triggers for the append-only audit log. If your
 database provider does not grant these privileges to the application user, set
 `FLINGRA_MIGRATION_DATABASE_URL` to a separate migration/admin connection or
 have the database administrator apply the SQL migrations. Do not grant the
@@ -73,10 +77,11 @@ runtime account broad DDL privileges just to make the application start.
 The migration command applies the existing account/session migrations, the
 forward migration aligning account identifiers, genders, and profiles with the
 frontend contract, the migration removing facial-verification data, and the
-media metadata table migration. It records applied migration filenames in
-`schema_migrations`.
+media metadata and admin/audit migrations. It records applied migration
+filenames in `schema_migrations`.
 For a database containing the legacy tables but no migration history, it marks
-the four existing migrations as the baseline, then applies the new migration.
+the four existing migrations as the baseline, then applies the remaining
+migrations in order.
 Review and back up a non-disposable database before applying schema changes.
 
 Run the API with:
@@ -100,6 +105,68 @@ Implemented endpoints:
 - `GET /auth/session`, `POST /auth/onboarding/complete`
 - `GET /profiles/me`, `PATCH /profiles/me`
 - `POST /media/photos`, `POST /media/documents`, `GET /media/{media_id}`
+- `POST /admin/auth/login`, `GET /admin/auth/session`, `POST /admin/auth/logout`
+- `GET /admin/reviews`, `GET /admin/reviews/{review_id}`
+- `GET /admin/reviews/{review_id}/document`
+- `POST /admin/reviews/{review_id}/decision`
+- `GET /admin/users/{account_id}/audit`
+
+Admin accounts are separate from user accounts and cannot self-register. After
+applying migrations, provision each staff account from the backend environment
+with `python -m app.create_admin`; the command prompts for the email and a
+confirmed password (minimum 14 characters) without placing the password in
+shell history or environment variables. Admin sessions use separate
+`HttpOnly`, `SameSite=Strict`, `/admin`-scoped cookies with an 8-hour maximum
+life, and require CSRF tokens and an allowlisted `Origin` when origins are
+configured. Set `FLINGRA_ADMIN_ALLOWED_ORIGINS` to the separate admin UI
+origin(s) in production; otherwise admin requests use the general
+`FLINGRA_ALLOWED_ORIGINS` allowlist. Admin login is rate-limited through Redis and locks the account
+after repeated failures. Do not expose the admin API without TLS, configured
+trusted origins, and available Redis rate-limit storage.
+
+Review IDs are prefixed (`profile-<id>` or `document-<id>`). The review queue
+supports `type=profile|identity-document|all`, bounded `limit`, and `offset`.
+Decision requests require `{"decision":"approved|rejected","reason":"..."}`;
+the profile/document state change and audit record commit together. Document
+access requires an active admin session and returns a short-lived private
+storage URL. Keep the bucket private.
+
+Every request receives an `X-Request-ID`. The append-only
+`platform_audit_events` table records successful and failed authentication,
+verification and password-reset actions, profile changes/reads, media uploads
+and access attempts, and admin review queue/detail/document/decision actions.
+Events include the actor, affected account where applicable, outcome,
+timestamp, request ID, and narrowly scoped metadata; credentials, tokens,
+document contents, and full request bodies are never recorded. Admin audit
+access is user-scoped and paginated in chronological order:
+`GET /admin/users/{account_id}/audit?limit=50&offset=0`, optionally filtered by
+`eventType` and `outcome`. Viewing the queue, a review, a document, or that
+user's history is itself audited against the affected account. Unknown-account
+authentication attempts are recorded without storing the submitted identifier.
+Audit events are protected against update/delete by database triggers; also
+grant the runtime database role only the `SELECT` and `INSERT` privileges it
+needs on `platform_audit_events`. Define and review a legally appropriate
+retention/backup policy before production; append-only does not replace
+independent, access-controlled backups or operational monitoring.
+New endpoints and background jobs must write an audit event in the same
+database transaction as a state change, and record protected-data reads before
+returning the data. Use stable event names and safe metadata only; do not log
+request bodies, OTPs, passwords, session/CSRF tokens, raw identifiers, or
+identity-document contents.
+
+Current event names include `auth.signup`, `auth.login`,
+`auth.contact_verification`, `auth.verification_code_resend`,
+`auth.password_reset_requested`, `auth.password_reset_completed`,
+`auth.logout`, `auth.csrf.denied`, `profile.own_viewed`, `profile.updated`,
+`profile.onboarding_completed`, `media.profile_photo.uploaded`,
+`media.identity_document.uploaded`, `media.access`, `admin.login`,
+`admin.login_origin.denied`, `admin.account.created`, `admin.logout`,
+`admin.csrf.denied`, `admin.review.queue_viewed`,
+`admin.review.queue_item_viewed`, `admin.review.details_viewed`,
+`admin.review.document_viewed`, `admin.review.decided`, and
+`admin.audit.user_history_viewed`. Outcomes are `success`, `failure`, or
+`denied`. User audit history is chronological (oldest first), with stable
+event IDs and request IDs for correlation.
 
 Session cookies are HttpOnly; mutating authenticated endpoints require the
 `X-CSRF-Token` value paired with the `flingra_csrf` cookie. When
@@ -110,10 +177,12 @@ and password resets use Brevo's transactional email API and require a configured
 API key and verified sender address. The API key is loaded as a secret and is
 never included in logs or API error responses. Phone-based signup is
 currently unavailable until an SMS provider is configured. Facial/selfie
-verification is not used. Completed profiles enter pending moderation for
-manual admin review; admin review and approval/blocking controls are not yet
-implemented. The frontend still uses its mock API and will need an API-client
-integration before it calls these routes.
+verification is not used. Completed profiles enter pending moderation for manual admin review. The
+backend now supports basic profile/document approval and rejection, but does
+not yet implement report queues, blocking controls, multi-role permissions,
+admin MFA, password rotation/recovery, or an admin frontend. The frontend
+still uses its mock API and will need an API-client integration before it
+calls these routes.
 
 Media endpoints require verified, authenticated accounts and CSRF tokens.
 Uploaded JPEG/PNG/WebP images are decoded and re-encoded as JPEG to remove

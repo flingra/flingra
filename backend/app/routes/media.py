@@ -5,13 +5,14 @@ import uuid
 import warnings
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.audit import record_audit_event
 from app.config import Settings
 from app.dependencies import db_session
 from app.errors import ApiException, ServiceUnavailable
@@ -74,6 +75,7 @@ def _normalize_image(content: bytes, max_bytes: int) -> bytes:
 
 def _persist_upload(
     *,
+    request: Request,
     db: Session,
     storage: ObjectStorage,
     account_id: str,
@@ -83,7 +85,25 @@ def _persist_upload(
     content: bytes,
     document_type: VerificationDocumentType | None = None,
 ) -> None:
-    storage.put(object_key, content, "image/jpeg")
+    try:
+        storage.put(object_key, content, "image/jpeg")
+    except ServiceUnavailable:
+        record_audit_event(
+            db,
+            request,
+            event_type=(
+                "media.identity_document.uploaded"
+                if purpose == "identity-document"
+                else "media.profile_photo.uploaded"
+            ),
+            actor_type="user",
+            actor_id=account_id,
+            subject_account_id=account_id,
+            outcome="failure",
+            metadata={"purpose": purpose, "reason": "storage_unavailable"},
+        )
+        db.commit()
+        raise
     try:
         db.execute(
             text(
@@ -117,6 +137,20 @@ def _persist_upload(
                 ),
                 {"document_type": document_type, "account_id": account_id},
             )
+        record_audit_event(
+            db,
+            request,
+            event_type=(
+                "media.identity_document.uploaded"
+                if purpose == "identity-document"
+                else "media.profile_photo.uploaded"
+            ),
+            actor_type="user",
+            actor_id=account_id,
+            subject_account_id=account_id,
+            outcome="success",
+            metadata={"mediaId": media_id, "purpose": purpose},
+        )
         db.commit()
     except SQLAlchemyError as exc:
         db.rollback()
@@ -143,6 +177,7 @@ def _response(media_id: str, size_bytes: int) -> MediaUploadResponse:
     dependencies=[Depends(require_csrf)],
 )
 def upload_profile_photo(
+    request: Request,
     account: CurrentAccount,
     db: DbSession,
     storage: StorageDependency,
@@ -150,14 +185,40 @@ def upload_profile_photo(
     file: Annotated[UploadFile, File()],
 ) -> MediaUploadResponse:
     if not account["email_verified"]:
+        record_audit_event(
+            db,
+            request,
+            event_type="media.profile_photo.uploaded",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="denied",
+            metadata={"reason": "contact_not_verified"},
+        )
+        db.commit()
         raise ApiException("CONTACT_NOT_VERIFIED", "Verify your contact before uploading media.", 403)
-    content = _normalize_image(
-        _read_bounded_upload(file, settings.r2_upload_max_bytes),
-        settings.r2_upload_max_bytes,
-    )
+    try:
+        content = _normalize_image(
+            _read_bounded_upload(file, settings.r2_upload_max_bytes),
+            settings.r2_upload_max_bytes,
+        )
+    except ApiException as exc:
+        record_audit_event(
+            db,
+            request,
+            event_type="media.profile_photo.uploaded",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="failure",
+            metadata={"reason": exc.code},
+        )
+        db.commit()
+        raise
     media_id = uuid.uuid4().hex
     object_key = f"accounts/{account.account_id}/profile-photos/{media_id}.jpg"
     _persist_upload(
+        request=request,
         db=db,
         storage=storage,
         account_id=account.account_id,
@@ -176,6 +237,7 @@ def upload_profile_photo(
     dependencies=[Depends(require_csrf)],
 )
 def upload_identity_document(
+    request: Request,
     account: CurrentAccount,
     db: DbSession,
     storage: StorageDependency,
@@ -184,6 +246,17 @@ def upload_identity_document(
     document_type: Annotated[VerificationDocumentType, Form(alias="documentType")],
 ) -> MediaUploadResponse:
     if not account["email_verified"]:
+        record_audit_event(
+            db,
+            request,
+            event_type="media.identity_document.uploaded",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="denied",
+            metadata={"reason": "contact_not_verified"},
+        )
+        db.commit()
         raise ApiException("CONTACT_NOT_VERIFIED", "Verify your contact before uploading media.", 403)
 
     identity = db.execute(
@@ -191,15 +264,41 @@ def upload_identity_document(
         {"account_id": account.account_id},
     ).scalar_one_or_none()
     if identity != "woman":
+        record_audit_event(
+            db,
+            request,
+            event_type="media.identity_document.uploaded",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="denied",
+            metadata={"reason": "document_not_required"},
+        )
+        db.commit()
         raise ApiException("DOCUMENT_NOT_REQUIRED", "Identity documents are not required for this account.", 403)
 
-    content = _normalize_image(
-        _read_bounded_upload(file, settings.r2_upload_max_bytes),
-        settings.r2_upload_max_bytes,
-    )
+    try:
+        content = _normalize_image(
+            _read_bounded_upload(file, settings.r2_upload_max_bytes),
+            settings.r2_upload_max_bytes,
+        )
+    except ApiException as exc:
+        record_audit_event(
+            db,
+            request,
+            event_type="media.identity_document.uploaded",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="failure",
+            metadata={"reason": exc.code},
+        )
+        db.commit()
+        raise
     media_id = uuid.uuid4().hex
     object_key = f"accounts/{account.account_id}/identity-documents/{media_id}.jpg"
     _persist_upload(
+        request=request,
         db=db,
         storage=storage,
         account_id=account.account_id,
@@ -215,11 +314,23 @@ def upload_identity_document(
 @router.get("/{media_id}")
 def get_media(
     media_id: str,
+    request: Request,
     account: CurrentAccount,
     db: DbSession,
     storage: StorageDependency,
 ) -> RedirectResponse:
     if len(media_id) != 32 or any(character not in "0123456789abcdef" for character in media_id):
+        record_audit_event(
+            db,
+            request,
+            event_type="media.access",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="denied",
+            metadata={"reason": "invalid_media_id"},
+        )
+        db.commit()
         raise ApiException("MEDIA_NOT_FOUND", "This media is unavailable.", 404)
 
     item = db.execute(
@@ -234,6 +345,17 @@ def get_media(
         {"media_id": media_id},
     ).mappings().first()
     if item is None:
+        record_audit_event(
+            db,
+            request,
+            event_type="media.access",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="denied",
+            metadata={"reason": "media_not_found"},
+        )
+        db.commit()
         raise ApiException("MEDIA_NOT_FOUND", "This media is unavailable.", 404)
 
     is_owner = item["account_id"] == account.account_id
@@ -241,11 +363,58 @@ def get_media(
         item["purpose"] == "profile-photo" and item["moderation_status"] == "approved"
     )
     if item["purpose"] == "identity-document" and not is_owner:
+        record_audit_event(
+            db,
+            request,
+            event_type="media.access",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=str(item["account_id"]),
+            outcome="denied",
+            metadata={"mediaId": media_id, "purpose": item["purpose"]},
+        )
+        db.commit()
         raise ApiException("MEDIA_NOT_FOUND", "This media is unavailable.", 404)
     if not is_owner and not is_approved_public_photo:
+        record_audit_event(
+            db,
+            request,
+            event_type="media.access",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=str(item["account_id"]),
+            outcome="denied",
+            metadata={"mediaId": media_id, "purpose": item["purpose"]},
+        )
+        db.commit()
         raise ApiException("MEDIA_NOT_FOUND", "This media is unavailable.", 404)
 
-    signed_url = storage.get_url(item["object_key"])
+    try:
+        signed_url = storage.get_url(item["object_key"])
+    except ServiceUnavailable:
+        record_audit_event(
+            db,
+            request,
+            event_type="media.access",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=str(item["account_id"]),
+            outcome="failure",
+            metadata={"mediaId": media_id, "purpose": item["purpose"]},
+        )
+        db.commit()
+        raise
+    record_audit_event(
+        db,
+        request,
+        event_type="media.access",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=str(item["account_id"]),
+        outcome="success",
+        metadata={"mediaId": media_id, "purpose": item["purpose"]},
+    )
+    db.commit()
     return RedirectResponse(
         signed_url,
         status_code=307,

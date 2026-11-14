@@ -56,9 +56,15 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 show_identity BOOLEAN NOT NULL DEFAULT FALSE, subscription_tier TEXT NOT NULL DEFAULT 'free',
                 moderation_status TEXT NOT NULL DEFAULT 'pending', two_factor_enabled BOOLEAN,
                 two_factor_method TEXT, onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE,
-                document_verification TEXT, document_type TEXT, vip_expires_at DATETIME
+                document_verification TEXT, document_type TEXT, vip_expires_at DATETIME,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
+        )
+        connection.connection.create_function(
+            "CONCAT",
+            -1,
+            lambda *parts: "".join(str(part) for part in parts),
         )
         connection.exec_driver_sql(
             """
@@ -91,6 +97,35 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 id TEXT PRIMARY KEY, account_id TEXT NOT NULL, purpose TEXT NOT NULL,
                 object_key TEXT UNIQUE NOT NULL, content_type TEXT NOT NULL,
                 size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE admin_users (
+                id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+                failed_login_attempts INTEGER NOT NULL DEFAULT 0, locked_until DATETIME,
+                disabled_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE admin_sessions (
+                id TEXT PRIMARY KEY, admin_id TEXT NOT NULL,
+                session_token_hash BLOB UNIQUE NOT NULL, expires_at DATETIME NOT NULL,
+                revoked_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE platform_audit_events (
+                id TEXT PRIMARY KEY, event_type TEXT NOT NULL, actor_type TEXT NOT NULL,
+                actor_id TEXT, subject_account_id TEXT, outcome TEXT NOT NULL,
+                request_id TEXT NOT NULL, metadata TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """

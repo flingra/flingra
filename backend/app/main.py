@@ -14,6 +14,7 @@ from app.database import check_database
 from app.errors import ApiException, ServiceUnavailable
 from app.middleware import ApiHardeningMiddleware, RedisRateLimitMiddleware
 from app.routes.auth import router as auth_router
+from app.routes.admin import router as admin_router
 from app.routes.media import router as media_router
 from app.routes.profiles import router as profiles_router
 
@@ -68,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         max_upload_bytes=app_settings.r2_upload_max_bytes + 65_536,
     )
     application.include_router(auth_router)
+    application.include_router(admin_router)
     application.include_router(profiles_router)
     application.include_router(media_router)
 

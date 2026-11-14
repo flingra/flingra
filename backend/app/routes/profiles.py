@@ -2,10 +2,11 @@ import json
 import re
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+from app.audit import record_audit_event
 from app.dependencies import db_session
 from app.errors import ApiException
 from app.routes.auth import CurrentAccount, require_csrf
@@ -15,7 +16,11 @@ router = APIRouter(prefix="/profiles", tags=["profiles"])
 
 
 @router.get("/me", response_model=OwnProfileResponse)
-def get_own_profile(account: CurrentAccount, db: Annotated[Session, Depends(db_session)]) -> OwnProfileResponse:
+def get_own_profile(
+    request: Request,
+    account: CurrentAccount,
+    db: Annotated[Session, Depends(db_session)],
+) -> OwnProfileResponse:
     row = db.execute(
         text(
             """
@@ -36,6 +41,16 @@ def get_own_profile(account: CurrentAccount, db: Annotated[Session, Depends(db_s
     if row is None:
         raise ApiException("NO_PROFILE", "Finish onboarding to create your profile.", 404)
 
+    record_audit_event(
+        db,
+        request,
+        event_type="profile.own_viewed",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=account.account_id,
+        outcome="success",
+    )
+    db.commit()
     profile = dict(row)
     profile["id"] = account.account_id
     profile["distance_km"] = float(profile["distance_km"])
@@ -50,6 +65,7 @@ def get_own_profile(account: CurrentAccount, db: Annotated[Session, Depends(db_s
 
 @router.patch("/me", response_model=OwnProfileResponse, dependencies=[Depends(require_csrf)])
 def save_own_profile(
+    request: Request,
     payload: OwnProfilePatch,
     account: CurrentAccount,
     db: Annotated[Session, Depends(db_session)],
@@ -57,7 +73,7 @@ def save_own_profile(
     changes = payload.model_dump(exclude_unset=True, by_alias=False)
     changes.pop("distance_km", None)
     if not changes:
-        return get_own_profile(account, db)
+        return get_own_profile(request, account, db)
     if "photos" in changes and changes["photos"] is not None:
         photo_urls = changes["photos"]
         media_ids: list[str] = []
@@ -114,5 +130,15 @@ def save_own_profile(
         text(f"UPDATE profiles SET {', '.join(assignments)} WHERE account_id = :account_id"),
         parameters,
     )
+    record_audit_event(
+        db,
+        request,
+        event_type="profile.updated",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=account.account_id,
+        outcome="success",
+        metadata={"changedFields": sorted(changes)},
+    )
     db.commit()
-    return get_own_profile(account, db)
+    return get_own_profile(request, account, db)

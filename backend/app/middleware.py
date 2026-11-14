@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -19,6 +20,7 @@ SENSITIVE_ROUTE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     ("POST", "/auth/resend-code"): (10, 60 * 60),
     ("POST", "/auth/password/forgot"): (10, 60 * 60),
     ("POST", "/auth/password/reset"): (20, 60 * 60),
+    ("POST", "/admin/auth/login"): (5, 15 * 60),
     ("POST", "/media/photos"): (30, 60 * 60),
     ("POST", "/media/documents"): (5, 24 * 60 * 60),
 }
@@ -64,6 +66,8 @@ class ApiHardeningMiddleware:
             return
 
         response_started = False
+        request_id = uuid.uuid4().hex
+        scope.setdefault("state", {})["request_id"] = request_id
 
         async def send_with_security_headers(message: ASGIMessage) -> None:
             nonlocal response_started
@@ -72,6 +76,8 @@ class ApiHardeningMiddleware:
                 headers = list(message.get("headers", []))
                 existing = {key.lower() for key, _ in headers}
                 headers.extend((key, value) for key, value in _SECURITY_HEADERS if key not in existing)
+                if b"x-request-id" not in existing:
+                    headers.append((b"x-request-id", request_id.encode("ascii")))
                 if scope["app"].state.settings.session_cookie_secure and b"strict-transport-security" not in existing:
                     headers.append((b"strict-transport-security", b"max-age=31536000"))
                 message["headers"] = headers
@@ -173,6 +179,12 @@ class RedisRateLimitMiddleware:
             return
 
         if not allowed:
+            request_id = scope.get("state", {}).get("request_id", "unknown")
+            logger.warning(
+                "Sensitive request rate limited: path=%s request_id=%s",
+                route[1],
+                request_id,
+            )
             await self._send_error(send, 429, "RATE_LIMITED", "Too many requests. Try again later.")
             return
 

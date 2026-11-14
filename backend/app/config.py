@@ -27,8 +27,10 @@ class Settings(BaseSettings):
     db_ssl_ca: Path | None = None
     session_cookie_name: str = "flingra_session"
     session_ttl_hours: int = 720
+    admin_session_ttl_hours: int = Field(default=8, ge=1, le=24)
     session_cookie_secure: bool = True
     allowed_origins: list[str] = Field(default_factory=list)
+    admin_allowed_origins: list[str] = Field(default_factory=list)
     rate_limit_redis_url: SecretStr | None = None
     rate_limiting_enabled: bool = True
     max_request_bytes: int = Field(default=1_048_576, ge=1)

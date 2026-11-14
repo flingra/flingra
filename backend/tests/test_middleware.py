@@ -40,6 +40,24 @@ def test_sensitive_routes_are_rate_limited_before_body_validation(monkeypatch) -
     assert responses[10].headers["x-content-type-options"] == "nosniff"
 
 
+def test_admin_login_has_a_separate_strict_rate_limit(monkeypatch) -> None:
+    redis_client = FakeRedis()
+    monkeypatch.setattr("app.main.Redis.from_url", lambda *_args, **_kwargs: redis_client)
+    application = create_app(
+        Settings(
+            database_url="sqlite://",
+            rate_limit_redis_url="redis://localhost",
+        )
+    )
+
+    with TestClient(application) as client:
+        responses = [client.post("/admin/auth/login", json={}) for _ in range(6)]
+
+    assert [response.status_code for response in responses[:5]] == [422] * 5
+    assert responses[5].status_code == 429
+    assert responses[5].json()["error"]["code"] == "RATE_LIMITED"
+
+
 def test_sensitive_routes_fail_closed_without_redis() -> None:
     client = TestClient(
         create_app(
