@@ -5,7 +5,10 @@ import { BottomNav } from '@/components/layout/bottom-nav'
 import { useSessionStore } from '@/lib/stores/session-store'
 import { cn } from '@/lib/utils'
 
-const FULLSCREEN_ROUTES = new Set(['/', '/login', '/signup'])
+// Pre-access routes: the user hasn't verified themselves into the app yet, so the
+// header stays minimal (just a centered logo, no nav/account chrome) and the page
+// fills the screen with no footer, matching the rest of this gated flow.
+const FULLSCREEN_ROUTES = new Set(['/', '/login', '/signup', '/verify-contact', '/password/forgot', '/password/reset'])
 
 export function ShellLayout() {
   const session = useSessionStore((state) => state.session)
@@ -15,7 +18,7 @@ export function ShellLayout() {
 
   return (
     <div className={cn('flex min-h-dvh flex-col bg-ink-50', fullscreen && 'h-dvh overflow-hidden')}>
-      <Header />
+      <Header minimal={fullscreen} />
       <main className={cn('flex-1', signedIn && 'pb-28', fullscreen && 'overflow-hidden')}>
         <div key={location.pathname} className={cn('animate-page-enter', fullscreen && 'h-full')}>
           <Outlet />

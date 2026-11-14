@@ -11,11 +11,25 @@ import { getOwnProfile } from '@/lib/api/profiles'
 import { AccountMenu } from './account-menu'
 import { NotificationBell } from './notification-bell'
 
-export function Header() {
+export function Header({ minimal = false }: { minimal?: boolean }) {
   const session = useSessionStore((state) => state.session)
   const [menuOpen, setMenuOpen] = useState(false)
   const signedIn = session?.stage === 'active'
   const { data: profile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, enabled: signedIn, retry: false })
+
+  // The pre-access flow (landing, sign up, sign in, verify, password reset) gets
+  // just a centered logo — no nav, no account chrome — until the user is in.
+  if (minimal) {
+    return (
+      <header className="sticky top-0 z-30 border-b border-ink-100 bg-white/90 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-center px-4 sm:px-6">
+          <Link to="/" aria-label="Flingra home">
+            <Logo className="text-ink-900" />
+          </Link>
+        </div>
+      </header>
+    )
+  }
 
   // Primary navigation (Discover, Status, Safety, Settings, sign out, create
   // post) lives in the floating BottomNav on every breakpoint. The header
