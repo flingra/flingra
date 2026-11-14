@@ -42,7 +42,7 @@ export function NotificationBell() {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-40 mt-2 w-72 overflow-hidden rounded-2xl border border-ink-100 bg-white py-2 shadow-float"
+          className="fixed inset-x-4 top-[4.25rem] z-40 overflow-hidden rounded-2xl border border-ink-100 bg-white py-2 shadow-float sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72"
         >
           <p className="px-4 py-2 text-sm font-bold text-ink-900">Notifications</p>
           {NOTIFICATIONS.map(({ id, icon: Icon, title, body }) => (

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { getPresence } from '@/lib/api/presence'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -34,7 +34,6 @@ import { ReportDialog } from '@/features/safety/components/report-dialog'
 import { CallScreen } from '@/features/calls/components/call-screen'
 import { VideoThumbnail } from '@/components/ui/video-thumbnail'
 import { VideoPlayerDialog } from '@/components/ui/video-player-dialog'
-import { ChatDrawer } from '../components/chat-drawer'
 
 export function ProfileDetailPage() {
   const { profileId = '' } = useParams()
@@ -47,7 +46,6 @@ export function ProfileDetailPage() {
   const [interested, setInterested] = useState(false)
   const [notified, setNotified] = useState(false)
   const [chatThreadId, setChatThreadId] = useState<string | null>(null)
-  const [chatOpen, setChatOpen] = useState(false)
   const [activePhoto, setActivePhoto] = useState(0)
   const [callMode, setCallMode] = useState<'video' | 'voice' | null>(null)
   const [playingVideo, setPlayingVideo] = useState<string | null>(null)
@@ -254,9 +252,9 @@ export function ProfileDetailPage() {
               <Heart className="size-4" aria-hidden="true" /> {interested ? 'Interest sent' : 'Show interest'}
             </Button>
             {notified && chatThreadId && (
-              <Button variant="accent" onClick={() => setChatOpen(true)}>
+              <Link to={`/messages/${chatThreadId}`} className={cn(buttonVariants({ variant: 'accent' }))}>
                 <MessageCircle className="size-4" aria-hidden="true" /> Chat
-              </Button>
+              </Link>
             )}
             {ownProfile?.identity === 'man' && profile.identity === 'woman' && (
               <Button variant="outline" onClick={() => setPaymentOpen(true)}>
@@ -342,16 +340,6 @@ export function ProfileDetailPage() {
 
       {callMode && <CallScreen profile={profile} mode={callMode} onEnd={() => setCallMode(null)} />}
       <VideoPlayerDialog src={playingVideo} onClose={() => setPlayingVideo(null)} />
-      {chatThreadId && (
-        <ChatDrawer
-          open={chatOpen}
-          onClose={() => setChatOpen(false)}
-          threadId={chatThreadId}
-          otherId={profile.id}
-          otherName={profile.displayName}
-          otherPhoto={profile.photos[0]}
-        />
-      )}
     </div>
   )
 }

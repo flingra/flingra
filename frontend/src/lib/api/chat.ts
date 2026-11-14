@@ -1,6 +1,6 @@
 import { delay } from './client'
 import { chatThreadStore, directMessageStore, ownProfileStore } from './mock-db'
-import type { ChatThread, DirectMessage } from './types'
+import { ApiError, type ChatAttachment, type ChatThread, type DirectMessage } from './types'
 
 export async function getOrCreateThread(otherId: string, otherName: string, otherPhoto: string): Promise<ChatThread> {
   await delay(null, 300)
@@ -35,7 +35,23 @@ function touchThread(threadId: string, lastMessage: string) {
   )
 }
 
-export async function sendMessage(threadId: string, text: string): Promise<void> {
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+
+function attachmentTypeOf(file: File): ChatAttachment['type'] {
+  if (file.type.startsWith('image/')) return 'image'
+  if (file.type.startsWith('video/')) return 'video'
+  return 'file'
+}
+
+export async function uploadChatAttachment(file: File): Promise<ChatAttachment> {
+  await delay(null, 700)
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    throw new ApiError('ATTACHMENT_TOO_LARGE', 'Attachments must be 25MB or smaller.')
+  }
+  return { url: URL.createObjectURL(file), type: attachmentTypeOf(file), name: file.name }
+}
+
+export async function sendMessage(threadId: string, text: string, attachment?: ChatAttachment): Promise<void> {
   await delay(undefined, 200)
   const profile = ownProfileStore.profile
   const message: DirectMessage = {
@@ -43,10 +59,11 @@ export async function sendMessage(threadId: string, text: string): Promise<void>
     threadId,
     authorId: profile?.id ?? 'me',
     text,
+    attachment,
     createdAt: new Date().toISOString(),
   }
   directMessageStore.messages = [...directMessageStore.messages, message]
-  touchThread(threadId, text)
+  touchThread(threadId, text || (attachment ? `📎 ${attachment.name}` : ''))
 }
 
 const AUTO_REPLIES = [

@@ -218,11 +218,20 @@ export interface ChatThread {
   lastMessageAt: string
 }
 
+export type ChatAttachmentType = 'image' | 'video' | 'file'
+
+export interface ChatAttachment {
+  url: string
+  type: ChatAttachmentType
+  name: string
+}
+
 export interface DirectMessage {
   id: string
   threadId: string
   authorId: string
   text: string
+  attachment?: ChatAttachment
   createdAt: string
 }
 

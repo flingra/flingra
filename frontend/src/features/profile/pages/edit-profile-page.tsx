@@ -165,7 +165,7 @@ export function EditProfilePage() {
               {videos.map((video, index) =>
                 data?.identity === 'woman' ? (
                   <div key={video.url} className="rounded-2xl border border-ink-100 p-2">
-                    <div className="relative size-full aspect-square">
+                    <div className="relative aspect-square w-full">
                       <VideoThumbnail src={video.url} onClick={() => setPlayingVideo(video.url)} />
                       <button
                         type="button"
