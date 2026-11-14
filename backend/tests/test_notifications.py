@@ -48,6 +48,9 @@ def test_verification_email_uses_brevo_transactional_api(monkeypatch) -> None:
     }
     assert payload["to"] == [{"email": "user@example.test"}]
     assert "123456" in payload["textContent"]
+    assert "Verify your email" in payload["htmlContent"]
+    assert "123456" in payload["htmlContent"]
+    assert "10 minutes" in payload["htmlContent"]
 
 
 def test_password_reset_email_uses_frontend_url_and_token(monkeypatch) -> None:
@@ -60,10 +63,17 @@ def test_password_reset_email_uses_frontend_url_and_token(monkeypatch) -> None:
     use_mock_brevo(monkeypatch, handle)
     settings = brevo_settings(frontend_url="https://app.example.test/")
 
-    notifications.send_password_reset(settings, "user@example.test", "opaque-reset-token")
+    token = 'opaque&<"reset-token'
+    notifications.send_password_reset(settings, "user@example.test", token)
 
     payload = json.loads(requests[0].content)
-    assert "https://app.example.test/password/reset?token=opaque-reset-token" in payload["textContent"]
+    reset_url = "https://app.example.test/password/reset?token=opaque%26%3C%22reset-token"
+    assert reset_url in payload["textContent"]
+    assert f'href="{reset_url}"' in payload["htmlContent"]
+    assert "Reset password" in payload["htmlContent"]
+    assert "30 minutes" in payload["textContent"]
+    assert "30 minutes" in payload["htmlContent"]
+    assert token not in payload["htmlContent"]
 
 
 def test_brevo_failure_is_reported_without_provider_response_details(monkeypatch) -> None:

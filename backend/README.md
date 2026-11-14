@@ -44,6 +44,10 @@ Optional settings include:
 - `FLINGRA_BREVO_SENDER_NAME` — optional sender display name.
 - `FLINGRA_FRONTEND_URL` — frontend base URL used to construct password-reset links.
 - `FLINGRA_TERMS_VERSION` and `FLINGRA_PRIVACY_VERSION` — accepted document versions.
+- `FLINGRA_R2_ACCOUNT_ID`, `FLINGRA_R2_BUCKET`, `FLINGRA_R2_ACCESS_KEY_ID`,
+  `FLINGRA_R2_SECRET_ACCESS_KEY`, and optional `FLINGRA_R2_ENDPOINT` — private
+  Cloudflare R2 storage configuration (`FLINGRA_R2_REGION=auto` by default).
+- `FLINGRA_R2_UPLOAD_MAX_BYTES` — maximum size of each uploaded image (default 10 MiB).
 
 Configure Redis before exposing auth routes, for example with
 `FLINGRA_RATE_LIMIT_REDIS_URL=redis://localhost:6379/0`. Sensitive auth routes
@@ -68,8 +72,9 @@ runtime account broad DDL privileges just to make the application start.
 
 The migration command applies the existing account/session migrations, the
 forward migration aligning account identifiers, genders, and profiles with the
-frontend contract, and the migration removing facial-verification data. It
-records applied migration filenames in `schema_migrations`.
+frontend contract, the migration removing facial-verification data, and the
+media metadata table migration. It records applied migration filenames in
+`schema_migrations`.
 For a database containing the legacy tables but no migration history, it marks
 the four existing migrations as the baseline, then applies the new migration.
 Review and back up a non-disposable database before applying schema changes.
@@ -94,6 +99,7 @@ Implemented endpoints:
 - `POST /auth/password/forgot`, `/auth/password/reset`, `/auth/logout`
 - `GET /auth/session`, `POST /auth/onboarding/complete`
 - `GET /profiles/me`, `PATCH /profiles/me`
+- `POST /media/photos`, `POST /media/documents`, `GET /media/{media_id}`
 
 Session cookies are HttpOnly; mutating authenticated endpoints require the
 `X-CSRF-Token` value paired with the `flingra_csrf` cookie. When
@@ -108,3 +114,14 @@ verification is not used. Completed profiles enter pending moderation for
 manual admin review; admin review and approval/blocking controls are not yet
 implemented. The frontend still uses its mock API and will need an API-client
 integration before it calls these routes.
+
+Media endpoints require verified, authenticated accounts and CSRF tokens.
+Uploaded JPEG/PNG/WebP images are decoded and re-encoded as JPEG to remove
+metadata, with input-size and pixel-count limits. Objects are private in R2;
+access uses short-lived signed URLs. Pending profile photos are visible only
+to their owner, and identity documents are owner-only until an authorized admin
+review workflow exists. Configure R2 credentials and apply the `000007` media
+migration before using these endpoints. Do not upload sensitive production
+documents until admin access, retention, and deletion procedures are in place.
+Uploaded files are not yet deleted from R2 when an account is removed; implement
+and test that cleanup before accepting production media.

@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Select } from '@/components/ui/select'
 import { PageSpinner } from '@/components/ui/spinner'
 import { useToast } from '@/components/ui/toast'
-import { getOwnProfile, saveOwnProfile, uploadPhoto } from '@/lib/api/profiles'
+import { getOwnProfile, uploadIdentityDocument } from '@/lib/api/profiles'
 import type { VerificationDocumentType, VerificationStatus } from '@/lib/api/types'
 
 const STATUS_COPY: Record<VerificationStatus, { label: string; className: string; icon: typeof ShieldCheck }> = {
@@ -43,8 +43,7 @@ export function VerificationPage() {
     if (!file) return
     setUploading(true)
     try {
-      await uploadPhoto(file)
-      await saveOwnProfile({ documentType, documentVerification: 'pending' })
+      await uploadIdentityDocument(file, documentType)
       await queryClient.invalidateQueries({ queryKey: ['own-profile'] })
       showToast({
         title: 'Document submitted',

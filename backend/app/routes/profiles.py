@@ -1,8 +1,9 @@
 import json
+import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from app.dependencies import db_session
@@ -57,6 +58,36 @@ def save_own_profile(
     changes.pop("distance_km", None)
     if not changes:
         return get_own_profile(account, db)
+    if "photos" in changes and changes["photos"] is not None:
+        photo_urls = changes["photos"]
+        media_ids: list[str] = []
+        for photo_url in photo_urls:
+            match = re.fullmatch(r"/media/([0-9a-f]{32})", photo_url)
+            if match is None:
+                raise ApiException(
+                    "INVALID_PROFILE_MEDIA",
+                    "Profile photos must be uploaded through the media endpoint.",
+                )
+            media_ids.append(match.group(1))
+        if media_ids:
+            owned_count = db.execute(
+                text(
+                    """
+                    SELECT COUNT(DISTINCT id)
+                    FROM media_objects
+                    WHERE account_id = :account_id
+                      AND purpose = 'profile-photo'
+                      AND id IN :media_ids
+                    """
+                ).bindparams(bindparam("media_ids", expanding=True)),
+                {"account_id": account.account_id, "media_ids": tuple(media_ids)},
+            ).scalar_one()
+            if owned_count != len(set(media_ids)):
+                raise ApiException(
+                    "INVALID_PROFILE_MEDIA",
+                    "One or more profile photos are unavailable.",
+                    400,
+                )
 
     column_names = {
         "display_name": "display_name",

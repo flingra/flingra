@@ -132,3 +132,10 @@ class OwnProfilePatch(BaseModel):
 
 class CurrentSessionResponse(SessionResponse):
     created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class MediaUploadResponse(BaseModel):
+    media_id: str = Field(serialization_alias="mediaId")
+    url: str
+    content_type: Literal["image/jpeg"] = Field(serialization_alias="contentType")
+    size_bytes: int = Field(serialization_alias="sizeBytes", ge=1)

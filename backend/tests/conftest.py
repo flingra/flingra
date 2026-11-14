@@ -11,6 +11,20 @@ from app.dependencies import db_session
 from app.main import create_app
 
 
+class TestObjectStorage:
+    def __init__(self) -> None:
+        self.objects: dict[str, tuple[bytes, str]] = {}
+
+    def put(self, key: str, body: bytes, content_type: str) -> None:
+        self.objects[key] = (body, content_type)
+
+    def delete(self, key: str) -> None:
+        self.objects.pop(key, None)
+
+    def get_url(self, key: str) -> str:
+        return f"https://storage.example.test/{key}"
+
+
 @pytest.fixture
 def api_client() -> Iterator[tuple[TestClient, list[str]]]:
     engine = create_engine(
@@ -71,6 +85,16 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
             )
             """
         )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE media_objects (
+                id TEXT PRIMARY KEY, account_id TEXT NOT NULL, purpose TEXT NOT NULL,
+                object_key TEXT UNIQUE NOT NULL, content_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
 
     delivered_codes: list[str] = []
     settings = Settings(
@@ -82,6 +106,7 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
         brevo_sender_email="noreply@example.test",
     )
     application = create_app(settings)
+    application.state.media_storage = TestObjectStorage()
 
     def override_db() -> Iterator[Session]:
         with Session(engine, expire_on_commit=False) as session:

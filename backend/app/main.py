@@ -14,6 +14,7 @@ from app.database import check_database
 from app.errors import ApiException, ServiceUnavailable
 from app.middleware import ApiHardeningMiddleware, RedisRateLimitMiddleware
 from app.routes.auth import router as auth_router
+from app.routes.media import router as media_router
 from app.routes.profiles import router as profiles_router
 
 logger = logging.getLogger("uvicorn.error")
@@ -49,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     application = FastAPI(title="Flingra API", version="0.1.0", lifespan=lifespan)
     application.state.settings = app_settings
+    application.state.media_storage = None
     application.state.rate_limit_redis = (
         Redis.from_url(
             app_settings.rate_limit_redis_url.get_secret_value(),
@@ -63,9 +65,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.add_middleware(
         ApiHardeningMiddleware,
         max_request_bytes=app_settings.max_request_bytes,
+        max_upload_bytes=app_settings.r2_upload_max_bytes + 65_536,
     )
     application.include_router(auth_router)
     application.include_router(profiles_router)
+    application.include_router(media_router)
 
     if app_settings.allowed_origins:
         if "*" in app_settings.allowed_origins:

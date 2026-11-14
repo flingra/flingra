@@ -19,6 +19,8 @@ SENSITIVE_ROUTE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     ("POST", "/auth/resend-code"): (10, 60 * 60),
     ("POST", "/auth/password/forgot"): (10, 60 * 60),
     ("POST", "/auth/password/reset"): (20, 60 * 60),
+    ("POST", "/media/photos"): (30, 60 * 60),
+    ("POST", "/media/documents"): (5, 24 * 60 * 60),
 }
 
 _FIXED_WINDOW_SCRIPT = """
@@ -46,9 +48,15 @@ class RequestTooLarge(Exception):
 
 
 class ApiHardeningMiddleware:
-    def __init__(self, app: Callable[..., Awaitable[None]], max_request_bytes: int) -> None:
+    def __init__(
+        self,
+        app: Callable[..., Awaitable[None]],
+        max_request_bytes: int,
+        max_upload_bytes: int,
+    ) -> None:
         self.app = app
         self.max_request_bytes = max_request_bytes
+        self.max_upload_bytes = max_upload_bytes
 
     async def __call__(self, scope: dict[str, Any], receive: ASGIReceive, send: ASGISend) -> None:
         if scope["type"] != "http":
@@ -69,6 +77,11 @@ class ApiHardeningMiddleware:
                 message["headers"] = headers
             await send(message)
 
+        route_max_bytes = (
+            self.max_upload_bytes
+            if scope.get("method") == "POST" and scope.get("path") in {"/media/photos", "/media/documents"}
+            else self.max_request_bytes
+        )
         content_length = next(
             (value for key, value in scope.get("headers", []) if key.lower() == b"content-length"),
             None,
@@ -77,8 +90,8 @@ class ApiHardeningMiddleware:
             try:
                 declared_length = int(content_length)
             except ValueError:
-                declared_length = self.max_request_bytes + 1
-            if declared_length < 0 or declared_length > self.max_request_bytes:
+                declared_length = route_max_bytes + 1
+            if declared_length < 0 or declared_length > route_max_bytes:
                 await self._send_error(send_with_security_headers, 413, "REQUEST_TOO_LARGE", "Request body is too large.")
                 return
 
@@ -89,7 +102,7 @@ class ApiHardeningMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 received_bytes += len(message.get("body", b""))
-                if received_bytes > self.max_request_bytes:
+                if received_bytes > route_max_bytes:
                     raise RequestTooLarge
             return message
 

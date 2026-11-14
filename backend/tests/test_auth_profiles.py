@@ -1,3 +1,7 @@
+import io
+
+from PIL import Image
+
 from app.routes import auth
 
 
@@ -11,6 +15,19 @@ def signup(client, **overrides):
     }
     payload.update(overrides)
     return client.post("/auth/signup", json=payload)
+
+
+def upload_profile_photo(client) -> str:
+    image = Image.new("RGB", (4, 4), color=(200, 30, 50))
+    content = io.BytesIO()
+    image.save(content, format="PNG")
+    response = client.post(
+        "/media/photos",
+        headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
+        files={"file": ("profile.png", content.getvalue(), "image/png")},
+    )
+    assert response.status_code == 201
+    return response.json()["url"]
 
 
 def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> None:
@@ -54,13 +71,14 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
     assert signed_in.json()["stage"] == "needs-onboarding"
 
     csrf_token = client.cookies["flingra_csrf"]
+    photo_url = upload_profile_photo(client)
     updated = client.patch(
         "/profiles/me",
         headers={"X-CSRF-Token": csrf_token},
         json={
             "displayName": "Tola",
             "bio": "Hello",
-            "photos": ["https://cdn.example.test/photo.jpg"],
+            "photos": [photo_url],
             "area": "Yaba, Lagos",
             "interests": ["Music"],
             "videos": [{"url": "https://cdn.example.test/video.mp4", "locked": True, "priceNaira": 500}],
@@ -70,7 +88,7 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
     )
     assert updated.status_code == 200
     assert updated.json()["displayName"] == "Tola"
-    assert updated.json()["photos"] == ["https://cdn.example.test/photo.jpg"]
+    assert updated.json()["photos"] == [photo_url]
     assert updated.json()["videos"][0]["priceNaira"] == 500
     assert client.get("/profiles/me").json()["area"] == "Yaba, Lagos"
 
@@ -180,10 +198,11 @@ def test_onboarding_completes_without_facial_verification_and_stays_pending_revi
     ).json() == {"stage": "needs-onboarding"}
 
     csrf_token = client.cookies["flingra_csrf"]
+    photo_url = upload_profile_photo(client)
     patched = client.patch(
         "/profiles/me",
         headers={"X-CSRF-Token": csrf_token},
-        json={"displayName": "Tola", "photos": ["https://cdn.example.test/photo.jpg"]},
+        json={"displayName": "Tola", "photos": [photo_url]},
     )
     assert patched.status_code == 200
 

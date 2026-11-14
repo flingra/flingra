@@ -172,7 +172,8 @@ interface SafetyCheckIn { id: string; message: string; notifiedContacts: string[
 | `getProfile(id)` → `MemberProfile` | `GET /profiles/:id` | 404 → `PROFILE_NOT_FOUND`. |
 | `getOwnProfile()` → `OwnProfile` | `GET /profiles/me` | No profile yet → `NO_PROFILE`. |
 | `saveOwnProfile(partial: Partial<OwnProfile>)` → `OwnProfile` | `PATCH /profiles/me` | Partial update/upsert; used throughout onboarding and edit-profile, one field or a batch at a time. |
-| `uploadPhoto(file)` → `string` (URL) | `POST /media/photos` (multipart) | Mock just does `URL.createObjectURL`; real version needs actual storage (S3-compatible) + returns a durable URL. |
+| `uploadPhoto(file)` → `string` (URL) | `POST /media/photos` (multipart) | Backend stores decoded/re-encoded JPEGs privately in R2 and returns `{ mediaId, url, contentType, sizeBytes }`. Persist only the returned `/media/{mediaId}` URL; backend enforces ownership and pending-review visibility. The mock still returns a blob URL. |
+| `uploadIdentityDocument(file, documentType)` | `POST /media/documents` (multipart `file`, `documentType`) | Female accounts only. Stored privately; status becomes `pending`. Documents are accessible only to their owner until a secure admin review flow is implemented. |
 | `uploadVideo(file)` → `string` (URL) | `POST /media/videos` (multipart) | Same. |
 | `listVipProfiles()` → `MemberProfile[]` | `GET /profiles?subscriptionTier=vip` | Powers the `/vip` showcase page — visible to everyone, **interaction** gated separately (§6.3). |
 | `listNearbyVideos()` → `{ authorId, authorName, authorPhoto, video }[]` | `GET /videos/nearby` | Only **unlocked (free)** videos — paywalled videos never appear in this teaser feed, only on the profile itself. |

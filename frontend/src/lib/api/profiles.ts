@@ -1,7 +1,14 @@
 import { delay } from './client'
 import { ownProfileStore, PROFILES } from './mock-db'
 import { getPresence } from './presence'
-import { ApiError, type DiscoveryFilters, type MemberProfile, type OwnProfile, type PagedResult } from './types'
+import {
+  ApiError,
+  type DiscoveryFilters,
+  type MemberProfile,
+  type OwnProfile,
+  type PagedResult,
+  type VerificationDocumentType,
+} from './types'
 
 const PAGE_SIZE = 6
 
@@ -89,6 +96,14 @@ export async function saveOwnProfile(partial: Partial<OwnProfile>): Promise<OwnP
 export async function uploadPhoto(file: File): Promise<string> {
   await delay(null, 900)
   return URL.createObjectURL(file)
+}
+
+export async function uploadIdentityDocument(
+  file: File,
+  documentType: VerificationDocumentType,
+): Promise<void> {
+  await uploadPhoto(file)
+  await saveOwnProfile({ documentType, documentVerification: 'pending' })
 }
 
 export async function uploadVideo(file: File): Promise<string> {
