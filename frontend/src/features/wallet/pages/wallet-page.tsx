@@ -11,7 +11,16 @@ import { PageSpinner } from '@/components/ui/spinner'
 import { EmptyState } from '@/components/ui/state-message'
 import { useToast } from '@/components/ui/toast'
 import { formatNaira } from '@/lib/utils'
-import { confirmMeetupPayment, fundWallet, getWalletBalance, listMeetupPayments, listTransactions, refundMeetupPayment } from '@/lib/api/wallet'
+import {
+  acceptMeetupPayment,
+  confirmMeetupPayment,
+  declineMeetupPayment,
+  fundWallet,
+  getWalletBalance,
+  listMeetupPayments,
+  listTransactions,
+  refundMeetupPayment,
+} from '@/lib/api/wallet'
 import { ApiError, type WalletTransactionType } from '@/lib/api/types'
 
 const QUICK_AMOUNTS = [500, 1000, 5000, 10000]
@@ -80,6 +89,28 @@ export function WalletPage() {
     }
   }
 
+  async function handleAcceptMeetup(paymentId: string) {
+    setResolvingId(paymentId)
+    try {
+      await acceptMeetupPayment(paymentId)
+      await refreshWallet()
+      showToast({ title: 'Proposal accepted', description: "It's now held until the meetup is confirmed.", variant: 'success' })
+    } finally {
+      setResolvingId(null)
+    }
+  }
+
+  async function handleDeclineMeetup(paymentId: string) {
+    setResolvingId(paymentId)
+    try {
+      await declineMeetupPayment(paymentId)
+      await refreshWallet()
+      showToast({ title: 'Proposal declined', variant: 'info' })
+    } finally {
+      setResolvingId(null)
+    }
+  }
+
   async function handleFund(amountNaira: number) {
     setError(null)
     setFunding(true)
@@ -136,7 +167,8 @@ export function WalletPage() {
         <div className="mt-8">
           <h2 className="text-lg font-bold text-ink-900">Meetup payments</h2>
           <p className="mt-1 text-sm text-ink-500">
-            Payments stay held until both sides confirm the meetup happened, then funds release.
+            A proposal only charges once she accepts it. Accepted amounts stay held until you both confirm the meetup
+            happened, then funds release.
           </p>
           <ul className="mt-3 flex flex-col gap-3">
             {meetupPayments.map((payment) => {
@@ -160,7 +192,7 @@ export function WalletPage() {
                       <p className="font-bold text-ink-900">{formatNaira(payment.amountNaira)}</p>
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                          payment.status === 'held'
+                          payment.status === 'held' || payment.status === 'proposed'
                             ? 'bg-warning/10 text-warning'
                             : payment.status === 'released'
                               ? 'bg-success/10 text-success'
@@ -171,6 +203,29 @@ export function WalletPage() {
                       </span>
                     </div>
                   </div>
+                  {payment.status === 'proposed' && amIRecipient && (
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1"
+                        loading={resolvingId === payment.id}
+                        onClick={() => handleAcceptMeetup(payment.id)}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        loading={resolvingId === payment.id}
+                        onClick={() => handleDeclineMeetup(payment.id)}
+                      >
+                        Decline
+                      </Button>
+                    </div>
+                  )}
+                  {payment.status === 'proposed' && !amIRecipient && (
+                    <p className="mt-3 text-xs font-medium text-ink-400">Waiting for {counterpart} to respond.</p>
+                  )}
                   {payment.status === 'held' && (
                     <div className="mt-3 flex gap-2">
                       <Button

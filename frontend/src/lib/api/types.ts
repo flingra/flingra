@@ -197,10 +197,12 @@ export interface PayoutRequest {
 }
 
 /**
- * A payment a male member sends toward meeting a female member in person. Funds
- * stay held (escrowed) until the meetup is confirmed, instead of crediting her
- * wallet immediately — this mock only ever has one logged-in account, so the
- * release/refund only ever touches that account's own balance (see wallet.ts).
+ * A payment a male member proposes toward meeting a female member in person.
+ * Nothing moves until she agrees: 'proposed' → (she accepts) 'held' → 'released',
+ * or (she declines) 'declined' with no funds ever touched. While held, either side
+ * can release it once the meetup happened, or the payer can ask for a refund.
+ * This mock only ever has one logged-in account, so which side's wallet actually
+ * moves depends on whether `fromId` or `toId` is the signed-in user (see wallet.ts).
  */
 export interface MeetupPayment {
   id: string
@@ -209,7 +211,7 @@ export interface MeetupPayment {
   toId: string
   toName: string
   amountNaira: number
-  status: 'held' | 'released' | 'refunded'
+  status: 'proposed' | 'held' | 'released' | 'refunded' | 'declined'
   createdAt: string
   resolvedAt?: string
 }
@@ -245,6 +247,8 @@ export interface DirectMessage {
   authorId: string
   text: string
   attachment?: ChatAttachment
+  /** Set when this message is an embedded meetup-payment proposal card rather than plain text. */
+  paymentId?: string
   createdAt: string
 }
 

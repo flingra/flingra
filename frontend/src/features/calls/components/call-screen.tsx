@@ -2,11 +2,22 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Gift, Mic, MicOff, MonitorUp, MonitorX, PhoneOff, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
+import { Gift, HeartHandshake, Mic, MicOff, MonitorUp, MonitorX, PhoneOff, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
+import { Dialog } from '@/components/ui/dialog'
+import { Field } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { useFocusTrap } from '@/lib/use-focus-trap'
 import { useToast } from '@/components/ui/toast'
-import { getOwnedGifts, simulateReceivedGift, spendOwnedGift } from '@/lib/api/wallet'
+import { getOwnProfile } from '@/lib/api/profiles'
+import {
+  getOwnedGifts,
+  proposeMeetupPayment,
+  simulateReceivedGift,
+  simulateRecipientResponse,
+  spendOwnedGift,
+} from '@/lib/api/wallet'
 import { ApiError, type MemberProfile } from '@/lib/api/types'
 
 const RING_DURATION_MS = 2200
@@ -30,8 +41,13 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
   const [speakerOn, setSpeakerOn] = useState(true)
   const [sharingScreen, setSharingScreen] = useState(false)
   const [giftPickerOpen, setGiftPickerOpen] = useState(false)
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [proposingPayment, setProposingPayment] = useState(false)
 
   const { data: ownedGifts = [] } = useQuery({ queryKey: ['owned-gifts'], queryFn: getOwnedGifts, enabled: connected })
+  const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
+  const canProposePayment = ownProfile?.identity === 'man' && profile.identity === 'woman'
 
   useEffect(() => {
     const ringTimer = setTimeout(() => setConnected(true), RING_DURATION_MS)
@@ -71,6 +87,34 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
     }
   }
 
+  async function handleProposePayment() {
+    setProposingPayment(true)
+    try {
+      const payment = await proposeMeetupPayment(profile.id, profile.displayName, Number(paymentAmount))
+      setPaymentDialogOpen(false)
+      setPaymentAmount('')
+      showToast({ title: 'Proposal sent', description: `Waiting for ${profile.displayName} to respond.`, variant: 'success' })
+      setTimeout(async () => {
+        const outcome = await simulateRecipientResponse(payment.id)
+        await queryClient.invalidateQueries({ queryKey: ['meetup-payments'] })
+        await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
+        showToast({
+          title: outcome === 'held' ? `${profile.displayName} accepted` : `${profile.displayName} declined`,
+          description: outcome === 'held' ? 'The amount is now held — release it once you meet up.' : 'No funds were charged.',
+          variant: outcome === 'held' ? 'success' : 'info',
+        })
+      }, 3000)
+    } catch (error) {
+      showToast({
+        title: 'Could not send proposal',
+        description: error instanceof ApiError ? error.message : 'Try again.',
+        variant: 'error',
+      })
+    } finally {
+      setProposingPayment(false)
+    }
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') onEnd()
@@ -87,6 +131,7 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
   const showVideoFeed = mode === 'video' && cameraOn
 
   return createPortal(
+    <>
     <div
       ref={containerRef}
       role="dialog"
@@ -196,6 +241,18 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
           </div>
         )}
 
+        {canProposePayment && (
+          <button
+            type="button"
+            onClick={() => setPaymentDialogOpen(true)}
+            disabled={!connected}
+            aria-label="Propose a meetup payment"
+            className="flex size-12 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-40 sm:size-14"
+          >
+            <HeartHandshake className="size-5" aria-hidden="true" />
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onEnd}
@@ -217,7 +274,34 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
           {speakerOn ? <Volume2 className="size-5" aria-hidden="true" /> : <VolumeX className="size-5" aria-hidden="true" />}
         </button>
       </div>
-    </div>,
+    </div>
+
+    <Dialog
+      open={paymentDialogOpen}
+      onClose={() => setPaymentDialogOpen(false)}
+      title={`Propose a payment to ${profile.displayName}`}
+      description="She has to accept before anything is charged — nothing moves until she agrees."
+    >
+      <div className="flex flex-col gap-4">
+        <Field id="call-payment-amount" label="Amount (₦)">
+          <Input
+            id="call-payment-amount"
+            type="number"
+            min={100}
+            value={paymentAmount}
+            onChange={(event) => setPaymentAmount(event.target.value)}
+          />
+        </Field>
+        <Button
+          loading={proposingPayment}
+          disabled={!paymentAmount || Number(paymentAmount) <= 0}
+          onClick={handleProposePayment}
+        >
+          Send proposal
+        </Button>
+      </div>
+    </Dialog>
+    </>,
     document.body,
   )
 }

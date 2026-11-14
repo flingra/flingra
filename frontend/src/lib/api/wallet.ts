@@ -139,35 +139,40 @@ export async function redeemAllGifts(): Promise<number> {
 }
 
 /**
- * In-person meetup payments. A male member's payment is held in escrow, not
- * credited immediately — it only releases once a meetup is confirmed. This mock
- * only has one real logged-in account, so a payment's "other side" (the recipient
- * crediting her own balance, or the sender releasing/refunding theirs) is modelled
- * from whichever role the signed-in account currently holds on that record.
+ * In-person meetup payments go through an explicit offer/accept handshake, the
+ * same way the agreement itself happens in chat or on a call: a male member
+ * proposes an amount, and nothing moves until the female member agrees.
+ *
+ *   proposed → (she accepts) → held → released   (meetup happened, funds pay out)
+ *            ↘ (she declines) → declined          (nothing was ever charged)
+ *   held → refunded                                (payer asks for it back before release)
+ *
+ * This mock only has one real logged-in account, so a payment's "other side"
+ * (the recipient accepting/declining, crediting her own balance, or the sender
+ * releasing/refunding theirs) is modelled from whichever role the signed-in
+ * account currently holds on that record — see `simulateRecipientResponse` for
+ * the other party's side when they're not the real account.
  */
 export async function listMeetupPayments(): Promise<MeetupPayment[]> {
   await delay(null, 300)
   return [...meetupPaymentStore.payments].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
-export async function sendMeetupPayment(toId: string, toName: string, amountNaira: number): Promise<MeetupPayment> {
-  await delay(null, 600)
+/** Step 1 — propose an amount. This only records the offer; no money moves yet. */
+export async function proposeMeetupPayment(toId: string, toName: string, amountNaira: number): Promise<MeetupPayment> {
+  await delay(null, 500)
   const payer = ownProfileStore.profile
   if (!payer || payer.identity !== 'man') {
-    throw new ApiError('PAYER_RESTRICTED', 'Only male accounts can send a meetup payment.')
+    throw new ApiError('PAYER_RESTRICTED', 'Only male accounts can propose a meetup payment.')
   }
   const recipient = PROFILES.find((item) => item.id === toId)
   if (!recipient || recipient.identity !== 'woman') {
-    throw new ApiError('RECIPIENT_RESTRICTED', 'Meetup payments can only be sent to female members.')
+    throw new ApiError('RECIPIENT_RESTRICTED', 'Meetup payments can only be proposed to female members.')
   }
   if (amountNaira <= 0) {
     throw new ApiError('INVALID_AMOUNT', 'Enter an amount greater than ₦0.')
   }
-  if (walletStore.balanceNaira < amountNaira) {
-    throw new ApiError('INSUFFICIENT_BALANCE', 'Fund your wallet to send this payment.')
-  }
 
-  walletStore.balanceNaira -= amountNaira
   const payment: MeetupPayment = {
     id: `meetup-${Date.now()}`,
     fromId: 'me',
@@ -175,17 +180,65 @@ export async function sendMeetupPayment(toId: string, toName: string, amountNair
     toId,
     toName,
     amountNaira,
-    status: 'held',
+    status: 'proposed',
     createdAt: new Date().toISOString(),
   }
   meetupPaymentStore.payments = [payment, ...meetupPaymentStore.payments]
-  addTransaction({
-    type: 'meetup-payment-held',
-    amountNaira: -amountNaira,
-    description: `₦${amountNaira.toLocaleString('en-NG')} held for meeting ${toName}`,
-    status: 'pending',
-  })
   return payment
+}
+
+/**
+ * Step 2 — the recipient agrees. Only now does the amount actually leave the
+ * payer's wallet into escrow, never at proposal time.
+ */
+export async function acceptMeetupPayment(paymentId: string): Promise<MeetupPayment> {
+  await delay(null, 500)
+  const payment = meetupPaymentStore.payments.find((item) => item.id === paymentId)
+  if (!payment || payment.status !== 'proposed') {
+    throw new ApiError('PAYMENT_NOT_FOUND', 'This proposal is no longer available.')
+  }
+
+  if (payment.fromId === 'me') {
+    // We're the proposer; the recipient just agreed, so the money leaves our wallet now.
+    if (walletStore.balanceNaira < payment.amountNaira) {
+      throw new ApiError('INSUFFICIENT_BALANCE', 'Fund your wallet to cover the amount you proposed.')
+    }
+    walletStore.balanceNaira -= payment.amountNaira
+    addTransaction({
+      type: 'meetup-payment-held',
+      amountNaira: -payment.amountNaira,
+      description: `₦${payment.amountNaira.toLocaleString('en-NG')} held for meeting ${payment.toName}`,
+      status: 'pending',
+    })
+  }
+
+  const updated: MeetupPayment = { ...payment, status: 'held' }
+  meetupPaymentStore.payments = meetupPaymentStore.payments.map((item) => (item.id === paymentId ? updated : item))
+  return updated
+}
+
+/** The recipient can decline instead — nothing was ever held, so there's nothing to undo. */
+export async function declineMeetupPayment(paymentId: string): Promise<void> {
+  await delay(null, 400)
+  meetupPaymentStore.payments = meetupPaymentStore.payments.map((item) =>
+    item.id === paymentId && item.status === 'proposed'
+      ? { ...item, status: 'declined', resolvedAt: new Date().toISOString() }
+      : item,
+  )
+}
+
+/**
+ * Simulates the other party responding to a proposal, since this mock only has
+ * one real logged-in account. Called from the chat/call UI a few seconds after a
+ * proposal goes out. Mostly accepts, occasionally declines.
+ */
+export async function simulateRecipientResponse(paymentId: string): Promise<'held' | 'declined'> {
+  if (Math.random() > 0.15) {
+    await acceptMeetupPayment(paymentId)
+    return 'held'
+  }
+  await declineMeetupPayment(paymentId)
+  return 'declined'
 }
 
 /** Releases a held payment once the meetup happened. Either side can confirm. */

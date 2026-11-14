@@ -1,5 +1,6 @@
 import { delay } from './client'
 import { chatThreadStore, directMessageStore, ownProfileStore } from './mock-db'
+import { proposeMeetupPayment } from './wallet'
 import { ApiError, type ChatAttachment, type ChatThread, type DirectMessage } from './types'
 
 export async function getOrCreateThread(otherId: string, otherName: string, otherPhoto: string): Promise<ChatThread> {
@@ -64,6 +65,27 @@ export async function sendMessage(threadId: string, text: string, attachment?: C
   }
   directMessageStore.messages = [...directMessageStore.messages, message]
   touchThread(threadId, text || (attachment ? `📎 ${attachment.name}` : ''))
+}
+
+/** Proposes a meetup payment right in the conversation, so the agreement has a visible paper trail. */
+export async function proposePaymentInChat(
+  threadId: string,
+  otherId: string,
+  otherName: string,
+  amountNaira: number,
+): Promise<DirectMessage> {
+  const payment = await proposeMeetupPayment(otherId, otherName, amountNaira)
+  const message: DirectMessage = {
+    id: `dm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    threadId,
+    authorId: ownProfileStore.profile?.id ?? 'me',
+    text: `Proposed ₦${amountNaira.toLocaleString('en-NG')} for a meetup.`,
+    paymentId: payment.id,
+    createdAt: new Date().toISOString(),
+  }
+  directMessageStore.messages = [...directMessageStore.messages, message]
+  touchThread(threadId, `💰 Proposed ₦${amountNaira.toLocaleString('en-NG')}`)
+  return message
 }
 
 const AUTO_REPLIES = [

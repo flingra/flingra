@@ -27,7 +27,7 @@ import { ErrorState } from '@/components/ui/state-message'
 import { getOwnProfile, getProfile } from '@/lib/api/profiles'
 import { blockMember } from '@/lib/api/safety'
 import { getOrCreateThread } from '@/lib/api/chat'
-import { isVideoUnlocked, sendMeetupPayment, unlockVideo } from '@/lib/api/wallet'
+import { isVideoUnlocked, proposeMeetupPayment, simulateRecipientResponse, unlockVideo } from '@/lib/api/wallet'
 import { canInteract } from '@/lib/api/subscription'
 import { ApiError, type ProfileVideo } from '@/lib/api/types'
 import { useToast } from '@/components/ui/toast'
@@ -90,18 +90,26 @@ export function ProfileDetailPage() {
     setPaymentError(null)
     setSendingPayment(true)
     try {
-      await sendMeetupPayment(profile.id, profile.displayName, Number(paymentAmount))
-      await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
-      await queryClient.invalidateQueries({ queryKey: ['meetup-payments'] })
+      const payment = await proposeMeetupPayment(profile.id, profile.displayName, Number(paymentAmount))
       showToast({
-        title: 'Payment held',
-        description: `${formatNaira(Number(paymentAmount))} will release once you confirm you met up.`,
+        title: 'Proposal sent',
+        description: `Waiting for ${profile.displayName} to respond — nothing is charged until she agrees.`,
         variant: 'success',
       })
       setPaymentOpen(false)
       setPaymentAmount('')
+      setTimeout(async () => {
+        const outcome = await simulateRecipientResponse(payment.id)
+        await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
+        await queryClient.invalidateQueries({ queryKey: ['meetup-payments'] })
+        showToast({
+          title: outcome === 'held' ? `${profile.displayName} accepted` : `${profile.displayName} declined`,
+          description: outcome === 'held' ? 'The amount is now held — release it once you meet up.' : 'No funds were charged.',
+          variant: outcome === 'held' ? 'success' : 'info',
+        })
+      }, 3000)
     } catch (error) {
-      setPaymentError(error instanceof ApiError ? error.message : 'Could not send payment. Try again.')
+      setPaymentError(error instanceof ApiError ? error.message : 'Could not send proposal. Try again.')
     } finally {
       setSendingPayment(false)
     }
@@ -281,7 +289,7 @@ export function ProfileDetailPage() {
                 )}
                 {ownProfile?.identity === 'man' && profile.identity === 'woman' && (
                   <Button variant="outline" onClick={() => setPaymentOpen(true)}>
-                    <HeartHandshake className="size-4" aria-hidden="true" /> Send meetup payment
+                    <HeartHandshake className="size-4" aria-hidden="true" /> Propose a payment
                   </Button>
                 )}
                 <Button variant="outline" onClick={() => setCallMode('voice')}>
@@ -339,8 +347,8 @@ export function ProfileDetailPage() {
       <Dialog
         open={paymentOpen}
         onClose={() => setPaymentOpen(false)}
-        title={`Send a payment to ${profile.displayName}`}
-        description="Funds stay held until you confirm the meetup happened, then they release to her wallet."
+        title={`Propose a payment to ${profile.displayName}`}
+        description="She has to accept before anything is charged — nothing moves until she agrees."
       >
         <div className="flex flex-col gap-4">
           {paymentError && (
@@ -358,7 +366,7 @@ export function ProfileDetailPage() {
             />
           </Field>
           <Button loading={sendingPayment} disabled={!paymentAmount || Number(paymentAmount) <= 0} onClick={handleSendPayment}>
-            Hold payment
+            Send proposal
           </Button>
         </div>
       </Dialog>

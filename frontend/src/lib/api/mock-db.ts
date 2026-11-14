@@ -454,6 +454,16 @@ const meetupPaymentsField = persistedField<MeetupPayment[]>('flingra:meetup-paym
     status: 'held',
     createdAt: new Date(Date.now() - 4 * 3600_000).toISOString(),
   },
+  {
+    id: 'meetup-seed-2',
+    fromId: 'member-9',
+    fromName: 'Segun',
+    toId: 'me',
+    toName: 'You',
+    amountNaira: 8000,
+    status: 'proposed',
+    createdAt: new Date(Date.now() - 20 * 60_000).toISOString(),
+  },
 ])
 export const meetupPaymentStore = {
   get payments() {
