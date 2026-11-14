@@ -179,7 +179,7 @@ export function LivePage() {
   const canChat = isHost || joinedToChat
 
   return (
-    <div className="animate-page-enter fixed inset-0 z-40 flex flex-col bg-ink-900 text-white">
+    <div className="animate-page-enter fixed inset-0 z-40 flex flex-col overflow-hidden bg-ink-900 text-white">
       {/* Stage */}
       <div className="absolute inset-0">
         {focused?.id === stream.hostId && stream.hostVideo ? (

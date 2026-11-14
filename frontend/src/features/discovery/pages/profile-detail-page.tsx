@@ -167,8 +167,8 @@ export function ProfileDetailPage() {
           className="mt-4 flex items-center gap-3 rounded-2xl bg-danger px-4 py-3 text-white shadow-soft transition-opacity hover:opacity-90"
         >
           <Radio className="size-5 shrink-0" aria-hidden="true" />
-          <span className="flex-1 text-sm font-semibold">{profile.displayName} is live right now</span>
-          <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-bold">Watch</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{profile.displayName} is live right now</span>
+          <span className="shrink-0 rounded-full bg-white/20 px-3 py-1 text-xs font-bold">Watch</span>
         </Link>
       )}
 
@@ -186,10 +186,10 @@ export function ProfileDetailPage() {
             <ShieldCheck className="size-3.5 text-success" aria-hidden="true" /> Verified profile
           </span>
           <div className="absolute bottom-4 left-4 right-4 text-white">
-            <h1 className="flex items-center gap-2 text-2xl font-bold drop-shadow-sm">
+            <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold drop-shadow-sm">
               {profile.displayName}, {profile.ageRange}
               {profile.subscriptionTier === 'vip' && (
-                <span className="flex items-center gap-1 rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-amber-950">
+                <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-amber-950">
                   <Crown className="size-3" aria-hidden="true" /> VIP
                 </span>
               )}
@@ -260,9 +260,9 @@ export function ProfileDetailPage() {
           )}
 
           {locked && (
-            <div className="mt-6 flex items-center gap-3 rounded-2xl bg-amber-50 p-4">
+            <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl bg-amber-50 p-4">
               <Crown className="size-6 shrink-0 text-amber-500" aria-hidden="true" />
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-ink-900">{profile.displayName} is a VIP member</p>
                 <p className="text-xs text-ink-600">Upgrade to VIP to message, call, or send a meetup payment.</p>
               </div>

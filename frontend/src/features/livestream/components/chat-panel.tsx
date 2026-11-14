@@ -30,12 +30,15 @@ export function ChatPanel({
   }
 
   return (
-    <div className="flex w-full max-w-sm flex-col gap-2">
-      <div ref={listRef} className="flex max-h-36 flex-col gap-1 overflow-y-auto pr-1">
-        {messages.slice(-30).map((message) => {
+    <div className="flex w-full max-w-sm min-w-0 flex-col gap-2">
+      <div
+        ref={listRef}
+        className="scrollbar-hide flex max-h-36 flex-col gap-1 overflow-x-hidden overflow-y-auto pr-1 [mask-image:linear-gradient(to_bottom,transparent,black_28px)]"
+      >
+        {messages.slice(-20).map((message) => {
           const gift = message.kind === 'gift' ? GIFT_CATALOG.find((item) => item.id === message.giftId) : undefined
           return (
-            <p key={message.id} className="text-sm leading-snug drop-shadow-sm">
+            <p key={message.id} className="break-words text-sm leading-snug drop-shadow-sm">
               <span className="font-semibold text-white">{message.authorName}</span>{' '}
               <span className={cn(message.kind === 'gift' ? 'font-semibold text-amber-300' : 'text-white/90')}>
                 {gift ? `sent ${gift.emoji} ${gift.name}` : message.text}

@@ -73,11 +73,11 @@ export function SafetyPage() {
             <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
               <Icon className="size-5" aria-hidden="true" />
             </span>
-            <span className="flex-1">
-              <span className="block font-medium text-ink-800">{label}</span>
-              <span className="block text-xs text-ink-500">{description}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium text-ink-800">{label}</span>
+              <span className="block truncate text-xs text-ink-500">{description}</span>
             </span>
-            <ChevronRight className="size-4 text-ink-300" aria-hidden="true" />
+            <ChevronRight className="size-4 shrink-0 text-ink-300" aria-hidden="true" />
           </Link>
         ))}
       </div>
@@ -89,7 +89,7 @@ export function SafetyPage() {
             <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
               <Icon className="size-5" aria-hidden="true" />
             </span>
-            <div>
+            <div className="min-w-0 flex-1">
               <h3 className="text-lg font-bold text-ink-900">{title}</h3>
               <p className="mt-1.5 text-ink-700">{body}</p>
             </div>
@@ -127,7 +127,7 @@ export function SafetyPage() {
           <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
             <UserX className="size-5" aria-hidden="true" />
           </span>
-          <div>
+          <div className="min-w-0 flex-1">
             <h3 className="text-lg font-bold text-ink-900">Block anyone, anytime</h3>
             <p className="mt-1.5 text-ink-700">
               Blocking stops a member from contacting or discovering you immediately, and files a report with our
@@ -143,7 +143,7 @@ export function SafetyPage() {
           <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
             <Flag className="size-5" aria-hidden="true" />
           </span>
-          <div>
+          <div className="min-w-0 flex-1">
             <h3 className="text-lg font-bold text-ink-900">Report concerning behaviour</h3>
             <p className="mt-1.5 text-ink-700">
               Use the Report action on any profile. Our team reviews every report and investigates before taking
@@ -160,7 +160,7 @@ export function SafetyPage() {
           <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-danger text-white">
             <Siren className="size-5" aria-hidden="true" />
           </span>
-          <div>
+          <div className="min-w-0 flex-1">
             <h3 className="text-lg font-bold text-ink-900">You're not alone</h3>
             <p className="mt-1.5 text-ink-700">
               If you're in immediate danger, call <span className="font-semibold">112</span>, Nigeria's national

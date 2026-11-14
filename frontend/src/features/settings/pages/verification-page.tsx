@@ -18,7 +18,7 @@ const STATUS_COPY: Record<VerificationStatus, { label: string; className: string
 function StatusBadge({ status }: { status: VerificationStatus }) {
   const { label, className, icon: Icon } = STATUS_COPY[status]
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${className}`}>
+    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${className}`}>
       <Icon className="size-3.5" aria-hidden="true" /> {label}
     </span>
   )
@@ -69,11 +69,11 @@ export function VerificationPage() {
       </p>
 
       <Card className="mt-6">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
             <UserRound className="size-5" aria-hidden="true" />
           </span>
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <h2 className="text-lg font-bold text-ink-900">Selfie verification</h2>
             <p className="text-sm text-ink-500">Confirmed during onboarding for every account.</p>
           </div>
@@ -83,11 +83,11 @@ export function VerificationPage() {
 
       {isWoman && (
         <Card className="mt-4">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
               <BadgeCheck className="size-5" aria-hidden="true" />
             </span>
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <h2 className="text-lg font-bold text-ink-900">Government ID verification</h2>
               <p className="text-sm text-ink-500">Required for female accounts to confirm your identity and age.</p>
             </div>
