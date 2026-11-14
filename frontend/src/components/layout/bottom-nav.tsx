@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Circle, Compass, Plus, Radio, Settings, ShieldCheck, Wallet } from 'lucide-react'
+import { Circle, Compass, Crown, MonitorPlay, Plus, Radio, Settings, ShieldCheck, Wallet } from 'lucide-react'
 import { CreatePostDrawer } from '@/features/profile/components/create-post-drawer'
 import { GoLiveDrawer } from '@/features/livestream/components/go-live-drawer'
 
 const NAV_ITEMS = [
   { to: '/discover', icon: Compass, label: 'Discover' },
+  { to: '/live', icon: MonitorPlay, label: 'Live' },
+  { to: '/vip', icon: Crown, label: 'VIP' },
   { to: '/status', icon: Circle, label: 'Status' },
   { to: '/wallet', icon: Wallet, label: 'Wallet' },
   { to: '/safety', icon: ShieldCheck, label: 'Safety' },

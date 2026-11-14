@@ -1,6 +1,6 @@
 import { delay } from './client'
 import { joinRequestStore, liveStreamStore, ownProfileStore, PROFILES, streamMessageStore } from './mock-db'
-import { ApiError, type JoinRequest, type LiveStream, type StreamMessage } from './types'
+import { ApiError, type JoinRequest, type LiveStream, type SubscriptionTier, type StreamMessage } from './types'
 import { simulateReceivedGift } from './wallet'
 
 export const MAX_PARTICIPANTS = 5
@@ -9,6 +9,38 @@ export const PREVIEW_SECONDS = 10
 export async function listLiveStreams(): Promise<LiveStream[]> {
   await delay(null, 400)
   return liveStreamStore.streams
+}
+
+export interface LiveStreamWithHost extends LiveStream {
+  hostArea: string
+  hostDistanceKm: number
+  hostSubscriptionTier: SubscriptionTier
+}
+
+/**
+ * Livestreams joined with their host's area/distance for the "Live near you" page.
+ * VIP viewers see VIP hosts first regardless of distance (the same soft spot that
+ * applies to Discover matching); everyone else sees nearest-first.
+ */
+export async function listLiveStreamsNearby(): Promise<LiveStreamWithHost[]> {
+  await delay(null, 400)
+  const viewerIsVip = ownProfileStore.profile?.subscriptionTier === 'vip'
+  return liveStreamStore.streams
+    .map((stream) => {
+      const host = PROFILES.find((profile) => profile.id === stream.hostId)
+      return {
+        ...stream,
+        hostArea: host?.area ?? '',
+        hostDistanceKm: host?.distanceKm ?? 0,
+        hostSubscriptionTier: host?.subscriptionTier ?? 'free',
+      }
+    })
+    .sort((a, b) => {
+      const aBoost = viewerIsVip && a.hostSubscriptionTier === 'vip' ? 0 : 1
+      const bBoost = viewerIsVip && b.hostSubscriptionTier === 'vip' ? 0 : 1
+      if (aBoost !== bBoost) return aBoost - bBoost
+      return a.hostDistanceKm - b.hostDistanceKm
+    })
 }
 
 export async function getLiveStream(id: string): Promise<LiveStream> {

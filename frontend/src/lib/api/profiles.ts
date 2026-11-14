@@ -14,10 +14,16 @@ export const DEFAULT_FILTERS: DiscoveryFilters = {
   lookingFor: 'everyone',
 }
 
-function matchesFilters(profile: MemberProfile, filters: DiscoveryFilters) {
+/**
+ * VIP members match each other regardless of distance — a mutual soft spot that
+ * waives the normal `maxDistanceKm` filter when both the viewer and the candidate
+ * are subscribed.
+ */
+function matchesFilters(profile: MemberProfile, filters: DiscoveryFilters, viewerIsVip: boolean) {
   const [minAge] = profile.ageRange.split('–').map(Number)
   if (minAge < filters.minAge || minAge > filters.maxAge) return false
-  if (profile.distanceKm > filters.maxDistanceKm) return false
+  const distanceWaived = viewerIsVip && profile.subscriptionTier === 'vip'
+  if (!distanceWaived && profile.distanceKm > filters.maxDistanceKm) return false
   if (filters.lookingFor !== 'everyone') {
     const wanted = filters.lookingFor === 'men' ? 'man' : 'woman'
     if (profile.identity !== wanted) return false
@@ -34,7 +40,8 @@ export async function getDiscoveryFeed(
   cursor = 0,
 ): Promise<PagedResult<MemberProfile>> {
   await delay(null, 650)
-  const eligible = PROFILES.filter((profile) => profile.id !== 'me' && matchesFilters(profile, filters))
+  const viewerIsVip = ownProfileStore.profile?.subscriptionTier === 'vip'
+  const eligible = PROFILES.filter((profile) => profile.id !== 'me' && matchesFilters(profile, filters, viewerIsVip))
   const items = eligible.slice(cursor, cursor + PAGE_SIZE)
   const nextCursor = cursor + PAGE_SIZE < eligible.length ? cursor + PAGE_SIZE : null
   return { items, nextCursor }
@@ -73,6 +80,7 @@ export async function saveOwnProfile(partial: Partial<OwnProfile>): Promise<OwnP
     identity: 'private' as const,
     showIdentity: false,
     moderationStatus: 'pending' as const,
+    subscriptionTier: 'free' as const,
   }
   ownProfileStore.profile = { ...existing, ...partial }
   return ownProfileStore.profile
@@ -93,6 +101,12 @@ export interface NearbyVideo {
   authorName: string
   authorPhoto: string
   video: string
+}
+
+/** Every VIP member, for the VIP showcase page — visible to everyone, interaction gated elsewhere. */
+export async function listVipProfiles(): Promise<MemberProfile[]> {
+  await delay(null, 500)
+  return PROFILES.filter((profile) => profile.id !== 'me' && profile.subscriptionTier === 'vip')
 }
 
 /** Only free (unlocked) videos appear in this teaser feed — paid content only shows on the profile itself. */

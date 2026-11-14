@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, LogOut, Lock, Shield, User, Wallet, BadgeCheck } from 'lucide-react'
+import { ChevronRight, Crown, LogOut, Lock, Shield, User, Wallet, BadgeCheck } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { signOut } from '@/lib/api/auth'
@@ -34,7 +34,14 @@ export function SettingsPage() {
       <div className="mt-6 flex items-center gap-4 rounded-3xl border border-ink-100 bg-white p-6 shadow-soft">
         <Avatar name={profile?.displayName ?? 'Me'} src={profile?.photos[0]} size="lg" />
         <div className="min-w-0">
-          <p className="truncate text-lg font-semibold text-ink-900">{profile?.displayName ?? session?.maskedContact}</p>
+          <p className="flex items-center gap-2 truncate text-lg font-semibold text-ink-900">
+            {profile?.displayName ?? session?.maskedContact}
+            {profile?.subscriptionTier === 'vip' && (
+              <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
+                <Crown className="size-3" aria-hidden="true" /> VIP
+              </span>
+            )}
+          </p>
           <p className="truncate text-sm text-ink-500">{session?.maskedContact}</p>
           <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-success">
             <span className="size-1.5 rounded-full bg-success" aria-hidden="true" /> Account active

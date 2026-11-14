@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { Play } from 'lucide-react'
 
-/** A video tile that auto-captures a frame as its thumbnail instead of showing a blank box. */
-export function VideoThumbnail({ src, onClick }: { src: string; onClick: () => void }) {
+/**
+ * A video tile that auto-captures a frame as its thumbnail instead of showing a
+ * blank box — or, if `poster` is given (e.g. the author's profile photo), uses
+ * that instead and skips frame capture entirely.
+ */
+export function VideoThumbnail({ src, poster, onClick }: { src: string; poster?: string; onClick: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [thumbnail, setThumbnail] = useState<string | null>(null)
 
   useEffect(() => {
+    if (poster) return
     setThumbnail(null)
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -38,14 +43,18 @@ export function VideoThumbnail({ src, onClick }: { src: string; onClick: () => v
       video.removeEventListener('loadedmetadata', seekToFrame)
       video.removeEventListener('seeked', draw)
     }
-  }, [src])
+  }, [src, poster])
 
   return (
     <button type="button" onClick={onClick} className="group relative block aspect-square w-full cursor-pointer overflow-hidden rounded-2xl bg-ink-800">
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-      <video ref={videoRef} src={src} muted playsInline preload="metadata" crossOrigin="anonymous" className="sr-only" />
-      <canvas ref={canvasRef} className="hidden" />
-      {thumbnail && <img src={thumbnail} alt="" className="size-full object-cover" />}
+      {!poster && (
+        <>
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <video ref={videoRef} src={src} muted playsInline preload="metadata" crossOrigin="anonymous" className="sr-only" />
+          <canvas ref={canvasRef} className="hidden" />
+        </>
+      )}
+      {(poster ?? thumbnail) && <img src={poster ?? thumbnail ?? undefined} alt="" className="size-full object-cover" />}
       <span className="absolute inset-0 flex items-center justify-center bg-black/25 transition-colors group-hover:bg-black/35">
         <span className="flex size-10 items-center justify-center rounded-full bg-white/95 text-ink-900 shadow-soft">
           <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />

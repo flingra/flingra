@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Mic, MicOff, MonitorUp, MonitorX, PhoneOff, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Gift, Mic, MicOff, MonitorUp, MonitorX, PhoneOff, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { useFocusTrap } from '@/lib/use-focus-trap'
-import type { MemberProfile } from '@/lib/api/types'
+import { useToast } from '@/components/ui/toast'
+import { getOwnedGifts, simulateReceivedGift, spendOwnedGift } from '@/lib/api/wallet'
+import { ApiError, type MemberProfile } from '@/lib/api/types'
 
 const RING_DURATION_MS = 2200
+/** Simulates the other party gifting back periodically, since this mock only has one real account. */
+const INCOMING_GIFT_INTERVAL_MS = 15000
 
 function formatElapsed(seconds: number) {
   const m = Math.floor(seconds / 60)
@@ -15,12 +21,17 @@ function formatElapsed(seconds: number) {
 
 export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; mode: 'video' | 'voice'; onEnd: () => void }) {
   const containerRef = useFocusTrap(true)
+  const queryClient = useQueryClient()
+  const { showToast } = useToast()
   const [connected, setConnected] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [muted, setMuted] = useState(false)
   const [cameraOn, setCameraOn] = useState(mode === 'video')
   const [speakerOn, setSpeakerOn] = useState(true)
   const [sharingScreen, setSharingScreen] = useState(false)
+  const [giftPickerOpen, setGiftPickerOpen] = useState(false)
+
+  const { data: ownedGifts = [] } = useQuery({ queryKey: ['owned-gifts'], queryFn: getOwnedGifts, enabled: connected })
 
   useEffect(() => {
     const ringTimer = setTimeout(() => setConnected(true), RING_DURATION_MS)
@@ -32,6 +43,33 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
     const tick = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(tick)
   }, [connected])
+
+  // Once both sides are connected, the other party can gift back too — simulated
+  // here since this mock only has one real logged-in account.
+  useEffect(() => {
+    if (!connected) return
+    const giftTimer = setInterval(() => {
+      const gift = simulateReceivedGift(profile.id, profile.displayName)
+      queryClient.invalidateQueries({ queryKey: ['received-gifts'] })
+      showToast({ title: `${profile.displayName} sent you ${gift.emoji} ${gift.name}`, description: 'Redeem it from your wallet.', variant: 'success' })
+    }, INCOMING_GIFT_INTERVAL_MS)
+    return () => clearInterval(giftTimer)
+  }, [connected, profile.id, profile.displayName, queryClient, showToast])
+
+  async function handleSendGift(giftTypeId: string) {
+    setGiftPickerOpen(false)
+    try {
+      const gift = await spendOwnedGift(giftTypeId)
+      await queryClient.invalidateQueries({ queryKey: ['owned-gifts'] })
+      showToast({ title: `You sent ${gift.emoji} ${gift.name}`, variant: 'success' })
+    } catch (error) {
+      showToast({
+        title: 'Could not send gift',
+        description: error instanceof ApiError ? error.message : 'Try again.',
+        variant: 'error',
+      })
+    }
+  }
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -118,6 +156,44 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
           >
             {sharingScreen ? <MonitorX className="size-5" aria-hidden="true" /> : <MonitorUp className="size-5" aria-hidden="true" />}
           </button>
+        )}
+
+        {mode === 'video' && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setGiftPickerOpen((v) => !v)}
+              disabled={!connected}
+              aria-label="Send a gift"
+              aria-pressed={giftPickerOpen}
+              className="flex size-12 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-40 sm:size-14"
+            >
+              <Gift className="size-5" aria-hidden="true" />
+            </button>
+            {giftPickerOpen && (
+              <div className="absolute bottom-full left-1/2 mb-3 w-56 -translate-x-1/2 rounded-2xl bg-white p-3 text-ink-900 shadow-float">
+                {ownedGifts.length === 0 ? (
+                  <Link to="/gifts/shop" onClick={() => setGiftPickerOpen(false)} className="block text-sm font-semibold text-primary-600 hover:underline">
+                    You have no gifts. Visit the gift shop →
+                  </Link>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {ownedGifts.map(({ gift, quantity }) => (
+                      <button
+                        key={gift.id}
+                        type="button"
+                        onClick={() => handleSendGift(gift.id)}
+                        className="flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 hover:bg-ink-50"
+                      >
+                        <span className="text-xl">{gift.emoji}</span>
+                        <span className="text-[10px] font-semibold text-ink-500">×{quantity}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         <button

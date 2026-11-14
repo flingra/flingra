@@ -15,6 +15,8 @@ export interface ProfileVideo {
   priceNaira?: number
 }
 
+export type SubscriptionTier = 'free' | 'vip'
+
 export interface MemberProfile {
   id: string
   displayName: string
@@ -29,6 +31,14 @@ export interface MemberProfile {
   wantsToDiscover: AudiencePreference
   identity: 'man' | 'woman' | 'private'
   showIdentity: boolean
+  subscriptionTier: SubscriptionTier
+}
+
+export interface VipPlan {
+  id: string
+  name: string
+  durationDays: number
+  priceNaira: number
 }
 
 export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected'
@@ -45,6 +55,8 @@ export interface OwnProfile extends MemberProfile {
   /** Government ID check, required for female accounts to vet claimed age/identity. */
   documentVerification?: VerificationStatus
   documentType?: VerificationDocumentType
+  /** Set only while `subscriptionTier` is 'vip'; past this date the account reverts to free. */
+  vipExpiresAt?: string
 }
 
 export interface DiscoveryFilters {
@@ -153,6 +165,7 @@ export type WalletTransactionType =
   | 'meetup-payment-released'
   | 'meetup-payment-refunded'
   | 'video-unlock'
+  | 'vip-subscription'
 
 export interface WalletTransaction {
   id: string

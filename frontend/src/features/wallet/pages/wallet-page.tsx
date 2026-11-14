@@ -28,6 +28,7 @@ const TRANSACTION_LABELS: Record<WalletTransactionType, string> = {
   'meetup-payment-released': 'Meetup payment released',
   'meetup-payment-refunded': 'Meetup payment refunded',
   'video-unlock': 'Video unlocked',
+  'vip-subscription': 'VIP subscription',
 }
 
 const LINKS = [

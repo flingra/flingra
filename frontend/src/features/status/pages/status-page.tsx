@@ -124,7 +124,7 @@ export function StatusPage() {
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
             {nearbyVideos.map((item) => (
               <div key={`${item.authorId}-${item.video}`}>
-                <VideoThumbnail src={item.video} onClick={() => setPlayingVideo(item.video)} />
+                <VideoThumbnail src={item.video} poster={item.authorPhoto} onClick={() => setPlayingVideo(item.video)} />
                 <p className="mt-1 truncate text-xs font-medium text-ink-600">{item.authorName}</p>
               </div>
             ))}

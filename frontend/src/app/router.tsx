@@ -27,6 +27,8 @@ import { BlockedPage } from '@/features/safety/pages/blocked-page'
 import { EmergencyContactsPage } from '@/features/safety/pages/emergency-contacts-page'
 import { StatusPage } from '@/features/status/pages/status-page'
 import { LivePage } from '@/features/livestream/pages/live-page'
+import { LivestreamsPage } from '@/features/livestream/pages/livestreams-page'
+import { VipPage } from '@/features/subscription/pages/vip-page'
 import { WalletPage } from '@/features/wallet/pages/wallet-page'
 import { GiftShopPage } from '@/features/wallet/pages/gift-shop-page'
 import { RedeemGiftsPage } from '@/features/wallet/pages/redeem-gifts-page'
@@ -154,6 +156,22 @@ export function AppRouter() {
           element={
             <ProtectedRoute allow={['active']}>
               <StatusPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="live"
+          element={
+            <ProtectedRoute allow={['active']}>
+              <LivestreamsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="vip"
+          element={
+            <ProtectedRoute allow={['active']}>
+              <VipPage />
             </ProtectedRoute>
           }
         />

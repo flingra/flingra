@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  Crown,
   Flag,
   MapPin,
   MessageCircle,
@@ -27,6 +28,7 @@ import { getOwnProfile, getProfile } from '@/lib/api/profiles'
 import { blockMember } from '@/lib/api/safety'
 import { getOrCreateThread } from '@/lib/api/chat'
 import { isVideoUnlocked, sendMeetupPayment, unlockVideo } from '@/lib/api/wallet'
+import { canInteract } from '@/lib/api/subscription'
 import { ApiError, type ProfileVideo } from '@/lib/api/types'
 import { useToast } from '@/components/ui/toast'
 import { cn, formatNaira } from '@/lib/utils'
@@ -61,6 +63,7 @@ export function ProfileDetailPage() {
     queryFn: () => getProfile(profileId),
   })
   const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
+  const locked = !!profile && !canInteract(ownProfile, profile)
 
   async function handleUnlockVideo() {
     if (!unlockTarget?.priceNaira || !profile) return
@@ -83,7 +86,7 @@ export function ProfileDetailPage() {
   }
 
   async function handleSendPayment() {
-    if (!profile) return
+    if (!profile || locked) return
     setPaymentError(null)
     setSendingPayment(true)
     try {
@@ -105,7 +108,7 @@ export function ProfileDetailPage() {
   }
 
   async function handleShowInterest() {
-    if (!profile) return
+    if (!profile || locked) return
     setInterested(true)
     showToast({ title: 'Interest sent', description: `${profile.displayName} will be notified.`, variant: 'success' })
     const thread = await getOrCreateThread(profile.id, profile.displayName, profile.photos[0])
@@ -175,8 +178,13 @@ export function ProfileDetailPage() {
             <ShieldCheck className="size-3.5 text-success" aria-hidden="true" /> Verified profile
           </span>
           <div className="absolute bottom-4 left-4 right-4 text-white">
-            <h1 className="text-2xl font-bold drop-shadow-sm">
+            <h1 className="flex items-center gap-2 text-2xl font-bold drop-shadow-sm">
               {profile.displayName}, {profile.ageRange}
+              {profile.subscriptionTier === 'vip' && (
+                <span className="flex items-center gap-1 rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-amber-950">
+                  <Crown className="size-3" aria-hidden="true" /> VIP
+                </span>
+              )}
             </h1>
             <p className="mt-1 flex items-center gap-1.5 text-sm text-white/90 drop-shadow-sm">
               <MapPin className="size-4" aria-hidden="true" /> {profile.area}
@@ -243,30 +251,47 @@ export function ProfileDetailPage() {
             </div>
           )}
 
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Button
-              variant={interested ? 'secondary' : 'accent'}
-              onClick={handleShowInterest}
-              disabled={interested}
-            >
-              <Heart className="size-4" aria-hidden="true" /> {interested ? 'Interest sent' : 'Show interest'}
-            </Button>
-            {notified && chatThreadId && (
-              <Link to={`/messages/${chatThreadId}`} className={cn(buttonVariants({ variant: 'accent' }))}>
-                <MessageCircle className="size-4" aria-hidden="true" /> Chat
+          {locked && (
+            <div className="mt-6 flex items-center gap-3 rounded-2xl bg-amber-50 p-4">
+              <Crown className="size-6 shrink-0 text-amber-500" aria-hidden="true" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-ink-900">{profile.displayName} is a VIP member</p>
+                <p className="text-xs text-ink-600">Upgrade to VIP to message, call, or send a meetup payment.</p>
+              </div>
+              <Link to="/vip" className={cn(buttonVariants({ variant: 'primary', size: 'sm' }), 'shrink-0 bg-amber-500 hover:bg-amber-600')}>
+                Upgrade
               </Link>
+            </div>
+          )}
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            {!locked && (
+              <>
+                <Button
+                  variant={interested ? 'secondary' : 'accent'}
+                  onClick={handleShowInterest}
+                  disabled={interested}
+                >
+                  <Heart className="size-4" aria-hidden="true" /> {interested ? 'Interest sent' : 'Show interest'}
+                </Button>
+                {notified && chatThreadId && (
+                  <Link to={`/messages/${chatThreadId}`} className={cn(buttonVariants({ variant: 'accent' }))}>
+                    <MessageCircle className="size-4" aria-hidden="true" /> Chat
+                  </Link>
+                )}
+                {ownProfile?.identity === 'man' && profile.identity === 'woman' && (
+                  <Button variant="outline" onClick={() => setPaymentOpen(true)}>
+                    <HeartHandshake className="size-4" aria-hidden="true" /> Send meetup payment
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => setCallMode('voice')}>
+                  <Phone className="size-4" aria-hidden="true" /> Voice call
+                </Button>
+                <Button variant="outline" onClick={() => setCallMode('video')}>
+                  <VideoIcon className="size-4" aria-hidden="true" /> Video call
+                </Button>
+              </>
             )}
-            {ownProfile?.identity === 'man' && profile.identity === 'woman' && (
-              <Button variant="outline" onClick={() => setPaymentOpen(true)}>
-                <HeartHandshake className="size-4" aria-hidden="true" /> Send meetup payment
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => setCallMode('voice')}>
-              <Phone className="size-4" aria-hidden="true" /> Voice call
-            </Button>
-            <Button variant="outline" onClick={() => setCallMode('video')}>
-              <VideoIcon className="size-4" aria-hidden="true" /> Video call
-            </Button>
             <Button variant="outline" onClick={() => setReportOpen(true)}>
               <Flag className="size-4" aria-hidden="true" /> Report
             </Button>

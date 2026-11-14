@@ -1,6 +1,6 @@
 import { type ChangeEvent, useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Camera, Images, Lock, Unlock, Video as VideoIcon, X } from 'lucide-react'
+import { Camera, Crown, Images, Lock, Unlock, Video as VideoIcon, X } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -123,7 +123,14 @@ export function EditProfilePage() {
 
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
-      <h1 className="text-2xl font-bold text-ink-900">My profile</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-ink-900">
+        My profile
+        {data?.subscriptionTier === 'vip' && (
+          <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700">
+            <Crown className="size-3.5" aria-hidden="true" /> VIP
+          </span>
+        )}
+      </h1>
       {data?.moderationStatus === 'pending' && (
         <p className="mt-2 inline-block rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
           Pending review: not yet visible to other members

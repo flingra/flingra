@@ -23,6 +23,7 @@ import type {
   Session,
   Status,
   StreamMessage,
+  VipPlan,
   WalletTransaction,
 } from './types'
 
@@ -143,6 +144,7 @@ export const PROFILES: OwnProfile[] = NAMES.map((person, index) => ({
   moderationStatus: 'approved',
   selfieVerification: 'verified',
   documentVerification: person.identity === 'woman' ? 'verified' : undefined,
+  subscriptionTier: index % 5 === 1 ? ('vip' as const) : ('free' as const),
 }))
 
 /** One mock member is pre-seeded as live so the viewer flow has something to watch. */
@@ -175,6 +177,12 @@ export const GIFT_CATALOG: GiftType[] = [
   { id: 'fire', name: 'Fire', emoji: '🔥', priceNaira: 1000 },
   { id: 'diamond', name: 'Diamond', emoji: '💎', priceNaira: 5000 },
   { id: 'crown', name: 'Crown', emoji: '👑', priceNaira: 10000 },
+]
+
+export const VIP_PLANS: VipPlan[] = [
+  { id: 'vip-weekly', name: 'Weekly VIP', durationDays: 7, priceNaira: 3500 },
+  { id: 'vip-monthly', name: 'Monthly VIP', durationDays: 30, priceNaira: 10000 },
+  { id: 'vip-yearly', name: 'Yearly VIP', durationDays: 365, priceNaira: 80000 },
 ]
 
 export const CURRENT_ACCOUNT = {

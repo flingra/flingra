@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ArrowUpRight } from 'lucide-react'
+import { ArrowUpRight, Crown } from 'lucide-react'
 import { MemberAvatar } from '@/components/ui/member-avatar'
 import type { MemberProfile } from '@/lib/api/types'
 
@@ -12,6 +12,11 @@ export function CircleCard({ profile, showDistance }: { profile: MemberProfile; 
       <span className="absolute right-2 top-2 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600 opacity-0 transition-opacity group-hover:opacity-100">
         <ArrowUpRight className="size-3.5" aria-hidden="true" />
       </span>
+      {profile.subscriptionTier === 'vip' && (
+        <span className="absolute left-2 top-2 flex size-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+          <Crown className="size-3.5" aria-hidden="true" />
+        </span>
+      )}
       <MemberAvatar id={profile.id} name={profile.displayName} photo={profile.photos[0]} size="lg" />
       <div className="min-w-0 w-full">
         <p className="truncate text-sm font-bold text-ink-900">
