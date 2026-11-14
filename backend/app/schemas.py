@@ -1,13 +1,14 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 AccountStage = Literal["needs-verification", "needs-onboarding", "active"]
 AudiencePreference = Literal["men", "women", "everyone"]
 VerificationStatus = Literal["unverified", "pending", "verified", "rejected"]
 VerificationDocumentType = Literal["NIN", "BVN", "voters-card"]
+AdminRole = Literal["super_admin", "reviewer", "safety_admin", "auditor"]
 
 
 class ApiErrorBody(BaseModel):
@@ -43,6 +44,20 @@ class AdminLoginRequest(BaseModel):
 class AdminSessionResponse(BaseModel):
     admin_id: str = Field(serialization_alias="adminId")
     email: str
+    role: AdminRole
+
+
+class AdminAccountUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    role: AdminRole | None = None
+    disabled: bool | None = None
+
+    @model_validator(mode="after")
+    def require_update(self) -> "AdminAccountUpdateRequest":
+        if self.role is None and self.disabled is None:
+            raise ValueError("At least one admin account field must be provided.")
+        return self
 
 
 class AdminReviewDecisionRequest(BaseModel):

@@ -110,19 +110,41 @@ Implemented endpoints:
 - `GET /admin/reviews/{review_id}/document`
 - `POST /admin/reviews/{review_id}/decision`
 - `GET /admin/users/{account_id}/audit`
+- `GET /admin/admins`, `PATCH /admin/admins/{admin_id}` (super admin only)
 
 Admin accounts are separate from user accounts and cannot self-register. After
-applying migrations, provision each staff account from the backend environment
-with `python -m app.create_admin`; the command prompts for the email and a
-confirmed password (minimum 14 characters) without placing the password in
-shell history or environment variables. Admin sessions use separate
+applying migrations, provision staff accounts from the backend environment
+with `python -m app.create_admin`; the first account is a super admin, and
+subsequent accounts default to reviewers. Use
+`--role reviewer|safety_admin|auditor|super_admin` to select a role explicitly.
+For an existing installation, migrated admins receive the reviewer role; create
+a super admin with `python -m app.create_admin --role super_admin`. The command
+prompts for the email and a confirmed password (minimum 14 characters) without
+placing the password in shell history or environment variables. Admin sessions
+use separate
 `HttpOnly`, `SameSite=Strict`, `/admin`-scoped cookies with an 8-hour maximum
 life, and require CSRF tokens and an allowlisted `Origin` when origins are
 configured. Set `FLINGRA_ADMIN_ALLOWED_ORIGINS` to the separate admin UI
 origin(s) in production; otherwise admin requests use the general
-`FLINGRA_ALLOWED_ORIGINS` allowlist. Admin login is rate-limited through Redis and locks the account
-after repeated failures. Do not expose the admin API without TLS, configured
+`FLINGRA_ALLOWED_ORIGINS` allowlist. Admin login is rate-limited through Redis and locks the account after repeated
+failures. Do not expose the admin API without TLS, configured
 trusted origins, and available Redis rate-limit storage.
+
+Admin authorization is role-based and enforced on every protected endpoint:
+
+| Role | Permissions |
+| --- | --- |
+| `super_admin` | All admin operations; manage staff roles and disable/enable accounts |
+| `reviewer` | View profile/document review queues and details; view documents and decide reviews |
+| `safety_admin` | Read user-scoped audit history; reserved for authorized safety-case workflows |
+| `auditor` | Read user-scoped audit history only |
+
+Only a super admin can list or update admin accounts. Role/disable changes are
+CSRF-protected and audited; disabling an account revokes its active sessions.
+Admins cannot change their own role or status, and the last active super admin
+cannot be demoted or disabled. Exact-location access is not implemented by any
+current endpoint; if added, it should be restricted to an audited safety-case
+workflow rather than granted generally to all admin roles.
 
 Review IDs are prefixed (`profile-<id>` or `document-<id>`). The review queue
 supports `type=profile|identity-document|all`, bounded `limit`, and `offset`.
@@ -164,8 +186,10 @@ Current event names include `auth.signup`, `auth.login`,
 `admin.csrf.denied`, `admin.review.queue_viewed`,
 `admin.review.queue_item_viewed`, `admin.review.details_viewed`,
 `admin.review.document_viewed`, `admin.review.decided`, and
-`admin.audit.user_history_viewed`. Outcomes are `success`, `failure`, or
-`denied`. User audit history is chronological (oldest first), with stable
+`admin.audit.user_history_viewed`, `admin.account.list_viewed`,
+`admin.account.updated`, `admin.account.update_denied`, and
+`admin.authorization.denied`. Outcomes are
+`success`, `failure`, or `denied`. User audit history is chronological (oldest first), with stable
 event IDs and request IDs for correlation.
 
 Session cookies are HttpOnly; mutating authenticated endpoints require the
@@ -179,8 +203,8 @@ never included in logs or API error responses. Phone-based signup is
 currently unavailable until an SMS provider is configured. Facial/selfie
 verification is not used. Completed profiles enter pending moderation for manual admin review. The
 backend now supports basic profile/document approval and rejection, but does
-not yet implement report queues, blocking controls, multi-role permissions,
-admin MFA, password rotation/recovery, or an admin frontend. The frontend
+not yet implement report queues, blocking controls, admin MFA, password
+rotation/recovery, or an admin frontend. The frontend
 still uses its mock API and will need an API-client integration before it
 calls these routes.
 

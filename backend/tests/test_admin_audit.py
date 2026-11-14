@@ -1,6 +1,7 @@
 import json
 import uuid
 
+from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.dependencies import db_session
@@ -90,6 +91,19 @@ def seed_pending_document(client) -> tuple[str, str]:
     return account_id, media_id
 
 
+def set_admin_role(client, admin_id: str, role: str) -> None:
+    db_generator = client.app.dependency_overrides[db_session]()
+    db = next(db_generator)
+    try:
+        db.execute(
+            text("UPDATE admin_users SET role = :role WHERE id = :admin_id"),
+            {"role": role, "admin_id": admin_id},
+        )
+        db.commit()
+    finally:
+        db_generator.close()
+
+
 def admin_login(client, email="reviewer@example.test", password="a-very-long-admin-password"):
     return client.post("/admin/auth/login", json={"email": email, "password": password})
 
@@ -102,11 +116,15 @@ def test_admin_login_is_separate_and_csrf_protected(api_client) -> None:
     response = admin_login(client)
 
     assert response.status_code == 200
-    assert response.json() == {"adminId": admin_id, "email": "reviewer@example.test"}
+    assert response.json() == {
+        "adminId": admin_id,
+        "email": "reviewer@example.test",
+        "role": "reviewer",
+    }
     cookie_headers = response.headers.get_list("set-cookie")
     assert any("flingra_admin_session=" in header and "HttpOnly" in header for header in cookie_headers)
     assert any("flingra_admin_session=" in header and "SameSite=strict" in header for header in cookie_headers)
-    assert client.get("/admin/auth/session").json()["adminId"] == admin_id
+    assert client.get("/admin/auth/session").json() == response.json()
     assert client.post("/admin/auth/signup").status_code == 404
 
     missing_csrf = client.post("/admin/auth/logout")
@@ -125,7 +143,8 @@ def test_admin_login_is_separate_and_csrf_protected(api_client) -> None:
 def test_admin_reviews_are_user_scoped_audited_and_paginated(api_client) -> None:
     client, _ = api_client
     account_id, media_id = seed_pending_document(client)
-    seed_admin(client)
+    admin_id = seed_admin(client)
+    set_admin_role(client, admin_id, "super_admin")
     assert admin_login(client).status_code == 200
     csrf_token = client.cookies["flingra_admin_csrf"]
 
@@ -226,5 +245,76 @@ def test_admin_login_failures_are_audited_without_exposing_credentials(api_clien
         assert event["outcome"] == "failure"
         assert json.loads(event["metadata"]) == {"reason": "invalid_credentials"}
         assert len(event["request_id"]) == 32
+    finally:
+        db_generator.close()
+
+
+def test_reviewer_role_cannot_access_audit_or_admin_management(api_client) -> None:
+    client, _ = api_client
+    seed_admin(client)
+    assert admin_login(client).status_code == 200
+
+    assert client.get("/admin/reviews").status_code == 200
+    assert client.get("/admin/users/missing/audit").status_code == 403
+    assert client.get("/admin/admins").status_code == 403
+
+
+def test_super_admin_can_change_roles_and_disable_accounts(api_client) -> None:
+    client, _ = api_client
+    owner_id = seed_admin(client, email="owner@example.test")
+    set_admin_role(client, owner_id, "super_admin")
+    target_id = seed_admin(client, email="staff@example.test")
+    assert admin_login(client, email="owner@example.test").status_code == 200
+    csrf_token = client.cookies["flingra_admin_csrf"]
+
+    changed = client.patch(
+        f"/admin/admins/{target_id}",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"role": "auditor"},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["role"] == "auditor"
+    assert changed.json()["disabled"] is False
+
+    self_update = client.patch(
+        f"/admin/admins/{owner_id}",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"role": "reviewer"},
+    )
+    assert self_update.status_code == 400
+    assert self_update.json()["error"]["code"] == "ADMIN_SELF_UPDATE_DENIED"
+
+    with TestClient(client.app) as staff_client:
+        assert admin_login(staff_client, email="staff@example.test").json()["role"] == "auditor"
+        assert staff_client.get("/admin/reviews").status_code == 403
+        assert staff_client.get("/admin/users/missing/audit").status_code == 404
+
+        admins = client.get("/admin/admins")
+        assert admins.status_code == 200
+        assert any(item["adminId"] == target_id for item in admins.json()["items"])
+
+        disabled = client.patch(
+            f"/admin/admins/{target_id}",
+            headers={"X-CSRF-Token": csrf_token},
+            json={"disabled": True},
+        )
+        assert disabled.status_code == 200
+        assert disabled.json()["disabled"] is True
+        assert staff_client.get("/admin/auth/session").json() is None
+        assert staff_client.get("/admin/reviews").status_code == 401
+
+    db_generator = client.app.dependency_overrides[db_session]()
+    db = next(db_generator)
+    try:
+        audit_events = db.execute(
+            text(
+                """
+                SELECT event_type FROM platform_audit_events
+                WHERE event_type IN ('admin.account.updated', 'admin.authorization.denied')
+                """
+            )
+        ).scalars().all()
+        assert "admin.account.updated" in audit_events
+        assert "admin.authorization.denied" in audit_events
     finally:
         db_generator.close()

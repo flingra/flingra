@@ -3,7 +3,7 @@ import json
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import RedirectResponse
@@ -15,7 +15,13 @@ from app.config import Settings
 from app.dependencies import db_session
 from app.errors import ApiException, ServiceUnavailable
 from app.routes.auth import get_app_settings
-from app.schemas import AdminLoginRequest, AdminReviewDecisionRequest, AdminSessionResponse
+from app.schemas import (
+    AdminAccountUpdateRequest,
+    AdminLoginRequest,
+    AdminReviewDecisionRequest,
+    AdminRole,
+    AdminSessionResponse,
+)
 from app.security import generate_token, hash_password, hash_token, mask_contact, verify_password
 from app.storage import ObjectStorage, get_object_storage
 
@@ -34,6 +40,10 @@ class AdminAccount(dict[str, str]):
     @property
     def admin_id(self) -> str:
         return self["id"]
+
+    @property
+    def role(self) -> AdminRole:
+        return cast(AdminRole, self["role"])
 
 
 def _now() -> datetime:
@@ -122,7 +132,7 @@ def get_admin(request: Request, db: DbSession) -> AdminAccount:
     admin = db.execute(
         text(
             """
-            SELECT a.id, a.email
+            SELECT a.id, a.email, a.role
             FROM admin_sessions s
             JOIN admin_users a ON a.id = s.admin_id
             WHERE s.session_token_hash = :token_hash
@@ -141,6 +151,30 @@ def get_admin(request: Request, db: DbSession) -> AdminAccount:
 CurrentAdmin = Annotated[AdminAccount, Depends(get_admin)]
 
 
+def require_admin_roles(*roles: AdminRole):
+    def dependency(
+        request: Request,
+        db: DbSession,
+        admin: CurrentAdmin,
+    ) -> AdminAccount:
+        if admin.role not in roles:
+            record_audit_event(
+                db,
+                request,
+                event_type="admin.authorization.denied",
+                actor_type="admin",
+                actor_id=admin.admin_id,
+                subject_account_id=None,
+                outcome="denied",
+                metadata={"role": admin.role, "requiredRoles": list(roles)},
+            )
+            db.commit()
+            raise ApiException("ADMIN_FORBIDDEN", "You do not have permission to perform this action.", 403)
+        return admin
+
+    return dependency
+
+
 def _review_parts(review_id: str) -> tuple[Literal["profile", "identity-document"], str]:
     match = REVIEW_ID_PATTERN.fullmatch(review_id)
     if match is None:
@@ -150,7 +184,28 @@ def _review_parts(review_id: str) -> tuple[Literal["profile", "identity-document
 
 
 def _admin_session_response(admin: AdminAccount) -> AdminSessionResponse:
-    return AdminSessionResponse(admin_id=admin.admin_id, email=admin["email"])
+    return AdminSessionResponse(admin_id=admin.admin_id, email=admin["email"], role=admin.role)
+
+
+def _record_admin_account_denial(
+    db: Session,
+    request: Request,
+    admin: AdminAccount,
+    *,
+    target_admin_id: str,
+    reason: str,
+) -> None:
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.account.update_denied",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=None,
+        outcome="denied",
+        metadata={"targetAdminId": target_admin_id, "reason": reason},
+    )
+    db.commit()
 
 
 @router.post("/auth/login", response_model=AdminSessionResponse)
@@ -182,7 +237,7 @@ def admin_login(
         db.execute(
             text(
                 """
-                SELECT id, email, password_hash, failed_login_attempts, locked_until
+                SELECT id, email, password_hash, failed_login_attempts, locked_until, role
                 FROM admin_users
                 WHERE email = :email AND disabled_at IS NULL
                 """
@@ -289,7 +344,9 @@ def admin_login(
         samesite="strict",
         path="/admin",
     )
-    return _admin_session_response(AdminAccount({"id": admin["id"], "email": admin["email"]}))
+    return _admin_session_response(
+        AdminAccount({"id": admin["id"], "email": admin["email"], "role": admin["role"]})
+    )
 
 
 @router.get("/auth/session", response_model=AdminSessionResponse | None)
@@ -300,7 +357,7 @@ def admin_session(request: Request, db: DbSession) -> AdminSessionResponse | Non
     admin = db.execute(
         text(
             """
-            SELECT a.id, a.email
+            SELECT a.id, a.email, a.role
             FROM admin_sessions s
             JOIN admin_users a ON a.id = s.admin_id
             WHERE s.session_token_hash = :token_hash
@@ -356,11 +413,191 @@ def admin_logout(
     return response
 
 
+@router.get("/admins")
+def list_admin_accounts(
+    request: Request,
+    db: DbSession,
+    admin: Annotated[AdminAccount, Depends(require_admin_roles("super_admin"))],
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, object]:
+    rows = db.execute(
+        text(
+            """
+            SELECT id, email, role, disabled_at, created_at
+            FROM admin_users
+            ORDER BY email, id
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        {"limit": limit + 1, "offset": offset},
+    ).mappings().all()
+    has_more = len(rows) > limit
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.account.list_viewed",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=None,
+        outcome="success",
+        metadata={"itemCount": min(len(rows), limit), "offset": offset},
+    )
+    db.commit()
+    return {
+        "items": [
+            {
+                "adminId": row["id"],
+                "email": row["email"],
+                "role": row["role"],
+                "disabled": row["disabled_at"] is not None,
+                "createdAt": row["created_at"],
+            }
+            for row in rows[:limit]
+        ],
+        "nextOffset": offset + limit if has_more else None,
+    }
+
+
+@router.patch(
+    "/admins/{target_admin_id}",
+    dependencies=[Depends(require_admin_csrf)],
+)
+def update_admin_account(
+    target_admin_id: str,
+    body: AdminAccountUpdateRequest,
+    request: Request,
+    db: DbSession,
+    admin: Annotated[AdminAccount, Depends(require_admin_roles("super_admin"))],
+) -> dict[str, object]:
+    if target_admin_id == admin.admin_id:
+        _record_admin_account_denial(
+            db,
+            request,
+            admin,
+            target_admin_id=target_admin_id,
+            reason="self_update",
+        )
+        raise ApiException("ADMIN_SELF_UPDATE_DENIED", "Use another super admin to change your own account.", 400)
+
+    target_query = """
+        SELECT id, email, role, disabled_at, created_at
+        FROM admin_users
+        WHERE id = :admin_id
+    """
+    if db.get_bind().dialect.name == "mysql":
+        target_query += " FOR UPDATE"
+    target = db.execute(
+        text(target_query),
+        {"admin_id": target_admin_id},
+    ).mappings().first()
+    if target is None:
+        raise ApiException("ADMIN_NOT_FOUND", "This admin account is unavailable.", 404)
+
+    changes = body.model_dump(exclude_unset=True)
+    role = body.role if body.role is not None else target["role"]
+    disabled_at = (
+        _now()
+        if body.disabled is True
+        else None
+        if body.disabled is False
+        else target["disabled_at"]
+    )
+    removes_active_super_admin = (
+        target["role"] == "super_admin"
+        and target["disabled_at"] is None
+        and (role != "super_admin" or disabled_at is not None)
+    )
+    if removes_active_super_admin:
+        if db.get_bind().dialect.name == "mysql":
+            active_super_admin_rows = db.execute(
+                text(
+                    """
+                    SELECT id FROM admin_users
+                    WHERE role = 'super_admin' AND disabled_at IS NULL
+                    FOR UPDATE
+                    """
+                )
+            ).all()
+            active_super_admins = len(active_super_admin_rows)
+        else:
+            active_super_admins = db.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM admin_users
+                    WHERE role = 'super_admin' AND disabled_at IS NULL
+                    """
+                )
+            ).scalar_one()
+        if active_super_admins <= 1:
+            _record_admin_account_denial(
+                db,
+                request,
+                admin,
+                target_admin_id=target_admin_id,
+                reason="last_super_admin",
+            )
+            raise ApiException(
+                "LAST_SUPER_ADMIN",
+                "At least one active super admin must remain.",
+                409,
+            )
+
+    db.execute(
+        text(
+            """
+            UPDATE admin_users
+            SET role = :role, disabled_at = :disabled_at
+            WHERE id = :admin_id
+            """
+        ),
+        {"role": role, "disabled_at": disabled_at, "admin_id": target_admin_id},
+    )
+    if body.disabled is True:
+        db.execute(
+            text(
+                """
+                UPDATE admin_sessions
+                SET revoked_at = :now
+                WHERE admin_id = :admin_id AND revoked_at IS NULL
+                """
+            ),
+            {"now": _now(), "admin_id": target_admin_id},
+        )
+
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.account.updated",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=None,
+        outcome="success",
+        metadata={
+            "targetAdminId": target_admin_id,
+            "changedFields": sorted(changes),
+            "role": role,
+            "disabled": disabled_at is not None,
+        },
+    )
+    db.commit()
+    return {
+        "adminId": target["id"],
+        "email": target["email"],
+        "role": role,
+        "disabled": disabled_at is not None,
+        "createdAt": target["created_at"],
+    }
+
+
 @router.get("/reviews")
 def list_reviews(
     request: Request,
     db: DbSession,
-    admin: CurrentAdmin,
+    admin: Annotated[
+        AdminAccount,
+        Depends(require_admin_roles("super_admin", "reviewer")),
+    ],
     review_type: Literal["all", "profile", "identity-document"] = Query(
         default="all", alias="type"
     ),
@@ -457,7 +694,10 @@ def get_user_audit_history(
     account_id: str,
     request: Request,
     db: DbSession,
-    admin: CurrentAdmin,
+    admin: Annotated[
+        AdminAccount,
+        Depends(require_admin_roles("super_admin", "safety_admin", "auditor")),
+    ],
     event_type: str | None = Query(default=None, alias="eventType", min_length=1, max_length=80),
     outcome: Literal["success", "failure", "denied"] | None = None,
     limit: int = Query(default=50, ge=1, le=100),
@@ -547,7 +787,10 @@ def get_review(
     review_id: str,
     request: Request,
     db: DbSession,
-    admin: CurrentAdmin,
+    admin: Annotated[
+        AdminAccount,
+        Depends(require_admin_roles("super_admin", "reviewer")),
+    ],
 ) -> dict[str, object]:
     review_type, target_id = _review_parts(review_id)
     if review_type == "profile":
@@ -653,7 +896,10 @@ def get_review_document(
     review_id: str,
     request: Request,
     db: DbSession,
-    admin: CurrentAdmin,
+    admin: Annotated[
+        AdminAccount,
+        Depends(require_admin_roles("super_admin", "reviewer")),
+    ],
     storage: StorageDependency,
 ) -> RedirectResponse:
     review_type, target_id = _review_parts(review_id)
@@ -705,7 +951,10 @@ def decide_review(
     body: AdminReviewDecisionRequest,
     request: Request,
     db: DbSession,
-    admin: CurrentAdmin,
+    admin: Annotated[
+        AdminAccount,
+        Depends(require_admin_roles("super_admin", "reviewer")),
+    ],
 ) -> dict[str, str]:
     reason = body.reason.strip()
     if not reason:

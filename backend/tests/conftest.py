@@ -105,6 +105,7 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
             """
             CREATE TABLE admin_users (
                 id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'reviewer',
                 failed_login_attempts INTEGER NOT NULL DEFAULT 0, locked_until DATETIME,
                 disabled_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
