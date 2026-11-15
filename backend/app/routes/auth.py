@@ -269,6 +269,11 @@ def _send_contact_code(settings: Settings, identifier: str, identifier_type: str
 
 def _new_verification_code(db: Session, account_id: str) -> str:
     code = generate_verification_code()
+    _store_verification_code(db, account_id, code)
+    return code
+
+
+def _store_verification_code(db: Session, account_id: str, code: str) -> None:
     db.execute(
         text("DELETE FROM email_verification_tokens WHERE account_id = :account_id"),
         {"account_id": account_id},
@@ -286,7 +291,6 @@ def _new_verification_code(db: Session, account_id: str) -> str:
             "expires_at": _now() + VERIFICATION_LIFETIME,
         },
     )
-    return code
 
 
 def _record_rejected_signup(
@@ -984,6 +988,7 @@ def verify_contact(
 ) -> StageResponse:
     if account.stage != "needs-verification":
         raise ApiException("INVALID_CODE", "This account does not need contact verification.")
+    normalized_code = re.sub(r"\D", "", body.code)
     token = db.execute(
         text(
             """
@@ -998,7 +1003,8 @@ def verify_contact(
         token is None
         or _as_datetime(token["expires_at"]) <= _now()
         or int(token["attempt_count"]) >= 5
-        or not hmac.compare_digest(token["token_hash"], hash_token(body.code))
+        or len(normalized_code) != 6
+        or not hmac.compare_digest(token["token_hash"], hash_token(normalized_code))
     ):
         record_audit_event(
             db,
@@ -1089,8 +1095,13 @@ def resend_code(
         db.commit()
         raise ApiException("CODE_RESEND_TOO_SOON", "Wait a minute before requesting another code.", 429)
 
-    code = _new_verification_code(db, account.account_id)
-    _send_contact_code(settings, account["identifier"], account["identifier_type"], code)
+    code = generate_verification_code()
+    try:
+        _send_contact_code(settings, account["identifier"], account["identifier_type"], code)
+    except ServiceUnavailable:
+        db.rollback()
+        raise
+    _store_verification_code(db, account.account_id, code)
     record_audit_event(
         db,
         request,

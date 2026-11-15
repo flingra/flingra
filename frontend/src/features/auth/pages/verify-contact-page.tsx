@@ -28,10 +28,15 @@ export function VerifyContactPage() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
+    const normalizedCode = code.replace(/\D/g, '')
+    if (normalizedCode.length !== 6) {
+      setError('Enter the 6-digit code from your latest email.')
+      return
+    }
     setError(null)
     setSubmitting(true)
     try {
-      const { stage } = await verifyContact(code)
+      const { stage } = await verifyContact(normalizedCode)
       if (session) setSession({ ...session, stage })
       navigate(stage === 'needs-onboarding' ? '/onboarding' : '/discover')
     } catch (err) {
@@ -42,13 +47,19 @@ export function VerifyContactPage() {
   }
 
   async function onResend() {
+    if (cooldown > 0 || submitting) return
     setError(null)
+    setSubmitting(true)
     try {
       await resendCode()
-      setCooldown(30)
+      setCode('')
+      setCooldown(60)
       showToast({ title: 'Code sent', description: 'Check your email or phone for a new code.', variant: 'success' })
     } catch (err) {
+      if (err instanceof ApiError && err.code === 'CODE_RESEND_TOO_SOON') setCooldown(60)
       setError(err instanceof ApiError ? err.message : 'Unable to resend the code. Try again.')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -77,7 +88,7 @@ export function VerifyContactPage() {
               autoComplete="one-time-code"
               maxLength={6}
               value={code}
-              onChange={(event) => setCode(event.target.value)}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
             />
           </Field>
 
