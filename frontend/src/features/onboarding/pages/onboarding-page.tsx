@@ -19,6 +19,7 @@ import { completeOnboarding } from '@/lib/api/auth'
 import type { AudiencePreference } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
 import { INTERESTS } from '@/lib/constants/interests'
+import { getCurrentLocation } from '@/lib/location'
 
 const DEMO_2FA_CODE = '123456'
 
@@ -64,6 +65,8 @@ export function OnboardingPage() {
   const [draft, setDraft] = useState<Draft>(initialDraft)
   const [uploading, setUploading] = useState(false)
   const [finishing, setFinishing] = useState(false)
+  const [locating, setLocating] = useState(false)
+  const [locationError, setLocationError] = useState<string | null>(null)
 
   const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | 'authenticator' | null>(null)
   const [codeSent, setCodeSent] = useState(false)
@@ -87,6 +90,25 @@ export function OnboardingPage() {
         ? current.interests.filter((item) => item !== interest)
         : [...current.interests, interest],
     }))
+  }
+
+  async function toggleBrowserLocation(enabled: boolean) {
+    setLocationError(null)
+    if (!enabled) {
+      update('useBrowserLocation', false)
+      return
+    }
+
+    setLocating(true)
+    try {
+      await getCurrentLocation()
+      update('useBrowserLocation', true)
+    } catch (error) {
+      setLocationError(error instanceof Error ? error.message : 'Location access was unavailable.')
+      update('useBrowserLocation', false)
+    } finally {
+      setLocating(false)
+    }
   }
 
   async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
@@ -272,9 +294,14 @@ export function OnboardingPage() {
           </div>
 
           <label className="flex items-center gap-3 text-sm text-ink-700">
-            <Checkbox checked={draft.useBrowserLocation} onChange={(event) => update('useBrowserLocation', event.target.checked)} />
-            Use my browser location for more accurate distance (optional)
+            <Checkbox
+              checked={draft.useBrowserLocation}
+              onChange={(event) => void toggleBrowserLocation(event.target.checked)}
+              disabled={locating}
+            />
+            {locating ? 'Getting your current location…' : 'Use my current location for more accurate distance (optional)'}
           </label>
+          {locationError && <p className="text-sm text-danger">{locationError}</p>}
 
           <Field id="maxDistanceKm" label="Discovery distance (km)">
             <Input
