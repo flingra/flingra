@@ -1,16 +1,9 @@
+import { apiRequest } from './api/client'
+
 export interface CurrentLocation {
   latitude: number
   longitude: number
   accuracyMeters: number
-}
-
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined
-
-interface GoogleGeocodeResponse {
-  status: string
-  results: Array<{
-    address_components: Array<{ long_name: string; types: string[] }>
-  }>
 }
 
 export function getCurrentLocation(): Promise<CurrentLocation> {
@@ -40,30 +33,11 @@ export function getCurrentLocation(): Promise<CurrentLocation> {
 }
 
 export async function getApproximateArea(location: CurrentLocation): Promise<string | null> {
-  if (!GOOGLE_MAPS_API_KEY) return null
-
-  const params = new URLSearchParams({
-    latlng: `${location.latitude},${location.longitude}`,
-    key: GOOGLE_MAPS_API_KEY,
-  })
   try {
-    const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?${params}`)
-    if (!response.ok) return null
-
-    const result = (await response.json()) as GoogleGeocodeResponse
-    if (result.status !== 'OK' || result.results.length === 0) return null
-
-    const components = result.results[0].address_components
-    const area =
-      components.find((component) => component.types.includes('sublocality_level_1')) ??
-      components.find((component) => component.types.includes('sublocality')) ??
-      components.find((component) => component.types.includes('locality'))
-    const city = components.find((component) => component.types.includes('administrative_area_level_2'))
-    const state = components.find((component) => component.types.includes('administrative_area_level_1'))
-    if (!area) return null
-
-    const suffix = city && city.long_name !== area.long_name ? city.long_name : state?.long_name
-    return suffix && suffix !== area.long_name ? `${area.long_name}, ${suffix}` : area.long_name
+    const result = await apiRequest<{ area: string | null }>(
+      `/location/reverse?latitude=${encodeURIComponent(location.latitude)}&longitude=${encodeURIComponent(location.longitude)}`,
+    )
+    return result.area
   } catch {
     return null
   }
