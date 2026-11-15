@@ -1,6 +1,7 @@
 import { ApiError } from './types'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '')
+let csrfToken: string | null = null
 
 export type AdminRole = 'super_admin' | 'reviewer' | 'safety_admin' | 'auditor'
 export interface AdminSession { adminId: string; email: string; role: AdminRole }
@@ -16,6 +17,7 @@ export interface ReviewItem {
 }
 
 function csrfHeaders(): HeadersInit {
+  if (csrfToken) return { 'X-CSRF-Token': csrfToken }
   const token = document.cookie.split('; ').find((cookie) => cookie.startsWith('flingra_admin_csrf='))?.split('=').slice(1).join('=')
   return token ? { 'X-CSRF-Token': decodeURIComponent(token) } : {}
 }
@@ -26,6 +28,8 @@ export async function adminRequest<T>(path: string, init: RequestInit = {}): Pro
   headers.set('Accept', 'application/json')
   if (init.method && init.method !== 'GET') Object.entries(csrfHeaders()).forEach(([key, value]) => headers.set(key, value))
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, credentials: 'include', headers })
+  const responseCsrfToken = response.headers.get('X-CSRF-Token')
+  if (responseCsrfToken) csrfToken = responseCsrfToken
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null
     throw new ApiError(body?.error?.code ?? 'REQUEST_FAILED', body?.error?.message ?? 'The request could not be completed.')
@@ -37,7 +41,10 @@ export async function adminRequest<T>(path: string, init: RequestInit = {}): Pro
 export const adminApi = {
   login: (body: { email: string; password: string }) => adminRequest<AdminSession>('/admin/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   session: () => adminRequest<AdminSession | null>('/admin/auth/session'),
-  logout: () => adminRequest<void>('/admin/auth/logout', { method: 'POST' }),
+  logout: async () => {
+    await adminRequest<void>('/admin/auth/logout', { method: 'POST' })
+    csrfToken = null
+  },
   accounts: () => adminRequest<{ items: AdminAccount[]; nextOffset: number | null }>('/admin/admins'),
   createAccount: (body: { email: string; password: string; role: AdminRole }) => adminRequest<AdminAccount>('/admin/admins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   updateAccount: (id: string, body: { role?: AdminRole; disabled?: boolean }) => adminRequest<AdminAccount>(`/admin/admins/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),

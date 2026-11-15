@@ -328,6 +328,7 @@ def admin_login(
     db.commit()
 
     csrf_token = generate_token()
+    response.headers["X-CSRF-Token"] = csrf_token
     same_site = "none" if settings.session_cookie_secure else "lax"
     response.set_cookie(
         "flingra_admin_session",
@@ -353,10 +354,13 @@ def admin_login(
 
 
 @router.get("/auth/session", response_model=AdminSessionResponse | None)
-def admin_session(request: Request, db: DbSession) -> AdminSessionResponse | None:
+def admin_session(request: Request, response: Response, db: DbSession) -> AdminSessionResponse | None:
     raw_token = request.cookies.get("flingra_admin_session")
     if not raw_token:
         return None
+    csrf_token = request.cookies.get("flingra_admin_csrf")
+    if csrf_token:
+        response.headers["X-CSRF-Token"] = csrf_token
     admin = db.execute(
         text(
             """
