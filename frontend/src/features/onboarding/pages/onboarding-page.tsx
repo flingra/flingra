@@ -77,6 +77,7 @@ export function OnboardingPage() {
 
   const [step, setStep] = useState(1)
   const [draft, setDraft] = useState<Draft>(initialDraft)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [finishing, setFinishing] = useState(false)
   const [locating, setLocating] = useState(false)
@@ -131,6 +132,12 @@ export function OnboardingPage() {
     }
     window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(progress))
   }, [draft, locationAccuracyMeters, progressHydrated, step, twoFactorMethod])
+
+  useEffect(() => {
+    return () => {
+      if (photoPreview) URL.revokeObjectURL(photoPreview)
+    }
+  }, [photoPreview])
 
   function toggleInterest(interest: string) {
     setDraft((current) => ({
@@ -189,10 +196,13 @@ export function OnboardingPage() {
   async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
+    const previewUrl = URL.createObjectURL(file)
+    setPhotoPreview(previewUrl)
     setUploading(true)
     try {
       const url = await uploadPhoto(file)
       update('photo', url)
+      setPhotoPreview(null)
     } finally {
       setUploading(false)
     }
@@ -259,7 +269,7 @@ export function OnboardingPage() {
           </div>
 
           <div className="flex items-center gap-4">
-            <Avatar name={draft.displayName || '?'} src={draft.photo ?? undefined} size="xl" />
+            <Avatar name={draft.displayName || '?'} src={photoPreview ?? draft.photo ?? undefined} size="xl" />
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-ink-200 px-4 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50">
               <Camera className="size-4" aria-hidden="true" />
               {uploading ? 'Uploading…' : 'Add photo'}

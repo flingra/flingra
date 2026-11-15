@@ -473,7 +473,7 @@ def sign_in(
             metadata={"reason": "invalid_credentials"},
         )
         db.commit()
-        raise ApiException("INVALID_CREDENTIALS", "That email/password combination doesn't match our records.", 401)
+        raise ApiException("INVALID_CREDENTIALS", "Invalid email or password.", 401)
 
     now = _now()
     if account["locked_until"] is not None and _as_datetime(account["locked_until"]) > now:
@@ -516,7 +516,7 @@ def sign_in(
         db.commit()
         if locked_until is not None:
             raise ApiException("ACCOUNT_LOCKED", "Too many attempts. Try again later or reset your password.", 423)
-        raise ApiException("INVALID_CREDENTIALS", "That email/password combination doesn't match our records.", 401)
+        raise ApiException("INVALID_CREDENTIALS", "Invalid email or password.", 401)
 
     db.execute(
         text("UPDATE accounts SET login_failed_attempts = 0, locked_until = NULL WHERE id = :account_id"),
