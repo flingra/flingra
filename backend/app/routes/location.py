@@ -54,22 +54,31 @@ def reverse_geocode(
     components = result.get("components") or result.get("address") or {}
     if components.get("country_code") not in {None, "ng"}:
         return {"area": None}
-    area = (
-        components.get("quarter")
-        or components.get("neighbourhood")
-        or components.get("suburb")
-        or components.get("town")
-        or components.get("city")
-        or components.get("village")
+
+    def first_component(*names: str) -> str | None:
+        for name in names:
+            value = components.get(name)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    area = first_component(
+        "quarter",
+        "neighbourhood",
+        "neighborhood",
+        "suburb",
+        "city_district",
+        "town",
+        "city",
+        "village",
+        "municipality",
+        "county",
+        "state_district",
+        "state",
     )
-    city = (
-        components.get("city")
-        or components.get("town")
-        or components.get("village")
-        or components.get("municipality")
-    )
-    state = components.get("state")
+    city = first_component("city", "town", "village", "municipality", "county")
+    state = first_component("state", "state_district")
     suffix = city or state
-    if area and suffix and area != suffix:
+    if area and suffix and area.casefold() != suffix.casefold():
         area = f"{area}, {suffix}"
     return {"area": area}
