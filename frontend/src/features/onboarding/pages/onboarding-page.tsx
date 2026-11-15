@@ -18,7 +18,7 @@ import { completeOnboarding, requestTwoFactorCode, verifyTwoFactorCode } from '@
 import type { AudiencePreference } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
 import { INTERESTS } from '@/lib/constants/interests'
-import { getCurrentLocation } from '@/lib/location'
+import { getApproximateArea, getCurrentLocation } from '@/lib/location'
 
 interface Draft {
   displayName: string
@@ -149,10 +149,11 @@ export function OnboardingPage() {
     setLocating(true)
     try {
       const location = await getCurrentLocation()
+      const area = (await getApproximateArea(location)) ?? ''
       setDraft((current) => ({
         ...current,
         useBrowserLocation: true,
-        area: 'Current location',
+        area,
         latitude: location.latitude,
         longitude: location.longitude,
       }))
@@ -358,7 +359,11 @@ export function OnboardingPage() {
             <div className="rounded-2xl border border-primary-200 bg-primary-50 p-4">
               <p className="text-sm font-semibold text-primary-800">Approximate location detected</p>
               <p className="mt-1 text-sm text-primary-700">
-                Your profile will show <strong>Current location</strong>
+                {draft.area ? (
+                  <>Your profile will show <strong>{draft.area}</strong></>
+                ) : (
+                  'We could not name this location automatically. Enter the approximate area below.'
+                )}
                 {locationAccuracyMeters !== null && ` within about ${Math.round(locationAccuracyMeters)} metres`}.
                 Exact coordinates stay private.
               </p>
