@@ -34,6 +34,9 @@ import { GiftShopPage } from '@/features/wallet/pages/gift-shop-page'
 import { RedeemGiftsPage } from '@/features/wallet/pages/redeem-gifts-page'
 import { ReferralsPage } from '@/features/wallet/pages/referrals-page'
 import { PayoutPage } from '@/features/wallet/pages/payout-page'
+import { AdminRoute } from '@/features/admin/admin-route'
+import { AdminLayout } from '@/features/admin/admin-layout'
+import { AdminAccountsPage, AdminAuditPage, AdminLoginPage, AdminReviewsPage } from '@/features/admin/admin-pages'
 
 export function AppRouter() {
   return (
@@ -239,6 +242,15 @@ export function AppRouter() {
           </ProtectedRoute>
         }
       />
+
+      <Route path="admin/login" element={<AdminLoginPage />} />
+      <Route element={<AdminRoute />}>
+        <Route element={<AdminLayout />}>
+          <Route path="admin" element={<AdminReviewsPage />} />
+          <Route path="admin/admins" element={<AdminAccountsPage />} />
+          <Route path="admin/audit" element={<AdminAuditPage />} />
+        </Route>
+      </Route>
     </Routes>
   )
 }

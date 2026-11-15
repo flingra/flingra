@@ -17,6 +17,7 @@ from app.errors import ApiException, ServiceUnavailable
 from app.routes.auth import get_app_settings
 from app.schemas import (
     AdminAccountUpdateRequest,
+    AdminAccountCreateRequest,
     AdminLoginRequest,
     AdminReviewDecisionRequest,
     AdminRole,
@@ -457,6 +458,49 @@ def list_admin_accounts(
         ],
         "nextOffset": offset + limit if has_more else None,
     }
+
+
+@router.post(
+    "/admins",
+    dependencies=[Depends(require_admin_csrf)],
+)
+def create_admin_account(
+    body: AdminAccountCreateRequest,
+    request: Request,
+    db: DbSession,
+    admin: Annotated[AdminAccount, Depends(require_admin_roles("super_admin"))],
+) -> dict[str, object]:
+    email = body.email.strip().lower()
+    if not EMAIL_PATTERN.fullmatch(email):
+        raise ApiException("INVALID_ADMIN_EMAIL", "Enter a valid admin email address.")
+    admin_id = uuid.uuid4().hex
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO admin_users (id, email, password_hash, role)
+                VALUES (:id, :email, :password_hash, :role)
+                """
+            ),
+            {"id": admin_id, "email": email, "password_hash": hash_password(body.password), "role": body.role},
+        )
+    except Exception as exc:
+        db.rollback()
+        if "Duplicate" in str(exc):
+            raise ApiException("ADMIN_EXISTS", "An admin account with that email already exists.", 409) from None
+        raise
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.account.created",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=None,
+        outcome="success",
+        metadata={"targetAdminId": admin_id, "role": body.role},
+    )
+    db.commit()
+    return {"adminId": admin_id, "email": email, "role": body.role, "disabled": False, "createdAt": _now()}
 
 
 @router.patch(

@@ -71,6 +71,12 @@ class AdminAccountUpdateRequest(BaseModel):
         return self
 
 
+class AdminAccountCreateRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=14, max_length=128)
+    role: AdminRole = "reviewer"
+
+
 class AdminReviewDecisionRequest(BaseModel):
     decision: Literal["approved", "rejected"]
     reason: str = Field(min_length=1, max_length=1000)
