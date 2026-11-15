@@ -30,6 +30,15 @@ def test_liveness_does_not_require_database() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_root_status_does_not_require_database() -> None:
+    client = TestClient(create_app(settings_without_database()))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_readiness_reports_missing_database_configuration() -> None:
     client = TestClient(
         create_app(settings_without_database())

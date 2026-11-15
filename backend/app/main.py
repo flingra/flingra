@@ -111,6 +111,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def live() -> dict[str, str]:
         return {"status": "ok"}
 
+    @application.get("/", tags=["health"])
+    def status() -> dict[str, str]:
+        return {"status": "ok"}
+
     @application.get("/health/ready", tags=["health"])
     async def ready() -> dict[str, str]:
         check_database(app_settings)
