@@ -127,7 +127,7 @@ a super admin with `python -m app.create_admin --role super_admin`. The command
 prompts for the email and a confirmed password (minimum 14 characters) without
 placing the password in shell history or environment variables. Admin sessions
 use separate
-`HttpOnly`, `SameSite=Strict`, `/admin`-scoped cookies with an 8-hour maximum
+`HttpOnly`, cross-origin-compatible `SameSite=None` cookies when secure cookies are enabled (and `SameSite=Lax` locally), scoped to `/admin`, with an 8-hour maximum
 life, and require CSRF tokens and an allowlisted `Origin` when origins are
 configured. Set `FLINGRA_ADMIN_ALLOWED_ORIGINS` to the separate admin UI
 origin(s) in production; otherwise admin requests use the general

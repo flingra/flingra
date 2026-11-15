@@ -56,18 +56,19 @@ def _as_datetime(value: datetime | str) -> datetime:
 
 
 def _clear_admin_cookies(response: Response, settings: Settings) -> None:
+    same_site = "none" if settings.session_cookie_secure else "lax"
     response.delete_cookie(
         "flingra_admin_session",
         path="/admin",
         secure=settings.session_cookie_secure,
         httponly=True,
-        samesite="strict",
+        samesite=same_site,
     )
     response.delete_cookie(
         "flingra_admin_csrf",
         path="/admin",
         secure=settings.session_cookie_secure,
-        samesite="strict",
+        samesite=same_site,
     )
 
 
@@ -327,13 +328,14 @@ def admin_login(
     db.commit()
 
     csrf_token = generate_token()
+    same_site = "none" if settings.session_cookie_secure else "lax"
     response.set_cookie(
         "flingra_admin_session",
         raw_token,
         max_age=settings.admin_session_ttl_hours * 3600,
         httponly=True,
         secure=settings.session_cookie_secure,
-        samesite="strict",
+        samesite=same_site,
         path="/admin",
     )
     response.set_cookie(
@@ -342,7 +344,7 @@ def admin_login(
         max_age=settings.admin_session_ttl_hours * 3600,
         httponly=False,
         secure=settings.session_cookie_secure,
-        samesite="strict",
+        samesite=same_site,
         path="/admin",
     )
     return _admin_session_response(

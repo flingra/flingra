@@ -9,12 +9,17 @@ interface AdminState {
   logout: () => Promise<void>
 }
 
-export const useAdminStore = create<AdminState>((set) => ({
+export const useAdminStore = create<AdminState>((set, get) => ({
   session: null,
   hydrated: false,
   setSession: (session) => set({ session }),
   restore: async () => {
-    try { set({ session: await adminApi.session() }) } catch { set({ session: null }) } finally { set({ hydrated: true }) }
+    try {
+      const session = await adminApi.session()
+      if (get().session === null) set({ session })
+    } catch {
+      if (get().session === null) set({ session: null })
+    } finally { set({ hydrated: true }) }
   },
   logout: async () => { await adminApi.logout(); set({ session: null }) },
 }))
