@@ -16,7 +16,7 @@ import pyotp
 import qrcode
 from fastapi import APIRouter, Depends, Header, Request, Response
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.audit import record_audit_event
@@ -564,25 +564,29 @@ def request_two_factor_code(
     if account["identifier_type"] != "email":
         raise ApiException("TWO_FACTOR_EMAIL_UNAVAILABLE", "Email two-factor authentication requires an email account.")
     code = generate_verification_code()
-    db.execute(
-        text("DELETE FROM two_factor_challenges WHERE account_id = :account_id"),
-        {"account_id": account.account_id},
-    )
-    db.execute(
-        text(
-            """
-            INSERT INTO two_factor_challenges (account_id, code_hash, expires_at, attempt_count)
-            VALUES (:account_id, :code_hash, :expires_at, 0)
-            """
-        ),
-        {
-            "account_id": account.account_id,
-            "code_hash": hash_token(code),
-            "expires_at": _now() + TWO_FACTOR_LIFETIME,
-        },
-    )
-    send_two_factor_code(settings, account["identifier"], code)
-    db.commit()
+    try:
+        db.execute(
+            text("DELETE FROM two_factor_challenges WHERE account_id = :account_id"),
+            {"account_id": account.account_id},
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO two_factor_challenges (account_id, code_hash, expires_at, attempt_count)
+                VALUES (:account_id, :code_hash, :expires_at, 0)
+                """
+            ),
+            {
+                "account_id": account.account_id,
+                "code_hash": hash_token(code),
+                "expires_at": _now() + TWO_FACTOR_LIFETIME,
+            },
+        )
+        send_two_factor_code(settings, account["identifier"], code)
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise ServiceUnavailable("Two-factor setup is temporarily unavailable. Check the database migration.") from exc
     return {"status": "sent"}
 
 
