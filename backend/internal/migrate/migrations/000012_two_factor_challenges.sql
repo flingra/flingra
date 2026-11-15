@@ -7,3 +7,6 @@ CREATE TABLE two_factor_challenges (
     CONSTRAINT fk_two_factor_challenges_account
         FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 );
+
+ALTER TABLE profiles
+    ADD COLUMN totp_secret VARCHAR(64) NULL;

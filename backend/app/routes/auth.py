@@ -1,4 +1,6 @@
 import hmac
+import base64
+import io
 import json
 import logging
 import re
@@ -9,6 +11,8 @@ from typing import Annotated, Any, Literal
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2.id_token import verify_oauth2_token
+import pyotp
+import qrcode
 from fastapi import APIRouter, Depends, Header, Request, Response
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -633,6 +637,47 @@ def verify_two_factor_code(
     )
     db.execute(
         text("DELETE FROM two_factor_challenges WHERE account_id = :account_id"),
+        {"account_id": account.account_id},
+    )
+    db.commit()
+    return {"status": "verified"}
+
+
+@router.post("/2fa/authenticator/setup", dependencies=[Depends(require_csrf)])
+def setup_authenticator(account: CurrentAccount, db: DbSession) -> dict[str, str]:
+    secret = pyotp.random_base32()
+    db.execute(
+        text("UPDATE profiles SET totp_secret = :secret WHERE account_id = :account_id"),
+        {"secret": secret, "account_id": account.account_id},
+    )
+    db.commit()
+    uri = pyotp.TOTP(secret).provisioning_uri(name=account["identifier"], issuer_name="Flingra")
+    qr = qrcode.make(uri)
+    output = io.BytesIO()
+    qr.save(output, format="PNG")
+    return {
+        "secret": secret,
+        "otpauthUri": uri,
+        "qrDataUrl": f"data:image/png;base64,{base64.b64encode(output.getvalue()).decode('ascii')}",
+    }
+
+
+@router.post("/2fa/authenticator/verify", dependencies=[Depends(require_csrf)])
+def verify_authenticator(body: TwoFactorCodeRequest, account: CurrentAccount, db: DbSession) -> dict[str, str]:
+    secret = db.execute(
+        text("SELECT totp_secret FROM profiles WHERE account_id = :account_id"),
+        {"account_id": account.account_id},
+    ).scalar_one_or_none()
+    if not secret or not pyotp.TOTP(secret).verify(body.code.strip(), valid_window=1):
+        raise ApiException("INVALID_CODE", "That authenticator code is invalid or expired.")
+    db.execute(
+        text(
+            """
+            UPDATE profiles
+            SET two_factor_enabled = TRUE, two_factor_method = 'authenticator'
+            WHERE account_id = :account_id
+            """
+        ),
         {"account_id": account.account_id},
     )
     db.commit()

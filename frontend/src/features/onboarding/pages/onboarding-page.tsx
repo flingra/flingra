@@ -1,7 +1,7 @@
 import { type ChangeEvent, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Camera, Mail } from 'lucide-react'
+import { Camera, KeyRound, Mail } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -14,7 +14,13 @@ import { Avatar } from '@/components/ui/avatar'
 import { ProgressSteps } from '@/components/ui/progress-steps'
 import { useToast } from '@/components/ui/toast'
 import { getOwnProfile, saveOwnProfile, uploadPhoto } from '@/lib/api/profiles'
-import { completeOnboarding, requestTwoFactorCode, verifyTwoFactorCode } from '@/lib/api/auth'
+import {
+  completeOnboarding,
+  requestTwoFactorCode,
+  setupAuthenticator,
+  verifyAuthenticator,
+  verifyTwoFactorCode,
+} from '@/lib/api/auth'
 import type { AudiencePreference } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
 import { INTERESTS } from '@/lib/constants/interests'
@@ -77,7 +83,8 @@ export function OnboardingPage() {
   const [locationError, setLocationError] = useState<string | null>(null)
   const [locationAccuracyMeters, setLocationAccuracyMeters] = useState<number | null>(null)
 
-  const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | null>(null)
+  const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | 'authenticator' | null>(null)
+  const [authenticatorSetup, setAuthenticatorSetup] = useState<{ secret: string; qrDataUrl: string } | null>(null)
   const [codeSent, setCodeSent] = useState(false)
   const [twoFactorCode, setTwoFactorCode] = useState('')
   const [twoFactorError, setTwoFactorError] = useState<string | null>(null)
@@ -225,7 +232,8 @@ export function OnboardingPage() {
       setTwoFactorError('Enter the 6-digit code.')
       return
     }
-    void verifyTwoFactorCode(twoFactorCode)
+    const verify = twoFactorMethod === 'authenticator' ? verifyAuthenticator : verifyTwoFactorCode
+    void verify(twoFactorCode)
       .then(() => {
         showToast({ title: 'Two-factor authentication enabled', variant: 'success' })
         return finish()
@@ -474,7 +482,15 @@ export function OnboardingPage() {
             <div className="flex flex-col gap-3">
               <button
                 type="button"
-                onClick={() => setTwoFactorMethod('email')}
+                onClick={() => {
+                  setTwoFactorError(null)
+                  void requestTwoFactorCode()
+                    .then(() => {
+                      setTwoFactorMethod('email')
+                      setCodeSent(true)
+                    })
+                    .catch((error) => setTwoFactorError(error instanceof Error ? error.message : 'The code could not be sent.'))
+                }}
                 className="flex cursor-pointer items-center gap-3 rounded-2xl border border-ink-200 p-4 text-left hover:border-primary-300 hover:bg-primary-50"
               >
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
@@ -483,6 +499,29 @@ export function OnboardingPage() {
                 <span>
                   <span className="block font-semibold text-ink-900">Email code</span>
                   <span className="block text-sm text-ink-500">We'll send a 6-digit code to your email each time you sign in.</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTwoFactorError(null)
+                  void setupAuthenticator()
+                    .then((setup) => {
+                      setAuthenticatorSetup({ secret: setup.secret, qrDataUrl: setup.qrDataUrl })
+                      setTwoFactorMethod('authenticator')
+                    })
+                    .catch((error) =>
+                      setTwoFactorError(error instanceof Error ? error.message : 'Authenticator setup is unavailable.'),
+                    )
+                }}
+                className="flex cursor-pointer items-center gap-3 rounded-2xl border border-ink-200 p-4 text-left hover:border-primary-300 hover:bg-primary-50"
+              >
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
+                  <KeyRound className="size-5" aria-hidden="true" />
+                </span>
+                <span>
+                  <span className="block font-semibold text-ink-900">Authenticator app</span>
+                  <span className="block text-sm text-ink-500">Use Google Authenticator, Authy, or another TOTP app.</span>
                 </span>
               </button>
             </div>
@@ -520,6 +559,27 @@ export function OnboardingPage() {
             </div>
           )}
 
+          {twoFactorMethod === 'authenticator' && authenticatorSetup && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-50 p-4">
+                <img src={authenticatorSetup.qrDataUrl} alt="Authenticator setup QR code" className="size-40 rounded-lg" />
+                <p className="text-center text-xs text-ink-500">
+                  Scan the QR code, or enter this setup key manually:
+                  <strong className="mt-1 block font-mono text-ink-700">{authenticatorSetup.secret}</strong>
+                </p>
+              </div>
+              <Field id="twofactor-code" label="6-digit code from your app" error={twoFactorError ?? undefined}>
+                <Input
+                  id="twofactor-code"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={twoFactorCode}
+                  onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, ''))}
+                />
+              </Field>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <Button
               variant="secondary"
@@ -540,7 +600,7 @@ export function OnboardingPage() {
             <Button
               className="flex-1"
               loading={finishing}
-              disabled={!twoFactorMethod || !codeSent}
+              disabled={!twoFactorMethod || (twoFactorMethod === 'email' && !codeSent) || (twoFactorMethod === 'authenticator' && !authenticatorSetup)}
               onClick={handleVerifyTwoFactor}
             >
               Verify &amp; finish

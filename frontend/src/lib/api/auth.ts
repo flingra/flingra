@@ -165,6 +165,27 @@ export async function verifyTwoFactorCode(code: string): Promise<void> {
   })
 }
 
+export interface AuthenticatorSetup {
+  secret: string
+  otpauthUri: string
+  qrDataUrl: string
+}
+
+export async function setupAuthenticator(): Promise<AuthenticatorSetup> {
+  return apiRequest<AuthenticatorSetup>('/auth/2fa/authenticator/setup', {
+    method: 'POST',
+    headers: await ensureCsrfHeaders(),
+  })
+}
+
+export async function verifyAuthenticator(code: string): Promise<void> {
+  await apiRequest<void>('/auth/2fa/authenticator/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
+    body: JSON.stringify({ code }),
+  })
+}
+
 export async function requestPasswordReset(identifier: string): Promise<void> {
   await apiRequest<void>('/auth/password/forgot', {
     method: 'POST',
