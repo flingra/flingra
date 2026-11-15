@@ -89,6 +89,7 @@ export function OnboardingPage() {
   const [codeSent, setCodeSent] = useState(false)
   const [twoFactorCode, setTwoFactorCode] = useState('')
   const [twoFactorError, setTwoFactorError] = useState<string | null>(null)
+  const [twoFactorSending, setTwoFactorSending] = useState(false)
   const [progressHydrated, setProgressHydrated] = useState(false)
 
   function update<K extends keyof Draft>(key: K, value: Draft[K]) {
@@ -256,12 +257,13 @@ export function OnboardingPage() {
 
   function handleVerifyTwoFactor() {
     setTwoFactorError(null)
-    if (twoFactorCode.trim().length !== 6) {
+    const normalizedCode = twoFactorCode.replace(/\D/g, '')
+    if (normalizedCode.length !== 6) {
       setTwoFactorError('Enter the 6-digit code.')
       return
     }
     const verify = twoFactorMethod === 'authenticator' ? verifyAuthenticator : verifyTwoFactorCode
-    void verify(twoFactorCode)
+    void verify(normalizedCode)
       .then(() => {
         showToast({ title: 'Two-factor authentication enabled', variant: 'success' })
         return finish()
@@ -510,13 +512,16 @@ export function OnboardingPage() {
               <button
                 type="button"
                 onClick={() => {
+                  if (twoFactorSending) return
                   setTwoFactorError(null)
+                  setTwoFactorSending(true)
                   void requestTwoFactorCode()
                     .then(() => {
                       setTwoFactorMethod('email')
                       setCodeSent(true)
                     })
                     .catch((error) => setTwoFactorError(error instanceof Error ? error.message : 'The code could not be sent.'))
+                    .finally(() => setTwoFactorSending(false))
                 }}
                 className="flex cursor-pointer items-center gap-3 rounded-2xl border border-ink-200 p-4 text-left hover:border-primary-300 hover:bg-primary-50"
               >
@@ -558,11 +563,15 @@ export function OnboardingPage() {
             <div className="flex flex-col gap-4">
               {!codeSent ? (
                 <Button
+                  loading={twoFactorSending}
+                  disabled={twoFactorSending}
                   onClick={() => {
                     setTwoFactorError(null)
+                    setTwoFactorSending(true)
                     void requestTwoFactorCode()
                       .then(() => setCodeSent(true))
                       .catch((error) => setTwoFactorError(error instanceof Error ? error.message : 'The code could not be sent.'))
+                      .finally(() => setTwoFactorSending(false))
                   }}
                 >
                   <Mail className="size-4" aria-hidden="true" /> Send code to my email
@@ -578,7 +587,7 @@ export function OnboardingPage() {
                       inputMode="numeric"
                       maxLength={6}
                       value={twoFactorCode}
-                      onChange={(event) => setTwoFactorCode(event.target.value)}
+                      onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
                     />
                   </Field>
                 </>

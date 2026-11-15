@@ -588,6 +588,9 @@ def request_two_factor_code(
         )
         send_two_factor_code(settings, account["identifier"], code)
         db.commit()
+    except ServiceUnavailable:
+        db.rollback()
+        raise
     except SQLAlchemyError as exc:
         db.rollback()
         raise ServiceUnavailable("Two-factor setup is temporarily unavailable. Check the database migration.") from exc
@@ -603,6 +606,7 @@ def verify_two_factor_code(
     account: CurrentAccount,
     db: DbSession,
 ) -> dict[str, str]:
+    normalized_code = re.sub(r"\D", "", body.code)
     challenge = db.execute(
         text(
             """
@@ -617,7 +621,8 @@ def verify_two_factor_code(
         challenge is not None
         and _as_datetime(challenge["expires_at"]) > _now()
         and int(challenge["attempt_count"]) < 5
-        and hmac.compare_digest(challenge["code_hash"], hash_token(body.code))
+        and len(normalized_code) == 6
+        and hmac.compare_digest(challenge["code_hash"], hash_token(normalized_code))
     )
     if not valid:
         if challenge is not None and int(challenge["attempt_count"]) < 5:

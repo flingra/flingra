@@ -161,7 +161,7 @@ export async function verifyTwoFactorCode(code: string): Promise<void> {
   await apiRequest<void>('/auth/2fa/email/verify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code: code.replace(/\D/g, '') }),
   })
 }
 
