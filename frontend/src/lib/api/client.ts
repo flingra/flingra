@@ -2,6 +2,14 @@ import { ApiError } from './types'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '')
 
+export function csrfHeaders(): HeadersInit {
+  const token = document.cookie
+    .split('; ')
+    .find((cookie) => cookie.startsWith('flingra_csrf='))
+    ?.slice('flingra_csrf='.length)
+  return token ? { 'X-CSRF-Token': decodeURIComponent(token) } : {}
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!API_BASE_URL) {
     throw new ApiError('API_NOT_CONFIGURED', 'The frontend API URL is not configured.')
@@ -18,13 +26,6 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     throw new ApiError(body?.error?.code ?? 'REQUEST_FAILED', body?.error?.message ?? 'The request could not be completed.')
   }
 
-  export function csrfHeaders(): HeadersInit {
-    const token = document.cookie
-      .split('; ')
-      .find((cookie) => cookie.startsWith('flingra_csrf='))
-      ?.slice('flingra_csrf='.length)
-    return token ? { 'X-CSRF-Token': decodeURIComponent(token) } : {}
-  }
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
