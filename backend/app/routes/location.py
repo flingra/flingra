@@ -1,7 +1,7 @@
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.config import Settings
 from app.errors import ServiceUnavailable
@@ -12,13 +12,13 @@ router = APIRouter(prefix="/location", tags=["location"])
 
 @router.get("/reverse")
 def reverse_geocode(
-    latitude: float,
-    longitude: float,
     _: CurrentAccount,
     settings: Annotated[Settings, Depends(get_app_settings)],
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
 ) -> dict[str, str | None]:
     if settings.opencage_api_key is None:
-        return {"area": None}
+        raise ServiceUnavailable("Location lookup is not configured on the server.")
 
     try:
         response = httpx.get(
