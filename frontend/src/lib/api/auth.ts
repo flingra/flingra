@@ -1,16 +1,8 @@
-import { delay } from './client'
-import { CURRENT_ACCOUNT, ownProfileStore, PROFILES, sessionStore } from './mock-db'
-import { applyReferralCode } from './payout'
-import { saveOwnProfile } from './profiles'
+import { apiRequest, csrfHeaders } from './client'
 import { ApiError, type AccountStage, type Session } from './types'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-function minAgeDate(sex: 'man' | 'woman') {
-  const date = new Date()
-  date.setFullYear(date.getFullYear() - (sex === 'woman' ? 21 : 18))
-  return date
-}
+let cachedSession: Session | null = null
 
 export interface SignUpInput {
   sex: 'man' | 'woman'
@@ -22,38 +14,24 @@ export interface SignUpInput {
 }
 
 export async function signUp(input: SignUpInput): Promise<{ stage: AccountStage }> {
-  await delay(null, 700)
-
-  if (!input.acceptedTerms) {
-    throw new ApiError('TERMS_REQUIRED', 'Accept the terms and privacy notice to continue.')
+  const result = await apiRequest<{ stage: AccountStage }>('/auth/signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sex: input.sex,
+      identifier: input.identifier,
+      password: input.password,
+      dateOfBirth: input.dateOfBirth,
+      acceptedTerms: input.acceptedTerms,
+      referralCode: input.referralCode,
+    }),
+  })
+  cachedSession = {
+    accountId: 'pending',
+    maskedContact: maskContact(input.identifier),
+    stage: result.stage,
   }
-  // Women sign up with email only, and the minimum age is 21 (vs. 18 generally)
-  // — a deliberate, stricter safety threshold for this account type.
-  if (input.sex === 'woman' && !EMAIL_PATTERN.test(input.identifier)) {
-    throw new ApiError('EMAIL_REQUIRED', 'Enter a valid email address.')
-  }
-  if (new Date(input.dateOfBirth) > minAgeDate(input.sex)) {
-    throw new ApiError(
-      'INELIGIBLE_AGE',
-      input.sex === 'woman'
-        ? 'Flingra requires female accounts to be 21 or older.'
-        : 'Flingra is only available to adults 18 and older.',
-    )
-  }
-  if (input.identifier.toLowerCase() === CURRENT_ACCOUNT.identifier) {
-    throw new ApiError(
-      'ACCOUNT_EXISTS',
-      'If an account already exists for these details, sign in instead or reset your password.',
-    )
-  }
-
-  sessionStore.session = { accountId: 'me', maskedContact: CURRENT_ACCOUNT.maskedContact, stage: 'needs-verification' }
-  // Seed a draft profile immediately so the account's sex is set before
-  // onboarding (needed for the livestream gender gate and other sex-specific
-  // rules), while the public "identity" display preference stays editable later.
-  await saveOwnProfile({ identity: input.sex })
-  if (input.referralCode) applyReferralCode(input.referralCode)
-  return { stage: 'needs-verification' }
+  return result
 }
 
 export interface SignInInput {
@@ -61,78 +39,172 @@ export interface SignInInput {
   password: string
 }
 
+interface GoogleIdentityServices {
+  accounts: {
+    id: {
+      initialize(options: {
+        client_id: string
+        callback: (response: { credential: string }) => void
+        nonce: string
+        auto_select?: boolean
+        cancel_on_tap_outside?: boolean
+      }): void
+      prompt(listener: (notification: { isNotDisplayed(): boolean; isSkippedMoment(): boolean }) => void): void
+    }
+  }
+}
+
+declare global {
+  interface Window {
+    google?: GoogleIdentityServices
+  }
+}
+
+interface GoogleAuthInput {
+  sex?: 'man' | 'woman'
+  dateOfBirth?: string
+  acceptedTerms?: boolean
+  referralCode?: string
+}
+
+function googleNonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24))
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+let googleScriptPromise: Promise<void> | null = null
+
+function loadGoogleIdentityServices(): Promise<void> {
+  if (window.google) return Promise.resolve()
+  if (!googleScriptPromise) {
+    googleScriptPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector<HTMLScriptElement>('script[data-google-identity-services]')
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), { once: true })
+        existing.addEventListener('error', () => reject(new ApiError('GOOGLE_UNAVAILABLE', 'Google sign-in is unavailable.')), {
+          once: true,
+        })
+        return
+      }
+      const script = document.createElement('script')
+      script.src = 'https://accounts.google.com/gsi/client'
+      script.async = true
+      script.defer = true
+      script.dataset.googleIdentityServices = 'true'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new ApiError('GOOGLE_UNAVAILABLE', 'Google sign-in is unavailable.'))
+      document.head.appendChild(script)
+    })
+  }
+  return googleScriptPromise
+}
+
+async function getGoogleCredential(): Promise<{ credential: string; nonce: string }> {
+  const config = await apiRequest<{ clientId: string | null }>('/auth/oauth/google/config')
+  if (!config.clientId) throw new ApiError('GOOGLE_UNAVAILABLE', 'Google sign-in is not configured.')
+  await loadGoogleIdentityServices()
+  const google = window.google
+  if (!google) throw new ApiError('GOOGLE_UNAVAILABLE', 'Google sign-in is unavailable.')
+  const nonce = googleNonce()
+  return new Promise((resolve, reject) => {
+    let settled = false
+    google.accounts.id.initialize({
+      client_id: config.clientId as string,
+      nonce,
+      cancel_on_tap_outside: true,
+      callback: (response) => {
+        settled = true
+        resolve({ credential: response.credential, nonce })
+      },
+    })
+    google.accounts.id.prompt((notification) => {
+      if (!settled && (notification.isNotDisplayed() || notification.isSkippedMoment())) {
+        settled = true
+        reject(new ApiError('GOOGLE_CANCELLED', 'Google sign-in was cancelled.'))
+      }
+    })
+  })
+}
+
 export async function signIn(input: SignInInput): Promise<Session> {
-  await delay(null, 600)
-
-  if (input.identifier.toLowerCase().includes('locked')) {
-    throw new ApiError('ACCOUNT_LOCKED', 'Too many attempts. Try again later or reset your password.')
-  }
-  if (input.identifier.toLowerCase() !== CURRENT_ACCOUNT.identifier || input.password !== CURRENT_ACCOUNT.password) {
-    throw new ApiError('INVALID_CREDENTIALS', "That email/password combination doesn't match our records.")
-  }
-
-  const stage: AccountStage = ownProfileStore.profile?.onboardingComplete ? 'active' : 'needs-onboarding'
-  const session: Session = { accountId: 'me', maskedContact: CURRENT_ACCOUNT.maskedContact, stage }
-  sessionStore.session = session
+  const session = await apiRequest<Session>('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  cachedSession = session
   return session
 }
 
 export async function verifyContact(code: string): Promise<{ stage: AccountStage }> {
-  await delay(null, 500)
-  if (code !== CURRENT_ACCOUNT.verificationCode) {
-    throw new ApiError('INVALID_CODE', "That code didn't work. Check the digits and try again.")
-  }
-  const stage: AccountStage = ownProfileStore.profile?.onboardingComplete ? 'active' : 'needs-onboarding'
-  if (sessionStore.session) sessionStore.session = { ...sessionStore.session, stage }
-  return { stage }
+  const result = await apiRequest<{ stage: AccountStage }>('/auth/verify-contact', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ code }),
+  })
+  if (cachedSession) cachedSession = { ...cachedSession, stage: result.stage }
+  return result
 }
 
 export async function resendCode(): Promise<void> {
-  await delay(undefined, 400)
+  await apiRequest<void>('/auth/resend-code', { method: 'POST', headers: csrfHeaders() })
 }
 
-export async function requestPasswordReset(_identifier: string): Promise<void> {
-  await delay(undefined, 600)
+export async function requestPasswordReset(identifier: string): Promise<void> {
+  await apiRequest<void>('/auth/password/forgot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier }),
+  })
 }
 
-export async function resetPassword(token: string, _password: string): Promise<void> {
-  await delay(undefined, 600)
-  if (token === 'expired') {
-    throw new ApiError('TOKEN_EXPIRED', 'This reset link has expired. Request a new one.')
-  }
+export async function resetPassword(token: string, password: string): Promise<void> {
+  await apiRequest<void>('/auth/password/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+  })
 }
 
 export async function signOut(): Promise<void> {
-  await delay(undefined, 300)
-  sessionStore.session = null
+  await apiRequest<void>('/auth/logout', { method: 'POST', headers: csrfHeaders() })
+  cachedSession = null
 }
 
 export function currentSession(): Session | null {
-  return sessionStore.session
+  return cachedSession
 }
 
-/** Marks the persisted session active once onboarding finishes, so a page reload doesn't bounce back to it. */
-export function completeOnboarding(): Session | null {
-  if (sessionStore.session) {
-    sessionStore.session = { ...sessionStore.session, stage: 'active' }
+export async function restoreSession(): Promise<Session | null> {
+  cachedSession = await apiRequest<Session | null>('/auth/session')
+  return cachedSession
+}
+
+export async function completeOnboarding(): Promise<Session> {
+  const session = await apiRequest<Session>('/auth/onboarding/complete', {
+    method: 'POST',
+    headers: csrfHeaders(),
+  })
+  cachedSession = session
+  return session
+}
+
+export async function continueWithGoogle(input: GoogleAuthInput = {}): Promise<Session> {
+  const google = await getGoogleCredential()
+  const session = await apiRequest<Session>('/auth/oauth/google', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...input, ...google }),
+  })
+  cachedSession = session
+  return session
+}
+
+function maskContact(identifier: string): string {
+  const normalized = identifier.trim().toLowerCase()
+  if (EMAIL_PATTERN.test(normalized)) {
+    const [local, domain] = normalized.split('@')
+    return `${local.slice(0, 1)}•••@${domain}`
   }
-  return sessionStore.session
-}
-
-export async function continueWithGoogle(): Promise<{ stage: AccountStage }> {
-  await delay(null, 900)
-  const stage: AccountStage = ownProfileStore.profile?.onboardingComplete ? 'active' : 'needs-onboarding'
-  sessionStore.session = { accountId: 'me', maskedContact: 'demo.google@gmail.com', stage }
-  return { stage }
-}
-
-export function seedSignedInSession() {
-  sessionStore.session = { accountId: 'me', maskedContact: CURRENT_ACCOUNT.maskedContact, stage: 'active' }
-  ownProfileStore.profile = {
-    ...PROFILES[0],
-    id: 'me',
-    displayName: 'Jide',
-    moderationStatus: 'approved',
-    onboardingComplete: true,
-  }
+  return normalized.length <= 4 ? '••••' : `${normalized.slice(0, 2)}••••${normalized.slice(-2)}`
 }

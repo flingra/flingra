@@ -41,6 +41,7 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 date_of_birth DATE NOT NULL, gender TEXT NOT NULL, referred_by_code TEXT,
                 terms_version TEXT NOT NULL, privacy_version TEXT NOT NULL,
                 email_verified BOOLEAN NOT NULL, account_state TEXT NOT NULL,
+                google_sub TEXT UNIQUE,
                 login_failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until DATETIME
             )
             """
@@ -140,6 +141,7 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
         allowed_origins=[],
         brevo_api_key="test-key",
         brevo_sender_email="noreply@example.test",
+        google_client_id="test-google-client-id",
     )
     application = create_app(settings)
     application.state.media_storage = TestObjectStorage()

@@ -58,11 +58,11 @@ def seed_pending_document(client) -> tuple[str, str]:
             text(
                 """
                 INSERT INTO profiles (
-                    account_id, display_name, bio, photos, age_range, identity,
+                    account_id, display_name, bio, photos, age_range, interests, identity,
                     moderation_status, onboarding_complete, document_verification, document_type
                 )
                 VALUES (
-                    :account_id, 'Member', 'Profile bio', '[]', '25–30', 'woman',
+                    :account_id, 'Member', 'Profile bio', '[]', '25–30', '[]', 'woman',
                     'pending', TRUE, 'pending', 'NIN'
                 )
                 """
@@ -81,7 +81,7 @@ def seed_pending_document(client) -> tuple[str, str]:
             {
                 "id": media_id,
                 "account_id": account_id,
-                "object_key": f"accounts/{account_id}/identity-documents/{media_id}.jpg",
+                "object_key": f"accounts/{account_id}/identity-documents/{media_id}",
                 "sha256": "a" * 64,
             },
         )
@@ -178,7 +178,7 @@ def test_admin_reviews_are_user_scoped_audited_and_paginated(api_client) -> None
     assert document.status_code == 307
     assert "private, no-store" in document.headers["cache-control"]
     assert document.headers["location"].endswith(
-        f"accounts/{account_id}/identity-documents/{media_id}.jpg"
+        f"accounts/{account_id}/identity-documents/{media_id}"
     )
 
     decision = client.post(

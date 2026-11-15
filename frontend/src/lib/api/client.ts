@@ -1,9 +1,31 @@
-/**
- * Mock API client. Stands in for the real FastAPI backend (see architecture.md) so
- * the frontend can be built and tested before the API exists. Swap each function
- * body here for a real request once the backend contract is agreed — callers in
- * `features/*` are written against these same return shapes either way.
- */
+import { ApiError } from './types'
+
+const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? 'http://localhost:8000'
+
+export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers)
+  headers.set('Accept', 'application/json')
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    credentials: 'include',
+    headers,
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null
+    throw new ApiError(body?.error?.code ?? 'REQUEST_FAILED', body?.error?.message ?? 'The request could not be completed.')
+  }
+
+  export function csrfHeaders(): HeadersInit {
+    const token = document.cookie
+      .split('; ')
+      .find((cookie) => cookie.startsWith('flingra_csrf='))
+      ?.slice('flingra_csrf='.length)
+    return token ? { 'X-CSRF-Token': decodeURIComponent(token) } : {}
+  }
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+
 export function delay<T>(value: T, ms = 500): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
 }

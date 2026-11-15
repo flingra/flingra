@@ -42,15 +42,19 @@ Optional settings include:
 - `FLINGRA_RATE_LIMIT_REDIS_URL` — Redis URL used by shared auth-abuse limits.
 - `FLINGRA_RATE_LIMITING_ENABLED` — leave enabled outside isolated tests.
 - `FLINGRA_MAX_REQUEST_BYTES` — maximum API request body (defaults to 1 MiB).
+- `FLINGRA_GOOGLE_CLIENT_ID` — Google OAuth Web client ID used to verify
+  Google Identity Services ID tokens. Add the same client ID to the authorized
+  JavaScript origins in Google Cloud Console.
 - `FLINGRA_BREVO_API_KEY` — secret API key for Brevo transactional email.
 - `FLINGRA_BREVO_SENDER_EMAIL` — a verified sender address in Brevo.
 - `FLINGRA_BREVO_SENDER_NAME` — optional sender display name.
 - `FLINGRA_FRONTEND_URL` — frontend base URL used to construct password-reset links.
 - `FLINGRA_TERMS_VERSION` and `FLINGRA_PRIVACY_VERSION` — accepted document versions.
-- `FLINGRA_R2_ACCOUNT_ID`, `FLINGRA_R2_BUCKET`, `FLINGRA_R2_ACCESS_KEY_ID`,
-  `FLINGRA_R2_SECRET_ACCESS_KEY`, and optional `FLINGRA_R2_ENDPOINT` — private
-  Cloudflare R2 storage configuration (`FLINGRA_R2_REGION=auto` by default).
-- `FLINGRA_R2_UPLOAD_MAX_BYTES` — maximum size of each uploaded image (default 10 MiB).
+- `FLINGRA_CLOUDINARY_CLOUD_NAME`, `FLINGRA_CLOUDINARY_API_KEY`, and
+  `FLINGRA_CLOUDINARY_API_SECRET` — Cloudinary credentials. Keep the API secret
+  private and configure all three before enabling media uploads.
+- `FLINGRA_MEDIA_UPLOAD_MAX_BYTES` — maximum size of each uploaded image
+  (default 10 MiB).
 
 Configure Redis before exposing auth routes, for example with
 `FLINGRA_RATE_LIMIT_REDIS_URL=redis://localhost:6379/0`. Sensitive auth routes
@@ -77,7 +81,7 @@ runtime account broad DDL privileges just to make the application start.
 The migration command applies the existing account/session migrations, the
 forward migration aligning account identifiers, genders, and profiles with the
 frontend contract, the migration removing facial-verification data, and the
-media metadata and admin/audit migrations. It records applied migration
+media metadata, admin/audit, and Google-account-link migrations. It records applied migration
 filenames in `schema_migrations`.
 For a database containing the legacy tables but no migration history, it marks
 the four existing migrations as the baseline, then applies the remaining
@@ -101,6 +105,7 @@ starts if the database is unavailable so the process liveness endpoint remains u
 Implemented endpoints:
 
 - `POST /auth/signup`, `/auth/login`, `/auth/verify-contact`, `/auth/resend-code`
+- `GET /auth/oauth/google/config`, `POST /auth/oauth/google`
 - `POST /auth/password/forgot`, `/auth/password/reset`, `/auth/logout`
 - `GET /auth/session`, `POST /auth/onboarding/complete`
 - `GET /profiles/me`, `PATCH /profiles/me`
@@ -210,11 +215,16 @@ calls these routes.
 
 Media endpoints require verified, authenticated accounts and CSRF tokens.
 Uploaded JPEG/PNG/WebP images are decoded and re-encoded as JPEG to remove
-metadata, with input-size and pixel-count limits. Objects are private in R2;
-access uses short-lived signed URLs. Pending profile photos are visible only
-to their owner, and identity documents are owner-only until an authorized admin
-review workflow exists. Configure R2 credentials and apply the `000007` media
-migration before using these endpoints. Do not upload sensitive production
-documents until admin access, retention, and deletion procedures are in place.
-Uploaded files are not yet deleted from R2 when an account is removed; implement
-and test that cleanup before accepting production media.
+metadata, with input-size and pixel-count limits. Files are uploaded to
+Cloudinary as authenticated assets. MySQL stores the Cloudinary public ID in
+`media_objects.object_key`; users receive the backend `/media/{media_id}` URL,
+not a provider URL. After authorization, the backend redirects to a
+short-lived Cloudinary download URL. Configure the Cloudinary credentials and
+apply the `000007` media migration before using these endpoints. Do not upload
+sensitive production documents until retention and deletion procedures are in
+place.
+
+Switching from R2 does not copy existing files to Cloudinary. Migrate any
+existing objects before changing providers, or their stored identifiers will no
+longer resolve. Uploaded Cloudinary files are not yet deleted when an account is
+removed; implement and test that cleanup before accepting production media.

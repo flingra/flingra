@@ -36,6 +36,17 @@ class SignInRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class GoogleAuthRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    credential: str = Field(min_length=100, max_length=8192)
+    nonce: str = Field(min_length=16, max_length=256)
+    sex: Literal["man", "woman"] | None = None
+    date_of_birth: date | None = Field(default=None, alias="dateOfBirth")
+    accepted_terms: bool = Field(default=False, alias="acceptedTerms")
+    referral_code: str | None = Field(default=None, alias="referralCode", max_length=64)
+
+
 class AdminLoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=128)

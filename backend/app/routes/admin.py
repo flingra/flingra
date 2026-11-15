@@ -852,21 +852,6 @@ def get_review(
     ).mappings().first()
     if row is None:
         raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable.", 404)
-    try:
-        signed_url = storage.get_url(row["object_key"])
-    except ServiceUnavailable:
-        record_audit_event(
-            db,
-            request,
-            event_type="admin.review.document_viewed",
-            actor_type="admin",
-            actor_id=admin.admin_id,
-            subject_account_id=str(owner_id),
-            outcome="failure",
-            metadata={"reviewId": review_id, "reason": "storage_unavailable"},
-        )
-        db.commit()
-        raise
     record_audit_event(
         db,
         request,
@@ -908,7 +893,7 @@ def get_review_document(
     row = db.execute(
         text(
             """
-            SELECT m.object_key
+            SELECT m.account_id, m.object_key
             FROM media_objects m
             JOIN profiles p ON p.account_id = m.account_id
             WHERE m.id = :media_id
@@ -920,17 +905,28 @@ def get_review_document(
     ).mappings().first()
     if row is None:
         raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable.", 404)
-    owner_id = db.execute(
-        text("SELECT account_id FROM media_objects WHERE id = :media_id"),
-        {"media_id": target_id},
-    ).scalar_one()
+    try:
+        signed_url = storage.get_url(row["object_key"])
+    except ServiceUnavailable:
+        record_audit_event(
+            db,
+            request,
+            event_type="admin.review.document_viewed",
+            actor_type="admin",
+            actor_id=admin.admin_id,
+            subject_account_id=str(row["account_id"]),
+            outcome="failure",
+            metadata={"reviewId": review_id, "reason": "storage_unavailable"},
+        )
+        db.commit()
+        raise
     record_audit_event(
         db,
         request,
         event_type="admin.review.document_viewed",
         actor_type="admin",
         actor_id=admin.admin_id,
-        subject_account_id=str(owner_id),
+        subject_account_id=str(row["account_id"]),
         outcome="success",
         metadata={"reviewId": review_id},
     )

@@ -162,7 +162,7 @@ def test_invalid_image_is_rejected_without_storage_write(api_client, monkeypatch
 def test_oversized_image_is_rejected(api_client, monkeypatch) -> None:
     client, _ = api_client
     verified_woman_client(client, monkeypatch)
-    client.app.state.settings.r2_upload_max_bytes = 16
+    client.app.state.settings.media_upload_max_bytes = 16
 
     response = client.post(
         "/media/photos",

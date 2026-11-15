@@ -120,8 +120,8 @@ export function OnboardingPage() {
         ...(isWoman ? { documentVerification: 'unverified' as const } : {}),
         ...(twoFactorMethod ? { twoFactorEnabled: true, twoFactorMethod } : {}),
       })
-      const updated = completeOnboarding()
-      if (updated) setSession(updated)
+      const updated = await completeOnboarding()
+      setSession(updated)
       navigate('/discover')
     } finally {
       setFinishing(false)

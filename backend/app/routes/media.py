@@ -199,8 +199,8 @@ def upload_profile_photo(
         raise ApiException("CONTACT_NOT_VERIFIED", "Verify your contact before uploading media.", 403)
     try:
         content = _normalize_image(
-            _read_bounded_upload(file, settings.r2_upload_max_bytes),
-            settings.r2_upload_max_bytes,
+            _read_bounded_upload(file, settings.media_upload_max_bytes),
+            settings.media_upload_max_bytes,
         )
     except ApiException as exc:
         record_audit_event(
@@ -216,7 +216,7 @@ def upload_profile_photo(
         db.commit()
         raise
     media_id = uuid.uuid4().hex
-    object_key = f"accounts/{account.account_id}/profile-photos/{media_id}.jpg"
+    object_key = f"accounts/{account.account_id}/profile-photos/{media_id}"
     _persist_upload(
         request=request,
         db=db,
@@ -279,8 +279,8 @@ def upload_identity_document(
 
     try:
         content = _normalize_image(
-            _read_bounded_upload(file, settings.r2_upload_max_bytes),
-            settings.r2_upload_max_bytes,
+            _read_bounded_upload(file, settings.media_upload_max_bytes),
+            settings.media_upload_max_bytes,
         )
     except ApiException as exc:
         record_audit_event(
@@ -296,7 +296,7 @@ def upload_identity_document(
         db.commit()
         raise
     media_id = uuid.uuid4().hex
-    object_key = f"accounts/{account.account_id}/identity-documents/{media_id}.jpg"
+    object_key = f"accounts/{account.account_id}/identity-documents/{media_id}"
     _persist_upload(
         request=request,
         db=db,

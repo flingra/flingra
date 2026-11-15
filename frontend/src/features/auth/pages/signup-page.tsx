@@ -112,9 +112,17 @@ export function SignUpPage() {
     setFormError(null)
     setGoogleLoading(true)
     try {
-      const { stage } = await continueWithGoogle()
-      setSession({ accountId: 'me', maskedContact: 'demo.google@gmail.com', stage })
-      navigate(STAGE_ROUTE[stage])
+      const values = watch()
+      const session = await continueWithGoogle({
+        sex: values.sex,
+        dateOfBirth: values.dateOfBirth,
+        acceptedTerms: values.acceptedTerms,
+        referralCode: values.referralCode,
+      })
+      setSession(session)
+      navigate(STAGE_ROUTE[session.stage])
+    } catch (error) {
+      setFormError(error instanceof ApiError ? error.message : 'Google sign-in failed. Try again.')
     } finally {
       setGoogleLoading(false)
     }
@@ -136,7 +144,7 @@ export function SignUpPage() {
       <Card className="transition-shadow duration-300 hover:shadow-float">
         <ProgressSteps current={step} total={TOTAL_STEPS} label="Sign-up progress" />
 
-        {step === 1 && (
+        {step === 3 && (
           <div className="mt-5">
             <GoogleButton label="Sign up with Google" loading={googleLoading} onClick={handleGoogle} className="w-full" />
             <div className="mt-5 flex items-center gap-3 text-xs font-medium text-ink-400">

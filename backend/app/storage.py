@@ -1,9 +1,12 @@
+from io import BytesIO
+import time
 from typing import Protocol
 
-import boto3
-from botocore.config import Config as BotoConfig
-from botocore.exceptions import BotoCoreError, ClientError
+import cloudinary
+from cloudinary import uploader, utils
+from cloudinary.exceptions import Error as CloudinaryError
 from fastapi import Request
+from urllib3.exceptions import HTTPError
 
 from app.config import Settings
 from app.errors import ServiceUnavailable
@@ -17,64 +20,67 @@ class ObjectStorage(Protocol):
     def get_url(self, key: str) -> str: ...
 
 
-class R2ObjectStorage:
+class CloudinaryObjectStorage:
     def __init__(self, settings: Settings) -> None:
         if (
-            not settings.r2_account_id
-            or not settings.r2_bucket
-            or not settings.r2_access_key_id
-            or not settings.r2_secret_access_key
+            not settings.cloudinary_cloud_name
+            or not settings.cloudinary_api_key
+            or not settings.cloudinary_api_secret
         ):
             raise ServiceUnavailable("Media storage is not configured.")
 
-        endpoint = settings.r2_endpoint or f"https://{settings.r2_account_id}.r2.cloudflarestorage.com"
-        self.bucket = settings.r2_bucket
-        self.client = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            region_name=settings.r2_region,
-            aws_access_key_id=settings.r2_access_key_id,
-            aws_secret_access_key=settings.r2_secret_access_key.get_secret_value(),
-            config=BotoConfig(
-                signature_version="s3v4",
-                connect_timeout=3,
-                read_timeout=10,
-                retries={"max_attempts": 2, "mode": "standard"},
-            ),
+        cloudinary.config(
+            cloud_name=settings.cloudinary_cloud_name,
+            api_key=settings.cloudinary_api_key,
+            api_secret=settings.cloudinary_api_secret.get_secret_value(),
+            secure=True,
         )
 
     def put(self, key: str, body: bytes, content_type: str) -> None:
+        if content_type != "image/jpeg":
+            raise ValueError("Cloudinary media uploads must be JPEG images.")
         try:
-            self.client.put_object(
-                Bucket=self.bucket,
-                Key=key,
-                Body=body,
-                ContentType=content_type,
-                CacheControl="private, no-store",
+            uploader.upload(
+                BytesIO(body),
+                public_id=key,
+                resource_type="image",
+                type="authenticated",
+                overwrite=False,
+                use_filename=False,
+                unique_filename=False,
             )
-        except (BotoCoreError, ClientError) as exc:
+        except (CloudinaryError, HTTPError, OSError) as exc:
             raise ServiceUnavailable("Media storage is temporarily unavailable.") from exc
 
     def delete(self, key: str) -> None:
         try:
-            self.client.delete_object(Bucket=self.bucket, Key=key)
-        except (BotoCoreError, ClientError) as exc:
+            result = uploader.destroy(
+                key,
+                resource_type="image",
+                type="authenticated",
+                invalidate=True,
+            )
+        except (CloudinaryError, HTTPError, OSError) as exc:
             raise ServiceUnavailable("Media cleanup failed.") from exc
+        if result.get("result") not in {"ok", "not found"}:
+            raise ServiceUnavailable("Media cleanup failed.")
 
     def get_url(self, key: str) -> str:
         try:
-            return self.client.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": self.bucket, "Key": key},
-                ExpiresIn=120,
+            return utils.private_download_url(
+                key,
+                "jpg",
+                resource_type="image",
+                type="authenticated",
+                expires_at=int(time.time()) + 120,
             )
-        except (BotoCoreError, ClientError) as exc:
+        except (CloudinaryError, HTTPError, OSError) as exc:
             raise ServiceUnavailable("Media storage is temporarily unavailable.") from exc
 
 
 def get_object_storage(request: Request) -> ObjectStorage:
     storage = request.app.state.media_storage
     if storage is None:
-        storage = R2ObjectStorage(request.app.state.settings)
+        storage = CloudinaryObjectStorage(request.app.state.settings)
         request.app.state.media_storage = storage
     return storage

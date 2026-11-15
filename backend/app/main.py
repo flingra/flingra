@@ -66,7 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.add_middleware(
         ApiHardeningMiddleware,
         max_request_bytes=app_settings.max_request_bytes,
-        max_upload_bytes=app_settings.r2_upload_max_bytes + 65_536,
+        max_upload_bytes=app_settings.media_upload_max_bytes + 65_536,
     )
     application.include_router(auth_router)
     application.include_router(admin_router)

@@ -10,7 +10,7 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { Button } from '@/components/ui/button'
 import { GoogleButton } from '@/components/ui/google-button'
 import { AuthPageShell } from '../components/auth-page-shell'
-import { continueWithGoogle, seedSignedInSession, signIn } from '@/lib/api/auth'
+import { continueWithGoogle, signIn } from '@/lib/api/auth'
 import { ApiError } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
 
@@ -51,19 +51,16 @@ export function LoginPage() {
     }
   }
 
-  function handleDemo() {
-    seedSignedInSession()
-    setSession({ accountId: 'me', maskedContact: 'y•••@example.com', stage: 'active' })
-    navigate('/discover')
-  }
-
   async function handleGoogle() {
     setFormError(null)
     setGoogleLoading(true)
     try {
-      const { stage } = await continueWithGoogle()
-      setSession({ accountId: 'me', maskedContact: 'demo.google@gmail.com', stage })
-      navigate(STAGE_ROUTE[stage])
+      const session = await continueWithGoogle()
+      setSession(session)
+      const from = (location.state as { from?: string } | null)?.from
+      navigate(from && session.stage === 'active' ? from : STAGE_ROUTE[session.stage])
+    } catch (error) {
+      setFormError(error instanceof ApiError ? error.message : 'Google sign-in failed. Try again.')
     } finally {
       setGoogleLoading(false)
     }
@@ -75,21 +72,11 @@ export function LoginPage() {
       subtitle="Welcome back to Flingra."
       footer={
         <>
-          <p className="text-xs text-ink-400">Demo credentials: you@example.com / Password1!</p>
           <p className="mt-3">
             New to Flingra?{' '}
             <Link to="/signup" className="font-semibold text-primary-600 hover:underline">
               Create an account
             </Link>
-          </p>
-          <p className="mt-2">
-            <button
-              type="button"
-              onClick={handleDemo}
-              className="cursor-pointer font-semibold text-ink-400 underline-offset-4 transition-colors hover:text-ink-700 hover:underline"
-            >
-              Continue with a demo profile
-            </button>
           </p>
         </>
       }

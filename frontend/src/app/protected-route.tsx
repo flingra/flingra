@@ -10,9 +10,10 @@ const STAGE_ROUTE: Record<AccountStage, string> = {
 }
 
 export function ProtectedRoute({ allow, children }: { allow: AccountStage[]; children: ReactNode }) {
-  const session = useSessionStore((state) => state.session)
+  const { session, hydrated } = useSessionStore()
   const location = useLocation()
 
+  if (!hydrated) return null
   if (!session) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
@@ -23,7 +24,8 @@ export function ProtectedRoute({ allow, children }: { allow: AccountStage[]; chi
 }
 
 export function PublicOnlyRoute({ children }: { children: ReactNode }) {
-  const session = useSessionStore((state) => state.session)
+  const { session, hydrated } = useSessionStore()
+  if (!hydrated) return null
   if (session?.stage === 'active') {
     return <Navigate to="/discover" replace />
   }

@@ -16,6 +16,7 @@ ASGISend = Callable[[ASGIMessage], Awaitable[None]]
 SENSITIVE_ROUTE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     ("POST", "/auth/signup"): (10, 60 * 60),
     ("POST", "/auth/login"): (30, 15 * 60),
+    ("POST", "/auth/oauth/google"): (15, 15 * 60),
     ("POST", "/auth/verify-contact"): (30, 15 * 60),
     ("POST", "/auth/resend-code"): (10, 60 * 60),
     ("POST", "/auth/password/forgot"): (10, 60 * 60),

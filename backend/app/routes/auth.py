@@ -6,6 +6,9 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any, Literal
 
+from google.auth.exceptions import GoogleAuthError
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2.id_token import verify_oauth2_token
 from fastapi import APIRouter, Depends, Header, Request, Response
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -19,6 +22,7 @@ from app.notifications import send_password_reset, send_verification_code
 from app.schemas import (
     PasswordResetConfirmRequest,
     PasswordResetRequest,
+    GoogleAuthRequest,
     SessionResponse,
     SignInRequest,
     SignUpRequest,
@@ -530,6 +534,275 @@ def sign_in(
         outcome="success",
     )
     db.commit()
+    return _session_response(authenticated)
+
+
+@router.get("/oauth/google/config")
+def google_auth_config(settings: SettingsDependency) -> dict[str, str | None]:
+    return {"clientId": settings.google_client_id}
+
+
+@router.post("/oauth/google", response_model=SessionResponse)
+def google_auth(
+    body: GoogleAuthRequest,
+    request: Request,
+    response: Response,
+    db: DbSession,
+    settings: SettingsDependency,
+) -> SessionResponse:
+    if not settings.google_client_id:
+        raise ServiceUnavailable("Google sign-in is not configured.")
+
+    origin = request.headers.get("origin")
+    if settings.allowed_origins and (origin is None or origin not in settings.allowed_origins):
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.google_login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=None,
+            outcome="denied",
+            metadata={"reason": "origin_not_allowed"},
+        )
+        db.commit()
+        raise ApiException("GOOGLE_LOGIN_DENIED", "Google sign-in could not be completed.", 403)
+
+    try:
+        claims = verify_oauth2_token(
+            body.credential,
+            GoogleRequest(),
+            settings.google_client_id,
+        )
+    except ValueError as exc:
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.google_login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=None,
+            outcome="failure",
+            metadata={"reason": "invalid_google_credential"},
+        )
+        db.commit()
+        raise ApiException("INVALID_GOOGLE_CREDENTIAL", "Google sign-in could not be verified.", 401) from exc
+    except GoogleAuthError as exc:
+        logger.error("Google token verification is temporarily unavailable.")
+        raise ServiceUnavailable("Google sign-in is temporarily unavailable.") from exc
+
+    token_nonce = claims.get("nonce")
+    if (
+        not isinstance(token_nonce, str)
+        or not hmac.compare_digest(token_nonce, body.nonce)
+        or claims.get("email_verified") is not True
+    ):
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.google_login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=None,
+            outcome="failure",
+            metadata={"reason": "google_claims_rejected"},
+        )
+        db.commit()
+        raise ApiException("INVALID_GOOGLE_CREDENTIAL", "Google sign-in could not be verified.", 401)
+
+    google_sub = claims.get("sub")
+    google_email = claims.get("email")
+    if not isinstance(google_sub, str) or not google_sub or not isinstance(google_email, str):
+        raise ApiException("INVALID_GOOGLE_CREDENTIAL", "Google sign-in could not be verified.", 401)
+    normalized_email = google_email.strip().lower()
+    if not EMAIL_PATTERN.fullmatch(normalized_email):
+        raise ApiException("INVALID_GOOGLE_CREDENTIAL", "Google sign-in could not be verified.", 401)
+
+    account = db.execute(
+        text(
+            """
+            SELECT id, email, identifier, identifier_type, email_verified,
+                   google_sub, login_failed_attempts, locked_until
+            FROM accounts
+            WHERE google_sub = :google_sub
+            """
+        ),
+        {"google_sub": google_sub},
+    ).mappings().first()
+    if account is None:
+        account = db.execute(
+            text(
+                """
+                SELECT id, email, identifier, identifier_type, email_verified,
+                       google_sub, login_failed_attempts, locked_until
+                FROM accounts
+                WHERE email = :email
+                """
+            ),
+            {"email": normalized_email},
+        ).mappings().first()
+
+    if account is not None:
+        if account["google_sub"] not in (None, google_sub):
+            raise ApiException(
+                "GOOGLE_ACCOUNT_LINKED_ELSEWHERE",
+                "This account is linked to a different Google account.",
+                409,
+            )
+        if account["locked_until"] is not None and _as_datetime(account["locked_until"]) > _now():
+            record_audit_event(
+                db,
+                request,
+                event_type="auth.google_login",
+                actor_type="anonymous",
+                actor_id=None,
+                subject_account_id=str(account["id"]),
+                outcome="denied",
+                metadata={"reason": "account_locked"},
+            )
+            db.commit()
+            raise ApiException(
+                "ACCOUNT_LOCKED",
+                "Too many attempts. Try again later or reset your password.",
+                423,
+            )
+
+        if account["google_sub"] is None or not account["email_verified"]:
+            db.execute(
+                text(
+                    """
+                    UPDATE accounts
+                    SET google_sub = :google_sub,
+                        email_verified = TRUE,
+                        account_state = CASE
+                            WHEN account_state = 'needs-verification' THEN 'needs-onboarding'
+                            ELSE account_state
+                        END,
+                        login_failed_attempts = 0,
+                        locked_until = NULL
+                    WHERE id = :account_id
+                    """
+                ),
+                {"google_sub": google_sub, "account_id": account["id"]},
+            )
+            db.execute(
+                text("DELETE FROM email_verification_tokens WHERE account_id = :account_id"),
+                {"account_id": account["id"]},
+            )
+        profile = db.execute(
+            text("SELECT onboarding_complete FROM profiles WHERE account_id = :account_id"),
+            {"account_id": account["id"]},
+        ).mappings().first()
+        authenticated = AuthenticatedAccount(
+            {
+                "id": account["id"],
+                "identifier": account["identifier"],
+                "identifier_type": account["identifier_type"],
+                "email_verified": True,
+                "onboarding_complete": bool(profile and profile["onboarding_complete"]),
+            }
+        )
+        _create_session(db, str(account["id"]), request, response)
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.google_login",
+            actor_type="user",
+            actor_id=str(account["id"]),
+            subject_account_id=str(account["id"]),
+            outcome="success",
+        )
+        db.commit()
+        return _session_response(authenticated)
+
+    if body.sex is None or body.date_of_birth is None:
+        raise ApiException(
+            "GOOGLE_SIGNUP_REQUIRED",
+            "Choose your account type and date of birth to finish creating your account.",
+            409,
+        )
+    if not body.accepted_terms:
+        raise ApiException("TERMS_REQUIRED", "Accept the terms and privacy notice to continue.")
+    minimum_age = 21 if body.sex == "woman" else 18
+    if _age_on(body.date_of_birth, date.today()) < minimum_age:
+        message = (
+            "Flingra requires female accounts to be 21 or older."
+            if body.sex == "woman"
+            else "Flingra is only available to adults 18 and older."
+        )
+        raise ApiException("INELIGIBLE_AGE", message)
+
+    account_id = uuid.uuid4().hex
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO accounts (
+                    id, email, identifier, identifier_type, password_hash, date_of_birth,
+                    gender, referred_by_code, terms_version, privacy_version,
+                    email_verified, account_state, google_sub
+                )
+                VALUES (
+                    :id, :email, :identifier, 'email', :password_hash, :date_of_birth,
+                    :gender, :referred_by_code, :terms_version, :privacy_version,
+                    TRUE, 'needs-onboarding', :google_sub
+                )
+                """
+            ),
+            {
+                "id": account_id,
+                "email": normalized_email,
+                "identifier": normalized_email,
+                "password_hash": hash_password(generate_token()),
+                "date_of_birth": body.date_of_birth,
+                "gender": body.sex,
+                "referred_by_code": body.referral_code,
+                "terms_version": settings.terms_version,
+                "privacy_version": settings.privacy_version,
+                "google_sub": google_sub,
+            },
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO profiles (account_id, bio, photos, age_range, interests, identity)
+                VALUES (:account_id, '', '[]', :age_range, '[]', :identity)
+                """
+            ),
+            {
+                "account_id": account_id,
+                "age_range": _age_range(body.date_of_birth),
+                "identity": body.sex,
+            },
+        )
+        authenticated = AuthenticatedAccount(
+            {
+                "id": account_id,
+                "identifier": normalized_email,
+                "identifier_type": "email",
+                "email_verified": True,
+                "onboarding_complete": False,
+            }
+        )
+        _create_session(db, account_id, request, response)
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.google_signup",
+            actor_type="user",
+            actor_id=account_id,
+            subject_account_id=account_id,
+            outcome="success",
+            metadata={"identifierType": "email"},
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ApiException(
+            "ACCOUNT_EXISTS",
+            "If an account already exists for these details, sign in instead or reset your password.",
+            409,
+        ) from exc
     return _session_response(authenticated)
 
 
