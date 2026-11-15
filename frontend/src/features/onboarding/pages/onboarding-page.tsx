@@ -52,6 +52,15 @@ const initialDraft: Draft = {
   maxDistanceKm: 25,
 }
 
+const ONBOARDING_STORAGE_KEY = 'flingra:onboarding-progress'
+
+interface SavedOnboardingProgress {
+  step: number
+  draft: Draft
+  locationAccuracyMeters: number | null
+  twoFactorMethod: 'email' | null
+}
+
 export function OnboardingPage() {
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -72,6 +81,7 @@ export function OnboardingPage() {
   const [codeSent, setCodeSent] = useState(false)
   const [twoFactorCode, setTwoFactorCode] = useState('')
   const [twoFactorError, setTwoFactorError] = useState<string | null>(null)
+  const [progressHydrated, setProgressHydrated] = useState(false)
 
   function update<K extends keyof Draft>(key: K, value: Draft[K]) {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -82,6 +92,36 @@ export function OnboardingPage() {
       setDraft((current) => (current.displayName ? current : { ...current, identity: existingProfile.identity }))
     }
   }, [existingProfile])
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(ONBOARDING_STORAGE_KEY)
+      if (saved) {
+        const progress = JSON.parse(saved) as Partial<SavedOnboardingProgress>
+        if (progress.draft && typeof progress.draft === 'object') setDraft({ ...initialDraft, ...progress.draft })
+        if (typeof progress.step === 'number' && progress.step >= 1 && progress.step <= totalSteps) setStep(progress.step)
+        if (typeof progress.locationAccuracyMeters === 'number') {
+          setLocationAccuracyMeters(progress.locationAccuracyMeters)
+        }
+        if (progress.twoFactorMethod === 'email') setTwoFactorMethod(progress.twoFactorMethod)
+      }
+    } catch {
+      window.localStorage.removeItem(ONBOARDING_STORAGE_KEY)
+    } finally {
+      setProgressHydrated(true)
+    }
+  }, [totalSteps])
+
+  useEffect(() => {
+    if (!progressHydrated) return
+    const progress: SavedOnboardingProgress = {
+      step,
+      draft,
+      locationAccuracyMeters,
+      twoFactorMethod,
+    }
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(progress))
+  }, [draft, locationAccuracyMeters, progressHydrated, step, twoFactorMethod])
 
   function toggleInterest(interest: string) {
     setDraft((current) => ({
@@ -170,6 +210,7 @@ export function OnboardingPage() {
         ...(twoFactorMethod ? { twoFactorEnabled: true, twoFactorMethod } : {}),
       })
       const updated = await completeOnboarding()
+      window.localStorage.removeItem(ONBOARDING_STORAGE_KEY)
       setSession(updated)
       navigate('/discover')
     } finally {
