@@ -13,22 +13,36 @@ export function getCurrentLocation(): Promise<CurrentLocation> {
       return
     }
 
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) =>
-        resolve({
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          accuracyMeters: coords.accuracy,
-        }),
-      (error) => {
-        const message =
-          error.code === error.PERMISSION_DENIED
-            ? 'Location permission was denied. You can choose your area manually.'
-            : 'We could not get your current location. Check your device settings and try again.'
-        reject(new Error(message))
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-    )
+    let settled = false
+    const resolvePosition = ({ coords }: GeolocationPosition) => {
+      if (settled) return
+      settled = true
+      resolve({
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracyMeters: coords.accuracy,
+      })
+    }
+    const rejectPosition = (error: GeolocationPositionError) => {
+      if (settled || error.code === error.PERMISSION_DENIED) {
+        if (!settled) {
+          settled = true
+          reject(new Error('Location permission was denied. You can choose your area manually.'))
+        }
+        return
+      }
+      navigator.geolocation.getCurrentPosition(resolvePosition, () => {
+        if (!settled) {
+          settled = true
+          reject(new Error('We could not get your current location. Check your device settings and try again.'))
+        }
+      }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 })
+    }
+    navigator.geolocation.getCurrentPosition(resolvePosition, rejectPosition, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    })
   })
 }
 

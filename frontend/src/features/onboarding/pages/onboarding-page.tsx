@@ -165,7 +165,7 @@ export function OnboardingPage() {
     setLocating(true)
     try {
       const location = await getCurrentLocation()
-      if (location.accuracyMeters > 1000) {
+      if (location.accuracyMeters > 5000) {
         setLocationError(
           `Your device only provided an approximate location (about ${Math.round(location.accuracyMeters)} metres). Enter your area manually or try again outdoors.`,
         )
@@ -179,6 +179,9 @@ export function OnboardingPage() {
         return
       }
       const area = (await getApproximateArea(location)) ?? ''
+      if (!area) {
+        setLocationError('We found your coordinates but could not name the area. Enter your approximate area manually.')
+      }
       setDraft((current) => ({
         ...current,
         useBrowserLocation: true,
