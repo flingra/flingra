@@ -107,13 +107,14 @@ def _stage(account: AuthenticatedAccount) -> str:
 def _set_session_cookies(response: Response, request: Request, raw_token: str) -> None:
     settings = get_app_settings(request)
     csrf_token = generate_token()
+    same_site = "none" if settings.session_cookie_secure else "lax"
     response.set_cookie(
         settings.session_cookie_name,
         raw_token,
         max_age=settings.session_ttl_hours * 3600,
         httponly=True,
         secure=settings.session_cookie_secure,
-        samesite="lax",
+        samesite=same_site,
         path="/",
     )
     response.set_cookie(
@@ -122,7 +123,7 @@ def _set_session_cookies(response: Response, request: Request, raw_token: str) -
         max_age=settings.session_ttl_hours * 3600,
         httponly=False,
         secure=settings.session_cookie_secure,
-        samesite="lax",
+        samesite=same_site,
         path="/",
     )
 
@@ -134,9 +135,14 @@ def _clear_session_cookies(response: Response, request: Request) -> None:
         path="/",
         secure=settings.session_cookie_secure,
         httponly=True,
-        samesite="lax",
+        samesite="none" if settings.session_cookie_secure else "lax",
     )
-    response.delete_cookie("flingra_csrf", path="/", secure=settings.session_cookie_secure, samesite="lax")
+    response.delete_cookie(
+        "flingra_csrf",
+        path="/",
+        secure=settings.session_cookie_secure,
+        samesite="none" if settings.session_cookie_secure else "lax",
+    )
 
 
 def require_csrf(

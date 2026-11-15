@@ -65,7 +65,7 @@ export function VerifyContactPage() {
             </p>
           )}
 
-          <Field id="code" label="Verification code" hint="For this demo, the code is 123456." error={undefined}>
+          <Field id="code" label="Verification code" error={undefined}>
             <Input
               id="code"
               inputMode="numeric"
