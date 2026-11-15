@@ -41,6 +41,16 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   return (await response.json()) as T
 }
 
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiRequest<T>(path, {
+    method: 'POST',
+    headers: await ensureCsrfHeaders(),
+    body: formData,
+  })
+}
+
 export function delay<T>(value: T, ms = 500): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
 }

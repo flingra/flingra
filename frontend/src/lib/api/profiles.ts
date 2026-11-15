@@ -1,4 +1,4 @@
-import { delay } from './client'
+import { apiRequest, ensureCsrfHeaders, uploadFile } from './client'
 import { ownProfileStore, PROFILES } from './mock-db'
 import { getPresence } from './presence'
 import {
@@ -64,38 +64,34 @@ export async function getProfile(id: string): Promise<MemberProfile> {
 }
 
 export async function getOwnProfile(): Promise<OwnProfile> {
-  await delay(null, 400)
-  if (!ownProfileStore.profile) {
-    throw new ApiError('NO_PROFILE', 'Finish onboarding to create your profile.')
-  }
-  return ownProfileStore.profile
+  return apiRequest<OwnProfile>('/profiles/me')
 }
 
 export async function saveOwnProfile(partial: Partial<OwnProfile>): Promise<OwnProfile> {
-  await delay(null, 700)
-  const existing = ownProfileStore.profile ?? {
-    id: 'me',
-    displayName: '',
-    bio: '',
-    photos: [],
-    ageRange: '25–30',
-    area: '',
-    distanceKm: 0,
-    interests: [],
-    discoverableBy: 'everyone' as const,
-    wantsToDiscover: 'everyone' as const,
-    identity: 'private' as const,
-    showIdentity: false,
-    moderationStatus: 'pending' as const,
-    subscriptionTier: 'free' as const,
+  const payload = {
+    ...(partial.displayName !== undefined ? { displayName: partial.displayName } : {}),
+    ...(partial.bio !== undefined ? { bio: partial.bio } : {}),
+    ...(partial.photos !== undefined ? { photos: partial.photos } : {}),
+    ...(partial.videos !== undefined ? { videos: partial.videos } : {}),
+    ...(partial.area !== undefined ? { area: partial.area } : {}),
+    ...(partial.interests !== undefined ? { interests: partial.interests } : {}),
+    ...(partial.discoverableBy !== undefined ? { discoverableBy: partial.discoverableBy } : {}),
+    ...(partial.wantsToDiscover !== undefined ? { wantsToDiscover: partial.wantsToDiscover } : {}),
+    ...(partial.identity !== undefined ? { identity: partial.identity } : {}),
+    ...(partial.showIdentity !== undefined ? { showIdentity: partial.showIdentity } : {}),
+    ...(partial.twoFactorEnabled !== undefined ? { twoFactorEnabled: partial.twoFactorEnabled } : {}),
+    ...(partial.twoFactorMethod !== undefined ? { twoFactorMethod: partial.twoFactorMethod } : {}),
   }
-  ownProfileStore.profile = { ...existing, ...partial }
-  return ownProfileStore.profile
+  return apiRequest<OwnProfile>('/profiles/me', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
+    body: JSON.stringify(payload),
+  })
 }
 
 export async function uploadPhoto(file: File): Promise<string> {
-  await delay(null, 900)
-  return URL.createObjectURL(file)
+  const result = await uploadFile<{ url: string }>('/media/photos', file)
+  return result.url
 }
 
 export async function uploadIdentityDocument(
