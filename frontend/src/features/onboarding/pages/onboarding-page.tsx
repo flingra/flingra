@@ -271,7 +271,7 @@ export function OnboardingPage() {
             <Button variant="secondary" className="flex-1" onClick={() => setStep(1)}>
               Back
             </Button>
-            <Button className="flex-1" disabled={!draft.useBrowserLocation || locating} onClick={() => setStep(4)}>
+            <Button className="flex-1" onClick={() => setStep(3)}>
               Continue
             </Button>
           </div>
@@ -310,7 +310,7 @@ export function OnboardingPage() {
             <Button variant="secondary" className="flex-1" onClick={() => setStep(2)}>
               Back
             </Button>
-            <Button className="flex-1" onClick={() => setStep(4)}>
+            <Button className="flex-1" disabled={!draft.useBrowserLocation || locating} onClick={() => setStep(4)}>
               Continue
             </Button>
           </div>
