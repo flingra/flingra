@@ -1,5 +1,5 @@
 CREATE TABLE two_factor_challenges (
-    account_id CHAR(36) NOT NULL PRIMARY KEY,
+    account_id VARCHAR(64) NOT NULL PRIMARY KEY,
     code_hash CHAR(64) NOT NULL,
     expires_at DATETIME NOT NULL,
     attempt_count INT NOT NULL DEFAULT 0,
