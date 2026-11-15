@@ -1,8 +1,11 @@
 import { ApiError } from './types'
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? 'http://localhost:8000'
+const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '')
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (!API_BASE_URL) {
+    throw new ApiError('API_NOT_CONFIGURED', 'The frontend API URL is not configured.')
+  }
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
   const response = await fetch(`${API_BASE_URL}${path}`, {
