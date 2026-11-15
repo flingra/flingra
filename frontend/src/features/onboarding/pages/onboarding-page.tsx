@@ -565,7 +565,8 @@ export function OnboardingPage() {
               <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-50 p-4">
                 <img src={authenticatorSetup.qrDataUrl} alt="Authenticator setup QR code" className="size-40 rounded-lg" />
                 <p className="text-center text-xs text-ink-500">
-                  Scan the QR code, or enter this setup key manually:
+                  Scan the QR code and confirm the account is named <strong>Flingra</strong>. If you already
+                  have an old 0auth entry, remove it and scan this QR code again. Or enter this setup key manually:
                   <strong className="mt-1 block font-mono text-ink-700">{authenticatorSetup.secret}</strong>
                 </p>
               </div>

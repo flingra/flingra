@@ -7,6 +7,7 @@ import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request as GoogleRequest
@@ -645,13 +646,25 @@ def verify_two_factor_code(
 
 @router.post("/2fa/authenticator/setup", dependencies=[Depends(require_csrf)])
 def setup_authenticator(account: CurrentAccount, db: DbSession) -> dict[str, str]:
-    secret = pyotp.random_base32()
-    db.execute(
-        text("UPDATE profiles SET totp_secret = :secret WHERE account_id = :account_id"),
-        {"secret": secret, "account_id": account.account_id},
-    )
+    existing_secret = db.execute(
+        text(
+            """
+            SELECT totp_secret, two_factor_enabled
+            FROM profiles
+            WHERE account_id = :account_id
+            """
+        ),
+        {"account_id": account.account_id},
+    ).mappings().first()
+    secret = str(existing_secret["totp_secret"]) if existing_secret and existing_secret["totp_secret"] else pyotp.random_base32()
+    if not existing_secret or not existing_secret["totp_secret"]:
+        db.execute(
+            text("UPDATE profiles SET totp_secret = :secret WHERE account_id = :account_id"),
+            {"secret": secret, "account_id": account.account_id},
+        )
     db.commit()
-    uri = pyotp.TOTP(secret).provisioning_uri(name=account["identifier"], issuer_name="Flingra")
+    label = quote(f"Flingra:{account['identifier']}", safe="")
+    uri = f"otpauth://totp/{label}?secret={secret}&issuer=Flingra&algorithm=SHA1&digits=6&period=30"
     qr = qrcode.make(uri)
     output = io.BytesIO()
     qr.save(output, format="PNG")
@@ -668,7 +681,8 @@ def verify_authenticator(body: TwoFactorCodeRequest, account: CurrentAccount, db
         text("SELECT totp_secret FROM profiles WHERE account_id = :account_id"),
         {"account_id": account.account_id},
     ).scalar_one_or_none()
-    if not secret or not pyotp.TOTP(secret).verify(body.code.strip(), valid_window=1):
+    code = re.sub(r"\D", "", body.code)
+    if len(code) != 6 or not secret or not pyotp.TOTP(secret).verify(code, valid_window=2):
         raise ApiException("INVALID_CODE", "That authenticator code is invalid or expired.")
     db.execute(
         text(
