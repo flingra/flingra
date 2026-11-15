@@ -37,15 +37,27 @@ def reverse_geocode(
     except (httpx.HTTPError, ValueError) as exc:
         raise ServiceUnavailable("Location lookup is temporarily unavailable.") from exc
 
-    components = result.get("results", [{}])[0].get("components", {})
+    results = result.get("results") or []
+    if not results:
+        return {"area": None}
+    result = results[0]
+    components = result.get("components") or {}
+    if components.get("country_code") not in {None, "ng"}:
+        return {"area": None}
     area = (
-        components.get("suburb")
+        components.get("quarter")
         or components.get("neighbourhood")
+        or components.get("suburb")
         or components.get("town")
         or components.get("city")
         or components.get("village")
     )
-    city = components.get("city") or components.get("town") or components.get("village")
+    city = (
+        components.get("city")
+        or components.get("town")
+        or components.get("village")
+        or components.get("municipality")
+    )
     state = components.get("state")
     suffix = city or state
     if area and suffix and area != suffix:
