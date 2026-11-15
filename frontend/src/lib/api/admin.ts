@@ -22,7 +22,7 @@ function csrfHeaders(): HeadersInit {
   return token ? { 'X-CSRF-Token': decodeURIComponent(token) } : {}
 }
 
-export async function adminRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function adminRequest<T>(path: string, init: RequestInit = {}, retryCsrf = true): Promise<T> {
   if (!API_BASE_URL) throw new ApiError('API_NOT_CONFIGURED', 'The frontend API URL is not configured.')
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
@@ -32,6 +32,10 @@ export async function adminRequest<T>(path: string, init: RequestInit = {}): Pro
   if (responseCsrfToken) csrfToken = responseCsrfToken
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null
+    if (retryCsrf && body?.error?.code === 'CSRF_FAILED') {
+      await adminRequest('/admin/auth/session', {}, false)
+      return adminRequest<T>(path, init, false)
+    }
     throw new ApiError(body?.error?.code ?? 'REQUEST_FAILED', body?.error?.message ?? 'The request could not be completed.')
   }
   if (response.status === 204) return undefined as T

@@ -81,6 +81,7 @@ def _check_admin_origin(request: Request, settings: Settings) -> None:
 
 def require_admin_csrf(
     request: Request,
+    response: Response,
     db: DbSession,
     csrf_header: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
 ) -> None:
@@ -98,6 +99,8 @@ def require_admin_csrf(
     elif not hmac.compare_digest(cookie_token, csrf_header):
         failure_reason = failure_reason or "token_mismatch"
     if failure_reason is not None:
+        if cookie_token and re.fullmatch(r"[A-Za-z0-9_-]{20,128}", cookie_token):
+            response.headers["X-CSRF-Token"] = cookie_token
         raw_token = request.cookies.get("flingra_admin_session")
         admin_id = (
             db.execute(
