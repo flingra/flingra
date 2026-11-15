@@ -64,7 +64,7 @@ interface SavedOnboardingProgress {
   step: number
   draft: Draft
   locationAccuracyMeters: number | null
-  twoFactorMethod: 'email' | null
+  twoFactorMethod: 'email' | 'authenticator' | null
 }
 
 export function OnboardingPage() {
@@ -110,7 +110,9 @@ export function OnboardingPage() {
         if (typeof progress.locationAccuracyMeters === 'number') {
           setLocationAccuracyMeters(progress.locationAccuracyMeters)
         }
-        if (progress.twoFactorMethod === 'email') setTwoFactorMethod(progress.twoFactorMethod)
+        if (progress.twoFactorMethod === 'email' || progress.twoFactorMethod === 'authenticator') {
+          setTwoFactorMethod(progress.twoFactorMethod)
+        }
       }
     } catch {
       window.localStorage.removeItem(ONBOARDING_STORAGE_KEY)
@@ -263,7 +265,6 @@ export function OnboardingPage() {
               {uploading ? 'Uploading…' : 'Add photo'}
               <input type="file" accept="image/*" className="sr-only" onChange={handlePhotoChange} disabled={uploading} />
             </label>
-            {draft.useBrowserLocation && <p className="text-sm text-ink-600">Live location captured. Exact coordinates remain private.</p>}
           </div>
 
           <Field id="displayName" label="Display name">
