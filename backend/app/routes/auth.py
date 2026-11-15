@@ -18,7 +18,7 @@ from app.audit import record_audit_event
 from app.config import Settings
 from app.dependencies import db_session
 from app.errors import ApiException, ServiceUnavailable
-from app.notifications import send_password_reset, send_verification_code
+from app.notifications import send_password_reset, send_two_factor_code, send_verification_code
 from app.schemas import (
     PasswordResetConfirmRequest,
     PasswordResetRequest,
@@ -28,6 +28,7 @@ from app.schemas import (
     SignUpRequest,
     StageResponse,
     VerifyContactRequest,
+    TwoFactorCodeRequest,
 )
 from app.security import (
     generate_token,
@@ -48,6 +49,7 @@ MAX_LOGIN_ATTEMPTS = 5
 LOCKOUT_DURATION = timedelta(minutes=15)
 VERIFICATION_LIFETIME = timedelta(minutes=10)
 RESET_LIFETIME = timedelta(minutes=30)
+TWO_FACTOR_LIFETIME = timedelta(minutes=10)
 
 
 class AuthenticatedAccount(dict[str, Any]):
@@ -542,6 +544,99 @@ def sign_in(
     )
     db.commit()
     return _session_response(authenticated)
+
+
+@router.post(
+    "/2fa/email/request",
+    dependencies=[Depends(require_csrf)],
+)
+def request_two_factor_code(
+    request: Request,
+    account: CurrentAccount,
+    db: DbSession,
+    settings: SettingsDependency,
+) -> dict[str, str]:
+    if account["identifier_type"] != "email":
+        raise ApiException("TWO_FACTOR_EMAIL_UNAVAILABLE", "Email two-factor authentication requires an email account.")
+    code = generate_verification_code()
+    db.execute(
+        text("DELETE FROM two_factor_challenges WHERE account_id = :account_id"),
+        {"account_id": account.account_id},
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO two_factor_challenges (account_id, code_hash, expires_at, attempt_count)
+            VALUES (:account_id, :code_hash, :expires_at, 0)
+            """
+        ),
+        {
+            "account_id": account.account_id,
+            "code_hash": hash_token(code),
+            "expires_at": _now() + TWO_FACTOR_LIFETIME,
+        },
+    )
+    send_two_factor_code(settings, account["identifier"], code)
+    db.commit()
+    return {"status": "sent"}
+
+
+@router.post(
+    "/2fa/email/verify",
+    dependencies=[Depends(require_csrf)],
+)
+def verify_two_factor_code(
+    body: TwoFactorCodeRequest,
+    account: CurrentAccount,
+    db: DbSession,
+) -> dict[str, str]:
+    challenge = db.execute(
+        text(
+            """
+            SELECT code_hash, expires_at, attempt_count
+            FROM two_factor_challenges
+            WHERE account_id = :account_id
+            """
+        ),
+        {"account_id": account.account_id},
+    ).mappings().first()
+    valid = (
+        challenge is not None
+        and _as_datetime(challenge["expires_at"]) > _now()
+        and int(challenge["attempt_count"]) < 5
+        and hmac.compare_digest(challenge["code_hash"], hash_token(body.code))
+    )
+    if not valid:
+        if challenge is not None and int(challenge["attempt_count"]) < 5:
+            db.execute(
+                text(
+                    """
+                    UPDATE two_factor_challenges
+                    SET attempt_count = attempt_count + 1
+                    WHERE account_id = :account_id
+                    """
+                ),
+                {"account_id": account.account_id},
+            )
+        db.commit()
+        raise ApiException("INVALID_CODE", "That code didn't work. Check the digits and try again.")
+
+    db.execute(
+        text(
+            """
+            UPDATE profiles
+            SET two_factor_enabled = TRUE, two_factor_method = 'email'
+            WHERE account_id = :account_id
+            """
+        ),
+        {"account_id": account.account_id},
+    )
+    db.execute(
+        text("DELETE FROM two_factor_challenges WHERE account_id = :account_id"),
+        {"account_id": account.account_id},
+    )
+    db.commit()
+    return {"status": "verified"}
 
 
 @router.get("/oauth/google/config")

@@ -150,6 +150,21 @@ export async function resendCode(): Promise<void> {
   await apiRequest<void>('/auth/resend-code', { method: 'POST', headers: await ensureCsrfHeaders() })
 }
 
+export async function requestTwoFactorCode(): Promise<void> {
+  await apiRequest<void>('/auth/2fa/email/request', {
+    method: 'POST',
+    headers: await ensureCsrfHeaders(),
+  })
+}
+
+export async function verifyTwoFactorCode(code: string): Promise<void> {
+  await apiRequest<void>('/auth/2fa/email/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
+    body: JSON.stringify({ code }),
+  })
+}
+
 export async function requestPasswordReset(identifier: string): Promise<void> {
   await apiRequest<void>('/auth/password/forgot', {
     method: 'POST',

@@ -1,7 +1,7 @@
 import { type ChangeEvent, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Camera, KeyRound, Mail, QrCode } from 'lucide-react'
+import { Camera, Mail } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -14,13 +14,11 @@ import { Avatar } from '@/components/ui/avatar'
 import { ProgressSteps } from '@/components/ui/progress-steps'
 import { useToast } from '@/components/ui/toast'
 import { getOwnProfile, saveOwnProfile, uploadPhoto } from '@/lib/api/profiles'
-import { completeOnboarding } from '@/lib/api/auth'
+import { completeOnboarding, requestTwoFactorCode, verifyTwoFactorCode } from '@/lib/api/auth'
 import type { AudiencePreference } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
 import { INTERESTS } from '@/lib/constants/interests'
 import { getCurrentLocation } from '@/lib/location'
-
-const DEMO_2FA_CODE = '123456'
 
 interface Draft {
   displayName: string
@@ -68,8 +66,9 @@ export function OnboardingPage() {
   const [finishing, setFinishing] = useState(false)
   const [locating, setLocating] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
+  const [locationAccuracyMeters, setLocationAccuracyMeters] = useState<number | null>(null)
 
-  const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | 'authenticator' | null>(null)
+  const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | null>(null)
   const [codeSent, setCodeSent] = useState(false)
   const [twoFactorCode, setTwoFactorCode] = useState('')
   const [twoFactorError, setTwoFactorError] = useState<string | null>(null)
@@ -96,7 +95,14 @@ export function OnboardingPage() {
   async function toggleBrowserLocation(enabled: boolean) {
     setLocationError(null)
     if (!enabled) {
-      update('useBrowserLocation', false)
+      setDraft((current) => ({
+        ...current,
+        useBrowserLocation: false,
+        area: '',
+        latitude: null,
+        longitude: null,
+      }))
+      setLocationAccuracyMeters(null)
       return
     }
 
@@ -110,12 +116,24 @@ export function OnboardingPage() {
         latitude: location.latitude,
         longitude: location.longitude,
       }))
+      setLocationAccuracyMeters(location.accuracyMeters)
     } catch (error) {
       setLocationError(error instanceof Error ? error.message : 'Location access was unavailable.')
       update('useBrowserLocation', false)
     } finally {
       setLocating(false)
     }
+  }
+
+  function handleAreaChange(area: string) {
+    setDraft((current) => ({
+      ...current,
+      area,
+      useBrowserLocation: false,
+      latitude: null,
+      longitude: null,
+    }))
+    setLocationAccuracyMeters(null)
   }
 
   async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
@@ -165,12 +183,14 @@ export function OnboardingPage() {
       setTwoFactorError('Enter the 6-digit code.')
       return
     }
-    if (twoFactorMethod === 'email' && twoFactorCode !== DEMO_2FA_CODE) {
-      setTwoFactorError("That code didn't work. Check the digits and try again.")
-      return
-    }
-    showToast({ title: 'Two-factor authentication enabled', variant: 'success' })
-    finish()
+    void verifyTwoFactorCode(twoFactorCode)
+      .then(() => {
+        showToast({ title: 'Two-factor authentication enabled', variant: 'success' })
+        return finish()
+      })
+      .catch((error) => {
+        setTwoFactorError(error instanceof Error ? error.message : 'That code could not be verified.')
+      })
   }
 
   const canContinueStep1 = draft.displayName.trim().length > 0
@@ -293,7 +313,30 @@ export function OnboardingPage() {
             />
             {locating ? 'Getting your current location…' : 'Use my current location for more accurate distance (optional)'}
           </label>
+          {draft.useBrowserLocation && (
+            <div className="rounded-2xl border border-primary-200 bg-primary-50 p-4">
+              <p className="text-sm font-semibold text-primary-800">Approximate location detected</p>
+              <p className="mt-1 text-sm text-primary-700">
+                Your profile will show <strong>Current location</strong>
+                {locationAccuracyMeters !== null && ` within about ${Math.round(locationAccuracyMeters)} metres`}.
+                Exact coordinates stay private.
+              </p>
+            </div>
+          )}
           {locationError && <p className="text-sm text-danger">{locationError}</p>}
+
+          <Field
+            id="area"
+            label="Display area"
+            hint="Choose what appears on your profile. Enter another area if you do not want to display your current location."
+          >
+            <Input
+              id="area"
+              placeholder="Enter an approximate area"
+              value={draft.area}
+              onChange={(event) => handleAreaChange(event.target.value)}
+            />
+          </Field>
 
           <Field id="maxDistanceKm" label="Discovery distance (km)">
             <Input
@@ -310,7 +353,7 @@ export function OnboardingPage() {
             <Button variant="secondary" className="flex-1" onClick={() => setStep(2)}>
               Back
             </Button>
-            <Button className="flex-1" disabled={!draft.useBrowserLocation || locating} onClick={() => setStep(4)}>
+            <Button className="flex-1" disabled={!draft.area.trim() || locating} onClick={() => setStep(4)}>
               Continue
             </Button>
           </div>
@@ -396,32 +439,26 @@ export function OnboardingPage() {
                   <span className="block text-sm text-ink-500">We'll send a 6-digit code to your email each time you sign in.</span>
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={() => setTwoFactorMethod('authenticator')}
-                className="flex cursor-pointer items-center gap-3 rounded-2xl border border-ink-200 p-4 text-left hover:border-primary-300 hover:bg-primary-50"
-              >
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
-                  <KeyRound className="size-5" aria-hidden="true" />
-                </span>
-                <span>
-                  <span className="block font-semibold text-ink-900">Authenticator app</span>
-                  <span className="block text-sm text-ink-500">Scan a QR code with Google Authenticator or a similar app.</span>
-                </span>
-              </button>
             </div>
           )}
 
           {twoFactorMethod === 'email' && (
             <div className="flex flex-col gap-4">
               {!codeSent ? (
-                <Button onClick={() => setCodeSent(true)}>
+                <Button
+                  onClick={() => {
+                    setTwoFactorError(null)
+                    void requestTwoFactorCode()
+                      .then(() => setCodeSent(true))
+                      .catch((error) => setTwoFactorError(error instanceof Error ? error.message : 'The code could not be sent.'))
+                  }}
+                >
                   <Mail className="size-4" aria-hidden="true" /> Send code to my email
                 </Button>
               ) : (
                 <>
                   <p className="text-sm text-ink-500">
-                    We sent a 6-digit code to your email. For this demo, the code is <strong>123456</strong>.
+                    We sent a 6-digit code to your email. The code expires in 10 minutes.
                   </p>
                   <Field id="twofactor-code" label="Verification code" error={twoFactorError ?? undefined}>
                     <Input
@@ -434,29 +471,6 @@ export function OnboardingPage() {
                   </Field>
                 </>
               )}
-            </div>
-          )}
-
-          {twoFactorMethod === 'authenticator' && (
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-50 p-6">
-                <span className="flex size-32 items-center justify-center rounded-2xl border-2 border-dashed border-ink-300 bg-white">
-                  <QrCode className="size-16 text-ink-300" aria-hidden="true" />
-                </span>
-                <p className="text-center text-xs text-ink-500">
-                  Scan this with Google Authenticator, or enter the setup key manually:{' '}
-                  <span className="font-mono font-semibold text-ink-700">FLNG-DEMO-2FA-KEY</span>
-                </p>
-              </div>
-              <Field id="twofactor-code" label="6-digit code from your app" error={twoFactorError ?? undefined}>
-                <Input
-                  id="twofactor-code"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={twoFactorCode}
-                  onChange={(event) => setTwoFactorCode(event.target.value)}
-                />
-              </Field>
             </div>
           )}
 
@@ -480,7 +494,7 @@ export function OnboardingPage() {
             <Button
               className="flex-1"
               loading={finishing}
-              disabled={!twoFactorMethod || (twoFactorMethod === 'email' && !codeSent)}
+              disabled={!twoFactorMethod || !codeSent}
               onClick={handleVerifyTwoFactor}
             >
               Verify &amp; finish

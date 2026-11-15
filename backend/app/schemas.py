@@ -90,6 +90,10 @@ class VerifyContactRequest(BaseModel):
     code: str = Field(min_length=1, max_length=12)
 
 
+class TwoFactorCodeRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=12)
+
+
 class PasswordResetRequest(BaseModel):
     identifier: str = Field(min_length=1, max_length=254)
 

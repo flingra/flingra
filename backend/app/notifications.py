@@ -102,6 +102,28 @@ def send_verification_code(settings: Settings, recipient: str, code: str) -> Non
     )
 
 
+def send_two_factor_code(settings: Settings, recipient: str, code: str) -> None:
+    text_content = (
+        f"Your Flingra two-factor authentication code is {code}.\n\n"
+        "It expires in 10 minutes. If you did not request this, secure your account immediately."
+    )
+    html_content = _html_email(
+        "Your Flingra two-factor authentication code.",
+        f"""\
+<h1 style="margin:0 0 16px;font-size:24px;line-height:1.3;">Confirm two-factor authentication</h1>
+<p style="margin:0 0 20px;font-size:16px;line-height:1.6;">Enter this code in Flingra to enable two-factor authentication:</p>
+<p style="margin:0 0 16px;padding:16px;border-radius:10px;background:#f0f7f3;color:#176b4d;font-size:30px;font-weight:700;letter-spacing:8px;text-align:center;">{escape(code)}</p>
+<p style="margin:0;color:#69736d;font-size:14px;line-height:1.6;">This code expires in 10 minutes.</p>""",
+    )
+    _send_email(
+        settings,
+        recipient,
+        "Your Flingra two-factor authentication code",
+        text_content,
+        html_content,
+    )
+
+
 def send_password_reset(settings: Settings, recipient: str, token: str) -> None:
     reset_url = (
         f"{settings.frontend_url.rstrip('/')}/password/reset?"
