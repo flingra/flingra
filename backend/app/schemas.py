@@ -121,6 +121,8 @@ class OwnProfileResponse(BaseModel):
     videos: list[ProfileVideo] | None = None
     age_range: str = Field(serialization_alias="ageRange")
     area: str
+    latitude: float | None = None
+    longitude: float | None = None
     distance_km: float = Field(serialization_alias="distanceKm")
     interests: list[str]
     discoverable_by: AudiencePreference = Field(serialization_alias="discoverableBy")
@@ -157,6 +159,8 @@ class OwnProfilePatch(BaseModel):
     videos: list[ProfileVideo] | None = Field(default=None, max_length=10)
     distance_km: float | None = Field(default=None, alias="distanceKm", ge=0)
     area: str | None = Field(default=None, max_length=160)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
     interests: list[Annotated[str, Field(min_length=1, max_length=100)]] | None = Field(
         default=None,
         max_length=30,

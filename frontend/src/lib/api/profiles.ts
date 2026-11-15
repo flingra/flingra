@@ -74,6 +74,8 @@ export async function saveOwnProfile(partial: Partial<OwnProfile>): Promise<OwnP
     ...(partial.photos !== undefined ? { photos: partial.photos } : {}),
     ...(partial.videos !== undefined ? { videos: partial.videos } : {}),
     ...(partial.area !== undefined ? { area: partial.area } : {}),
+    ...(partial.latitude !== undefined ? { latitude: partial.latitude } : {}),
+    ...(partial.longitude !== undefined ? { longitude: partial.longitude } : {}),
     ...(partial.interests !== undefined ? { interests: partial.interests } : {}),
     ...(partial.discoverableBy !== undefined ? { discoverableBy: partial.discoverableBy } : {}),
     ...(partial.wantsToDiscover !== undefined ? { wantsToDiscover: partial.wantsToDiscover } : {}),

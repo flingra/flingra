@@ -25,6 +25,8 @@ export interface MemberProfile {
   videos?: ProfileVideo[]
   ageRange: string
   area: string
+  latitude?: number | null
+  longitude?: number | null
   distanceKm: number
   interests: string[]
   discoverableBy: AudiencePreference

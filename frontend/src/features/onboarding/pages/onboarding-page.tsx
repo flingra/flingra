@@ -1,13 +1,11 @@
 import { type ChangeEvent, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Camera, KeyRound, Mail, MapPin as MapPinIcon, QrCode } from 'lucide-react'
+import { Camera, KeyRound, Mail, QrCode } from 'lucide-react'
 import { Card } from '@/components/ui/card'
-import { MapBackground } from '@/components/ui/map-background'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Select } from '@/components/ui/select'
 import { Chip } from '@/components/ui/chip'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
@@ -23,8 +21,6 @@ import { getCurrentLocation } from '@/lib/location'
 
 const DEMO_2FA_CODE = '123456'
 
-const AREAS = ['Lekki, Lagos', 'Yaba, Lagos', 'Wuse, Abuja', 'GRA, Port Harcourt', 'Bodija, Ibadan', 'Asokoro, Abuja']
-
 interface Draft {
   displayName: string
   photo: string | null
@@ -36,6 +32,8 @@ interface Draft {
   interests: string[]
   area: string
   useBrowserLocation: boolean
+  latitude: number | null
+  longitude: number | null
   maxDistanceKm: number
 }
 
@@ -48,8 +46,10 @@ const initialDraft: Draft = {
   wantsToDiscover: 'everyone',
   discoverableBy: 'everyone',
   interests: [],
-  area: AREAS[0],
+  area: '',
   useBrowserLocation: false,
+  latitude: null,
+  longitude: null,
   maxDistanceKm: 25,
 }
 
@@ -101,8 +101,14 @@ export function OnboardingPage() {
 
     setLocating(true)
     try {
-      await getCurrentLocation()
-      update('useBrowserLocation', true)
+      const location = await getCurrentLocation()
+      setDraft((current) => ({
+        ...current,
+        useBrowserLocation: true,
+        area: 'Current location',
+        latitude: location.latitude,
+        longitude: location.longitude,
+      }))
     } catch (error) {
       setLocationError(error instanceof Error ? error.message : 'Location access was unavailable.')
       update('useBrowserLocation', false)
@@ -136,6 +142,8 @@ export function OnboardingPage() {
         discoverableBy: draft.discoverableBy,
         interests: draft.interests,
         area: draft.area,
+        latitude: draft.latitude,
+        longitude: draft.longitude,
         distanceKm: 0,
         moderationStatus: 'pending',
         onboardingComplete: true,
@@ -184,6 +192,7 @@ export function OnboardingPage() {
               {uploading ? 'Uploading…' : 'Add photo'}
               <input type="file" accept="image/*" className="sr-only" onChange={handlePhotoChange} disabled={uploading} />
             </label>
+            {draft.useBrowserLocation && <p className="text-sm text-ink-600">Live location captured. Exact coordinates remain private.</p>}
           </div>
 
           <Field id="displayName" label="Display name">
@@ -261,7 +270,7 @@ export function OnboardingPage() {
             <Button variant="secondary" className="flex-1" onClick={() => setStep(1)}>
               Back
             </Button>
-            <Button className="flex-1" onClick={() => setStep(4)}>
+            <Button className="flex-1" disabled={!draft.useBrowserLocation || locating} onClick={() => setStep(4)}>
               Continue
             </Button>
           </div>
@@ -273,24 +282,6 @@ export function OnboardingPage() {
           <div>
             <h1 className="text-xl font-bold text-ink-900">Location</h1>
             <p className="mt-1 text-sm text-ink-500">We only ever show an approximate area or distance.</p>
-          </div>
-
-          <Field id="area" label="Area">
-            <Select id="area" value={draft.area} onChange={(event) => update('area', event.target.value)}>
-              {AREAS.map((area) => (
-                <option key={area} value={area}>
-                  {area}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          <div className="relative h-32 overflow-hidden rounded-2xl" aria-hidden="true">
-            <MapBackground className="absolute inset-0" />
-            <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink-800 shadow-soft">{draft.area}</span>
-              <MapPinIcon className="mt-1 size-6 fill-primary-500 text-primary-600" aria-hidden="true" />
-            </div>
           </div>
 
           <label className="flex items-center gap-3 text-sm text-ink-700">

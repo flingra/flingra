@@ -58,6 +58,7 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 moderation_status TEXT NOT NULL DEFAULT 'pending', two_factor_enabled BOOLEAN,
                 two_factor_method TEXT, onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE,
                 document_verification TEXT, document_type TEXT, vip_expires_at DATETIME,
+                latitude REAL, longitude REAL,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """

@@ -26,6 +26,7 @@ def get_own_profile(
             """
             SELECT a.date_of_birth,
                    p.display_name, p.bio, p.photos, p.videos, p.age_range, p.area,
+                   p.latitude, p.longitude,
                    p.distance_km, p.interests, p.discoverable_by, p.wants_to_discover,
                    p.identity, p.show_identity, p.subscription_tier, p.moderation_status,
                    p.two_factor_enabled, p.two_factor_method, p.onboarding_complete,
@@ -111,6 +112,8 @@ def save_own_profile(
         "photos": "photos",
         "videos": "videos",
         "area": "area",
+        "latitude": "latitude",
+        "longitude": "longitude",
         "interests": "interests",
         "discoverable_by": "discoverable_by",
         "wants_to_discover": "wants_to_discover",
