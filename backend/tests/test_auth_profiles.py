@@ -43,7 +43,10 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
     assert response.status_code == 201
     assert response.json() == {"stage": "needs-verification"}
     assert "HttpOnly" in response.headers["set-cookie"]
-    assert client.get("/auth/session").json()["stage"] == "needs-verification"
+    assert response.headers["X-CSRF-Token"] == client.cookies["flingra_csrf"]
+    session_response = client.get("/auth/session")
+    assert session_response.json()["stage"] == "needs-verification"
+    assert session_response.headers["X-CSRF-Token"] == client.cookies["flingra_csrf"]
     draft = client.get("/profiles/me")
     assert draft.status_code == 200
     assert draft.json()["identity"] == "woman"

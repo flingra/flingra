@@ -107,6 +107,7 @@ def _stage(account: AuthenticatedAccount) -> str:
 def _set_session_cookies(response: Response, request: Request, raw_token: str) -> None:
     settings = get_app_settings(request)
     csrf_token = generate_token()
+    response.headers["X-CSRF-Token"] = csrf_token
     same_site = "none" if settings.session_cookie_secure else "lax"
     response.set_cookie(
         settings.session_cookie_name,
@@ -1058,8 +1059,11 @@ def reset_password(
 
 
 @router.get("/session", response_model=SessionResponse | None)
-def current_session(request: Request, db: DbSession) -> SessionResponse | None:
+def current_session(request: Request, response: Response, db: DbSession) -> SessionResponse | None:
     settings = get_app_settings(request)
+    csrf_token = request.cookies.get("flingra_csrf")
+    if csrf_token:
+        response.headers["X-CSRF-Token"] = csrf_token
     raw_token = request.cookies.get(settings.session_cookie_name)
     if not raw_token:
         return None

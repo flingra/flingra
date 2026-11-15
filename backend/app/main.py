@@ -82,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_credentials=True,
             allow_methods=["GET", "POST", "PATCH", "DELETE"],
             allow_headers=["Content-Type", "X-CSRF-Token"],
+            expose_headers=["X-CSRF-Token"],
         )
 
     @application.exception_handler(ApiException)

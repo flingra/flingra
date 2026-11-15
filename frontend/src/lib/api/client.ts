@@ -1,13 +1,15 @@
 import { ApiError } from './types'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '')
+let csrfToken: string | null = null
 
 export function csrfHeaders(): HeadersInit {
-  const token = document.cookie
+  if (csrfToken) return { 'X-CSRF-Token': csrfToken }
+  const sameOriginToken = document.cookie
     .split('; ')
     .find((cookie) => cookie.startsWith('flingra_csrf='))
     ?.slice('flingra_csrf='.length)
-  return token ? { 'X-CSRF-Token': decodeURIComponent(token) } : {}
+  return sameOriginToken ? { 'X-CSRF-Token': decodeURIComponent(sameOriginToken) } : {}
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -21,6 +23,8 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     credentials: 'include',
     headers,
   })
+  const responseCsrfToken = response.headers.get('X-CSRF-Token')
+  if (responseCsrfToken) csrfToken = responseCsrfToken
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null
     throw new ApiError(body?.error?.code ?? 'REQUEST_FAILED', body?.error?.message ?? 'The request could not be completed.')
