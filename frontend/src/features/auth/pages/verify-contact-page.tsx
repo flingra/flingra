@@ -42,9 +42,14 @@ export function VerifyContactPage() {
   }
 
   async function onResend() {
-    await resendCode()
-    setCooldown(30)
-    showToast({ title: 'Code sent', description: 'Check your email or phone for a new code.', variant: 'success' })
+    setError(null)
+    try {
+      await resendCode()
+      setCooldown(30)
+      showToast({ title: 'Code sent', description: 'Check your email or phone for a new code.', variant: 'success' })
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Unable to resend the code. Try again.')
+    }
   }
 
   return (

@@ -12,6 +12,13 @@ export function csrfHeaders(): HeadersInit {
   return sameOriginToken ? { 'X-CSRF-Token': decodeURIComponent(sameOriginToken) } : {}
 }
 
+export async function ensureCsrfHeaders(): Promise<HeadersInit> {
+  const headers = csrfHeaders()
+  if (Object.keys(headers).length > 0) return headers
+  await apiRequest<unknown>('/auth/session')
+  return csrfHeaders()
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!API_BASE_URL) {
     throw new ApiError('API_NOT_CONFIGURED', 'The frontend API URL is not configured.')

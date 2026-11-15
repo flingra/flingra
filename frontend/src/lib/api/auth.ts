@@ -1,4 +1,4 @@
-import { apiRequest, csrfHeaders } from './client'
+import { apiRequest, ensureCsrfHeaders } from './client'
 import { ApiError, type AccountStage, type Session } from './types'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -139,7 +139,7 @@ export async function signIn(input: SignInInput): Promise<Session> {
 export async function verifyContact(code: string): Promise<{ stage: AccountStage }> {
   const result = await apiRequest<{ stage: AccountStage }>('/auth/verify-contact', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
     body: JSON.stringify({ code }),
   })
   if (cachedSession) cachedSession = { ...cachedSession, stage: result.stage }
@@ -147,7 +147,7 @@ export async function verifyContact(code: string): Promise<{ stage: AccountStage
 }
 
 export async function resendCode(): Promise<void> {
-  await apiRequest<void>('/auth/resend-code', { method: 'POST', headers: csrfHeaders() })
+  await apiRequest<void>('/auth/resend-code', { method: 'POST', headers: await ensureCsrfHeaders() })
 }
 
 export async function requestPasswordReset(identifier: string): Promise<void> {
@@ -167,7 +167,7 @@ export async function resetPassword(token: string, password: string): Promise<vo
 }
 
 export async function signOut(): Promise<void> {
-  await apiRequest<void>('/auth/logout', { method: 'POST', headers: csrfHeaders() })
+  await apiRequest<void>('/auth/logout', { method: 'POST', headers: await ensureCsrfHeaders() })
   cachedSession = null
 }
 
@@ -183,7 +183,7 @@ export async function restoreSession(): Promise<Session | null> {
 export async function completeOnboarding(): Promise<Session> {
   const session = await apiRequest<Session>('/auth/onboarding/complete', {
     method: 'POST',
-    headers: csrfHeaders(),
+    headers: await ensureCsrfHeaders(),
   })
   cachedSession = session
   return session
