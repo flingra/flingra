@@ -227,7 +227,7 @@ export function OnboardingPage() {
       }
       const area = (await getApproximateArea(location)) ?? ''
       if (!area) {
-        setLocationError('We found your coordinates but could not name the area. Enter your approximate area manually.')
+        setLocationError('Check the name of your area or city below and adjust it if needed.')
       }
       setDraft((current) => ({
         ...current,
@@ -293,10 +293,10 @@ export function OnboardingPage() {
         setDraft((current) => ({ ...current, area }))
         setLocationError(null)
       } else {
-        setLocationError('This point is outside our supported area or could not be named. Try a location in Nigeria.')
+        setLocationError('Check the area or city name below and adjust it if needed.')
       }
     } catch {
-      setLocationError('Could not name this map point. You can enter an approximate area below.')
+      setLocationError('Check the area or city name below and adjust it if needed.')
     }
   }
 
@@ -540,7 +540,7 @@ export function OnboardingPage() {
                 {draft.area ? (
                   <>Your profile will show <strong>{draft.area}</strong></>
                 ) : (
-                  'We could not name this location automatically. Enter the approximate area below.'
+                  'Check the name of your area or city below and adjust it if needed.'
                 )}
                 {locationAccuracyMeters !== null && ` within about ${Math.round(locationAccuracyMeters)} metres`}.
                 Exact coordinates stay private.

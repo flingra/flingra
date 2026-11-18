@@ -182,6 +182,16 @@ def reverse_geocode(
         "state_district",
         "state",
     )
+    if area is None:
+        for name_field in ("formatted", "display_name"):
+            name = result.get(name_field)
+            if isinstance(name, str) and name.strip():
+                name_parts = [part.strip() for part in name.split(",") if part.strip()]
+                country_index = next((i for i, part in enumerate(name_parts) if part.casefold() in {"nigeria", "ng"}), len(name_parts))
+                useful_parts = name_parts[:country_index]
+                if useful_parts:
+                    area = useful_parts[-2] if len(useful_parts) >= 2 else useful_parts[0]
+                    break
     city = first_component("city", "town", "village", "municipality", "county")
     state = first_component("state", "state_district")
     suffix = city or state
