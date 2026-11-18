@@ -54,8 +54,10 @@ export function DiscoverPage() {
   const [searchingLocation, setSearchingLocation] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number]>([6.4698, 3.5852])
+  const [locationSearchLocked, setLocationSearchLocked] = useState(false)
 
   useEffect(() => {
+    if (locationSearchLocked) return
     const query = locationSearch.trim()
     if (query.length < 2) {
       setLocationResults([])
@@ -90,7 +92,7 @@ export function DiscoverPage() {
       cancelled = true
       window.clearTimeout(timeout)
     }
-  }, [locationSearch])
+  }, [locationSearch, locationSearchLocked])
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['discover', filters, cursor],
@@ -149,9 +151,12 @@ export function DiscoverPage() {
   }
 
   function selectLocation(result: LocationSearchResult) {
+    setLocationSearchLocked(true)
+    setSearchingLocation(false)
+    setLocationError(null)
+    setLocationResults([])
     setMapCenter([result.latitude, result.longitude])
     setLocationSearch(result.area)
-    setLocationResults([])
   }
 
   const googleMapsReady = isGoogleMapsConfigured()
@@ -224,7 +229,10 @@ export function DiscoverPage() {
               aria-autocomplete="list"
               aria-expanded={locationResults.length > 0}
               value={locationSearch}
-              onChange={(event) => setLocationSearch(event.target.value)}
+              onChange={(event) => {
+                setLocationSearchLocked(false)
+                setLocationSearch(event.target.value)
+              }}
               placeholder="Search a street, landmark, neighbourhood or city"
               className="min-w-0 flex-1 bg-transparent text-sm font-medium text-ink-900 outline-none placeholder:text-ink-400"
             />
@@ -233,6 +241,7 @@ export function DiscoverPage() {
                 type="button"
                 aria-label="Clear location search"
                 onClick={() => {
+                  setLocationSearchLocked(false)
                   setLocationSearch('')
                   setLocationResults([])
                   setLocationError(null)

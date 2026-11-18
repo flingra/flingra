@@ -92,8 +92,10 @@ export function OnboardingPage() {
   const [locationResults, setLocationResults] = useState<LocationSearchResult[]>([])
   const [searchingLocation, setSearchingLocation] = useState(false)
   const [locationAccuracyMeters, setLocationAccuracyMeters] = useState<number | null>(null)
+  const [locationSearchLocked, setLocationSearchLocked] = useState(false)
 
   useEffect(() => {
+    if (locationSearchLocked) return
     const query = locationSearch.trim()
     if (query.length < 2) {
       setLocationResults([])
@@ -126,7 +128,7 @@ export function OnboardingPage() {
       cancelled = true
       window.clearTimeout(timeout)
     }
-  }, [locationSearch])
+  }, [locationSearch, locationSearchLocked])
 
   const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | 'authenticator' | null>(null)
   const [authenticatorSetup, setAuthenticatorSetup] = useState<{ secret: string; qrDataUrl: string } | null>(null)
@@ -258,6 +260,11 @@ export function OnboardingPage() {
   }
 
   function selectLocation(result: LocationSearchResult) {
+    setLocationSearchLocked(true)
+    setSearchingLocation(false)
+    setLocationError(null)
+    setLocationResults([])
+    setLocationSearch(result.area)
     setDraft((current) => ({
       ...current,
       useBrowserLocation: false,
@@ -266,10 +273,12 @@ export function OnboardingPage() {
       longitude: result.longitude,
     }))
     setLocationAccuracyMeters(null)
-    setLocationResults([])
   }
 
   async function handleMapLocation(latitude: number, longitude: number) {
+    setLocationSearchLocked(true)
+    setLocationResults([])
+    setSearchingLocation(false)
     setDraft((current) => ({
       ...current,
       useBrowserLocation: false,
@@ -280,6 +289,7 @@ export function OnboardingPage() {
     try {
       const area = await getApproximateArea({ latitude, longitude, accuracyMeters: 0 })
       if (area) {
+        setLocationSearch(area)
         setDraft((current) => ({ ...current, area }))
         setLocationError(null)
       } else {
@@ -483,7 +493,10 @@ export function OnboardingPage() {
               aria-expanded={locationResults.length > 0}
               placeholder="Search a street, landmark, neighbourhood or city"
               value={locationSearch}
-              onChange={(event) => setLocationSearch(event.target.value)}
+              onChange={(event) => {
+                setLocationSearchLocked(false)
+                setLocationSearch(event.target.value)
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault()
