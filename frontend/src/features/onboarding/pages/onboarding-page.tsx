@@ -443,7 +443,7 @@ export function OnboardingPage() {
           <div className="flex gap-2">
             <Input
               aria-label="Search for an area"
-              placeholder="Search a neighbourhood or city"
+              placeholder="Search a street, landmark, neighbourhood or city"
               value={locationSearch}
               onChange={(event) => setLocationSearch(event.target.value)}
               onKeyDown={(event) => {

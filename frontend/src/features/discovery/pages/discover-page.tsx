@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   ChevronDown,
@@ -54,6 +54,40 @@ export function DiscoverPage() {
   const [searchingLocation, setSearchingLocation] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number]>([6.4698, 3.5852])
+
+  useEffect(() => {
+    const query = locationSearch.trim()
+    if (query.length < 2) {
+      setLocationResults([])
+      setLocationError(null)
+      return
+    }
+
+    let cancelled = false
+    const timeout = window.setTimeout(async () => {
+      setSearchingLocation(true)
+      setLocationError(null)
+      try {
+        const results = await searchLocations(query)
+        if (!cancelled) {
+          setLocationResults(results)
+          if (results.length === 0) setLocationError('No locations found. Try a nearby landmark or street.')
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLocationResults([])
+          setLocationError(error instanceof Error ? error.message : 'Location search is unavailable.')
+        }
+      } finally {
+        if (!cancelled) setSearchingLocation(false)
+      }
+    }, 350)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
+  }, [locationSearch])
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['discover', filters, cursor],
@@ -185,7 +219,7 @@ export function DiscoverPage() {
               aria-label="Search locations"
               value={locationSearch}
               onChange={(event) => setLocationSearch(event.target.value)}
-              placeholder="Search a city or area"
+              placeholder="Search a street, landmark, neighbourhood or city"
               className="min-w-0 flex-1 bg-transparent text-sm font-medium text-ink-900 outline-none placeholder:text-ink-400"
             />
             {locationSearch && (

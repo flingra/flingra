@@ -16,12 +16,15 @@ def search_locations(
     settings: Annotated[Settings, Depends(get_app_settings)],
     q: str = Query(min_length=2, max_length=120),
 ) -> dict[str, list[dict[str, str | float]]]:
+    search_query = q if "nigeria" in q.casefold() else f"{q}, Nigeria"
     params: dict[str, str | int] = {
-        "q": q,
+        "q": search_query,
         "format": "jsonv2",
-        "limit": 5,
+        "limit": 15,
         "countrycodes": "ng",
         "addressdetails": 1,
+        "dedupe": 1,
+        "namedetails": 1,
     }
 
     if settings.opencage_api_key is not None:
@@ -33,7 +36,7 @@ def search_locations(
                     "key": settings.opencage_api_key.get_secret_value(),
                     "language": "en",
                     "countrycode": "ng",
-                    "limit": 5,
+                    "limit": 15,
                     "no_annotations": "1",
                 },
                 timeout=httpx.Timeout(5.0, connect=2.0),
@@ -42,16 +45,30 @@ def search_locations(
             payload = response.json()
             results = payload.get("results") or []
             matches: list[dict[str, str | float]] = []
+            seen: set[tuple[float, float]] = set()
             for item in results:
                 geometry = item.get("geometry") or {}
                 components = item.get("components") or {}
                 name = item.get("formatted")
                 if isinstance(name, str) and isinstance(geometry.get("lat"), (int, float)) and isinstance(geometry.get("lng"), (int, float)):
+                    latitude = round(float(geometry["lat"]), 6)
+                    longitude = round(float(geometry["lng"]), 6)
+                    position = (latitude, longitude)
+                    if position in seen:
+                        continue
+                    seen.add(position)
+                    area = next(
+                        (components[key] for key in (
+                            "building", "road", "neighbourhood", "suburb", "quarter",
+                            "city_district", "town", "city", "village", "county", "state",
+                        ) if isinstance(components.get(key), str)),
+                        name,
+                    )
                     matches.append({
                         "name": name,
-                        "area": components.get("suburb") or components.get("neighbourhood") or components.get("county") or name,
-                        "latitude": geometry["lat"],
-                        "longitude": geometry["lng"],
+                        "area": area,
+                        "latitude": latitude,
+                        "longitude": longitude,
                     })
             if matches:
                 return {"results": matches}
@@ -71,6 +88,7 @@ def search_locations(
         raise ServiceUnavailable("Location search is temporarily unavailable.") from exc
 
     matches = []
+    seen = set()
     for item in payload:
         address = item.get("address") or {}
         name = item.get("display_name")
@@ -79,8 +97,18 @@ def search_locations(
             longitude = float(item["lon"])
         except (KeyError, TypeError, ValueError):
             continue
+        latitude = round(latitude, 6)
+        longitude = round(longitude, 6)
+        position = (latitude, longitude)
+        if position in seen:
+            continue
+        seen.add(position)
         area = next(
-            (address[key] for key in ("quarter", "suburb", "neighbourhood", "city_district", "town", "city", "village", "municipality", "county", "state") if isinstance(address.get(key), str)),
+            (address[key] for key in (
+                "building", "amenity", "shop", "road", "quarter", "suburb",
+                "neighbourhood", "city_district", "town", "city", "village",
+                "municipality", "county", "state",
+            ) if isinstance(address.get(key), str)),
             name,
         )
         if isinstance(name, str):
