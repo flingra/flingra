@@ -5,10 +5,8 @@ import {
   LocateFixed,
   MapPin,
   Menu as MenuIcon,
-  Minus,
   Music,
   Camera,
-  Plus,
   Trophy,
   Coffee,
   Laptop,
@@ -21,14 +19,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState, ErrorState } from '@/components/ui/state-message'
-import { MapBackground } from '@/components/ui/map-background'
 import { DEFAULT_FILTERS, getDiscoveryFeed } from '@/lib/api/profiles'
 import type { DiscoveryFilters, MemberProfile } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
-import { MapPin as ProfilePin } from '../components/map-pin'
 import { CircleCard } from '../components/circle-card'
 import { FiltersDrawer } from '../components/filters-drawer'
-import { GoogleMapView, isGoogleMapsConfigured } from '../components/google-map-view'
+import { GoogleMapView, OpenStreetMapView, isGoogleMapsConfigured } from '../components/google-map-view'
 
 const CATEGORY_CHIPS = [
   { interest: 'Afrobeats', label: 'Afrobeats', icon: Music },
@@ -51,7 +47,6 @@ export function DiscoverPage() {
   const [activeCategories, setActiveCategories] = useState<string[]>([])
   const [profiles, setProfiles] = useState<MemberProfile[]>([])
   const [cursor, setCursor] = useState(0)
-  const [zoom, setZoom] = useState(1)
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['discover', filters, cursor],
@@ -149,9 +144,7 @@ export function DiscoverPage() {
 
       {!googleMapsReady && (
         <p className="mt-3 rounded-2xl bg-ink-100 px-4 py-2.5 text-xs text-ink-500">
-          Showing a stylized map. Add <code className="font-mono text-ink-700">VITE_GOOGLE_MAPS_API_KEY</code> (and
-          optionally <code className="font-mono text-ink-700">VITE_GOOGLE_MAPS_MAP_ID</code> for the tilted 3D view)
-          to <code className="font-mono text-ink-700">frontend/.env.local</code> to switch to the live Google map.
+          Using OpenStreetMap while Google Maps is being configured.
         </p>
       )}
 
@@ -159,15 +152,11 @@ export function DiscoverPage() {
         {googleMapsReady ? (
           <GoogleMapView profiles={items} highlightedId={items[0]?.id} />
         ) : (
-          <div
-            className="absolute inset-0 origin-center transition-transform duration-300 ease-out"
-            style={{ transform: `scale(${zoom})` }}
-          >
-            <MapBackground className="absolute inset-0" />
-            {!isLoading &&
-              !isError &&
-              items.map((profile, index) => <ProfilePin key={profile.id} profile={profile} highlighted={index === 0} />)}
-          </div>
+          <OpenStreetMapView
+            profiles={items}
+            highlightedId={items[0]?.id}
+            useMyLocation={locationEnabled}
+          />
         )}
 
         {isLoading && cursor === 0 && (
@@ -193,38 +182,17 @@ export function DiscoverPage() {
         )}
 
         {!googleMapsReady && (
-          <div className="absolute bottom-4 right-4 flex flex-col items-end gap-2">
-            <button
-              type="button"
-              onClick={() => setLocationEnabled((current) => !current)}
-              aria-label="Use my location"
-              aria-pressed={locationEnabled}
-              className={`flex size-10 cursor-pointer items-center justify-center rounded-full shadow-float transition-colors ${
-                locationEnabled ? 'bg-primary-500 text-white' : 'bg-white text-ink-700 hover:bg-ink-50'
-              }`}
-            >
-              <LocateFixed className="size-4" aria-hidden="true" />
-            </button>
-            <div className="flex flex-col overflow-hidden rounded-full bg-white shadow-float">
-              <button
-                type="button"
-                onClick={() => setZoom((current) => Math.min(1.6, +(current + 0.2).toFixed(2)))}
-                aria-label="Zoom in"
-                className="flex size-10 cursor-pointer items-center justify-center text-ink-700 hover:bg-ink-50"
-              >
-                <Plus className="size-4" aria-hidden="true" />
-              </button>
-              <div className="h-px bg-ink-100" />
-              <button
-                type="button"
-                onClick={() => setZoom((current) => Math.max(1, +(current - 0.2).toFixed(2)))}
-                aria-label="Zoom out"
-                className="flex size-10 cursor-pointer items-center justify-center text-ink-700 hover:bg-ink-50"
-              >
-                <Minus className="size-4" aria-hidden="true" />
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => setLocationEnabled((current) => !current)}
+            aria-label="Use my location"
+            aria-pressed={locationEnabled}
+            className={`absolute bottom-4 right-4 flex size-10 cursor-pointer items-center justify-center rounded-full shadow-float transition-colors ${
+              locationEnabled ? 'bg-primary-500 text-white' : 'bg-white text-ink-700 hover:bg-ink-50'
+            }`}
+          >
+            <LocateFixed className="size-4" aria-hidden="true" />
+          </button>
         )}
       </div>
 

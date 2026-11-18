@@ -24,7 +24,13 @@ import {
 import type { AudiencePreference } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
 import { INTERESTS } from '@/lib/constants/interests'
-import { getApproximateArea, getCurrentLocation } from '@/lib/location'
+import {
+  getApproximateArea,
+  getCurrentLocation,
+  searchLocations,
+  type LocationSearchResult,
+} from '@/lib/location'
+import { OpenStreetMapView } from '@/features/discovery/components/google-map-view'
 
 interface Draft {
   displayName: string
@@ -82,6 +88,9 @@ export function OnboardingPage() {
   const [finishing, setFinishing] = useState(false)
   const [locating, setLocating] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
+  const [locationSearch, setLocationSearch] = useState('')
+  const [locationResults, setLocationResults] = useState<LocationSearchResult[]>([])
+  const [searchingLocation, setSearchingLocation] = useState(false)
   const [locationAccuracyMeters, setLocationAccuracyMeters] = useState<number | null>(null)
 
   const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | 'authenticator' | null>(null)
@@ -196,6 +205,53 @@ export function OnboardingPage() {
       update('useBrowserLocation', false)
     } finally {
       setLocating(false)
+    }
+  }
+
+  async function handleLocationSearch() {
+    if (locationSearch.trim().length < 2) return
+    setSearchingLocation(true)
+    setLocationError(null)
+    try {
+      setLocationResults(await searchLocations(locationSearch))
+    } catch (error) {
+      setLocationError(error instanceof Error ? error.message : 'Location search is unavailable.')
+      setLocationResults([])
+    } finally {
+      setSearchingLocation(false)
+    }
+  }
+
+  function selectLocation(result: LocationSearchResult) {
+    setDraft((current) => ({
+      ...current,
+      useBrowserLocation: false,
+      area: result.area,
+      latitude: result.latitude,
+      longitude: result.longitude,
+    }))
+    setLocationAccuracyMeters(null)
+    setLocationResults([])
+  }
+
+  async function handleMapLocation(latitude: number, longitude: number) {
+    setDraft((current) => ({
+      ...current,
+      useBrowserLocation: false,
+      latitude,
+      longitude,
+    }))
+    setLocationAccuracyMeters(null)
+    try {
+      const area = await getApproximateArea({ latitude, longitude, accuracyMeters: 0 })
+      if (area) {
+        setDraft((current) => ({ ...current, area }))
+        setLocationError(null)
+      } else {
+        setLocationError('This point is outside our supported area or could not be named. Try a location in Nigeria.')
+      }
+    } catch {
+      setLocationError('Could not name this map point. You can enter an approximate area below.')
     }
   }
 
@@ -384,6 +440,39 @@ export function OnboardingPage() {
             <p className="mt-1 text-sm text-ink-500">We only ever show an approximate area or distance.</p>
           </div>
 
+          <div className="flex gap-2">
+            <Input
+              aria-label="Search for an area"
+              placeholder="Search a neighbourhood or city"
+              value={locationSearch}
+              onChange={(event) => setLocationSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void handleLocationSearch()
+                }
+              }}
+            />
+            <Button type="button" variant="outline" onClick={() => void handleLocationSearch()} disabled={searchingLocation}>
+              {searchingLocation ? 'Searching…' : 'Search'}
+            </Button>
+          </div>
+          {locationResults.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+              {locationResults.map((result) => (
+                <button
+                  key={`${result.latitude}-${result.longitude}-${result.name}`}
+                  type="button"
+                  onClick={() => selectLocation(result)}
+                  className="block w-full border-b border-ink-100 px-4 py-3 text-left text-sm hover:bg-ink-50 last:border-b-0"
+                >
+                  <span className="block font-semibold text-ink-900">{result.area}</span>
+                  <span className="block truncate text-xs text-ink-500">{result.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <label className="flex items-center gap-3 text-sm text-ink-700">
             <Checkbox
               checked={draft.useBrowserLocation}
@@ -407,6 +496,19 @@ export function OnboardingPage() {
             </div>
           )}
           {locationError && <p className="text-sm text-danger">{locationError}</p>}
+
+          <div>
+            <p className="mb-2 text-xs font-medium text-ink-500">Or tap the map to choose an approximate area</p>
+            <div className="h-52 overflow-hidden rounded-2xl border border-ink-100">
+              <OpenStreetMapView
+                center={draft.latitude !== null && draft.longitude !== null
+                  ? [draft.latitude, draft.longitude]
+                  : [6.4698, 3.5852]}
+                zoom={draft.latitude !== null && draft.longitude !== null ? 13 : 11}
+                onLocationSelect={handleMapLocation}
+              />
+            </div>
+          </div>
 
           <Field
             id="area"

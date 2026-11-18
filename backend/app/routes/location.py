@@ -10,6 +10,84 @@ from app.routes.auth import CurrentAccount, get_app_settings
 router = APIRouter(prefix="/location", tags=["location"])
 
 
+@router.get("/search")
+def search_locations(
+    _: CurrentAccount,
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    q: str = Query(min_length=2, max_length=120),
+) -> dict[str, list[dict[str, str | float]]]:
+    params: dict[str, str | int] = {
+        "q": q,
+        "format": "jsonv2",
+        "limit": 5,
+        "countrycodes": "ng",
+        "addressdetails": 1,
+    }
+
+    if settings.opencage_api_key is not None:
+        try:
+            response = httpx.get(
+                "https://api.opencagedata.com/geocode/v1/json",
+                params={
+                    "q": q,
+                    "key": settings.opencage_api_key.get_secret_value(),
+                    "language": "en",
+                    "countrycode": "ng",
+                    "limit": 5,
+                    "no_annotations": "1",
+                },
+                timeout=httpx.Timeout(5.0, connect=2.0),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            results = payload.get("results") or []
+            matches: list[dict[str, str | float]] = []
+            for item in results:
+                geometry = item.get("geometry") or {}
+                components = item.get("components") or {}
+                name = item.get("formatted")
+                if isinstance(name, str) and isinstance(geometry.get("lat"), (int, float)) and isinstance(geometry.get("lng"), (int, float)):
+                    matches.append({
+                        "name": name,
+                        "area": components.get("suburb") or components.get("neighbourhood") or components.get("county") or name,
+                        "latitude": geometry["lat"],
+                        "longitude": geometry["lng"],
+                    })
+            if matches:
+                return {"results": matches}
+        except (httpx.HTTPError, ValueError):
+            pass
+
+    try:
+        response = httpx.get(
+            "https://nominatim.openstreetmap.org/search",
+            params=params,
+            headers={"User-Agent": "Flingra/1.0 (location search)"},
+            timeout=httpx.Timeout(5.0, connect=2.0),
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise ServiceUnavailable("Location search is temporarily unavailable.") from exc
+
+    matches = []
+    for item in payload:
+        address = item.get("address") or {}
+        name = item.get("display_name")
+        try:
+            latitude = float(item["lat"])
+            longitude = float(item["lon"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        area = next(
+            (address[key] for key in ("quarter", "suburb", "neighbourhood", "city_district", "town", "city", "village", "municipality", "county", "state") if isinstance(address.get(key), str)),
+            name,
+        )
+        if isinstance(name, str):
+            matches.append({"name": name, "area": area, "latitude": latitude, "longitude": longitude})
+    return {"results": matches}
+
+
 @router.get("/reverse")
 def reverse_geocode(
     _: CurrentAccount,

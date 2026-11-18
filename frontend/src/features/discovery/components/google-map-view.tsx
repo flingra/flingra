@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+import * as L from 'leaflet'
 import { APIProvider, AdvancedMarker, Map } from '@vis.gl/react-google-maps'
 import { cn } from '@/lib/utils'
 import type { MemberProfile } from '@/lib/api/types'
@@ -27,6 +29,98 @@ function geoPosition(id: string) {
   const latOffset = (((hash >>> 16) % 1000) / 1000 - 0.5) * 0.03
   const lngOffset = (((hash & 0xffff) % 1000) / 1000 - 0.5) * 0.03
   return { lat: LAGOS_CENTER.lat + latOffset, lng: LAGOS_CENTER.lng + lngOffset }
+}
+
+export function OpenStreetMapView({
+  profiles = [],
+  highlightedId,
+  useMyLocation = false,
+  center,
+  zoom = 15,
+  onLocationSelect,
+}: {
+  profiles?: MemberProfile[]
+  highlightedId?: string
+  useMyLocation?: boolean
+  center?: [number, number]
+  zoom?: number
+  onLocationSelect?: (latitude: number, longitude: number) => void
+}) {
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return
+
+    const map = L.map(mapContainerRef.current, {
+      center: center ?? [LAGOS_CENTER.lat, LAGOS_CENTER.lng],
+      zoom,
+      zoomControl: true,
+      scrollWheelZoom: true,
+    })
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+      maxZoom: 19,
+    }).addTo(map)
+
+    if (onLocationSelect) {
+      map.on('click', (event: L.LeafletMouseEvent) => {
+        onLocationSelect(event.latlng.lat, event.latlng.lng)
+      })
+    }
+
+    const markerLayer = L.layerGroup().addTo(map)
+
+    profiles.forEach((profile) => {
+      const highlighted = profile.id === highlightedId
+      const marker = L.marker(geoPosition(profile.id), {
+        icon: L.divIcon({
+          className: 'profile-map-marker',
+          html: '<div class="profile-map-marker-inner"><img alt="" /></div>',
+          iconSize: highlighted ? [56, 56] : [48, 48],
+          iconAnchor: highlighted ? [28, 28] : [24, 24],
+        }),
+      })
+
+      marker.addTo(markerLayer)
+      const element = marker.getElement()
+      const image = element?.querySelector('img')
+      if (image) {
+        image.src = profile.photos[0] ?? ''
+        image.className = highlighted
+          ? 'size-14 rounded-full border-4 border-primary-500 object-cover shadow-float'
+          : 'size-12 rounded-full border-4 border-white object-cover shadow-float'
+      }
+    })
+
+    let locationMarker: L.CircleMarker | undefined
+    if (useMyLocation && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => {
+          const position: L.LatLngExpression = [coords.latitude, coords.longitude]
+          map.flyTo(position, 15)
+          locationMarker = L.circleMarker(position, {
+            radius: 8,
+            color: '#ffffff',
+            fillColor: '#4f46e5',
+            fillOpacity: 1,
+            weight: 3,
+          }).addTo(map)
+        },
+        () => undefined,
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 300000 },
+      )
+    }
+
+    window.requestAnimationFrame(() => map.invalidateSize())
+
+    return () => {
+      locationMarker?.remove()
+      map.remove()
+    }
+  }, [profiles, highlightedId, useMyLocation, center, zoom, onLocationSelect])
+
+  return <div ref={mapContainerRef} className="size-full bg-ink-100" aria-label="Discover members map" />
 }
 
 export function GoogleMapView({

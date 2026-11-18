@@ -46,6 +46,20 @@ export function getCurrentLocation(): Promise<CurrentLocation> {
   })
 }
 
+export interface LocationSearchResult {
+  name: string
+  area: string
+  latitude: number
+  longitude: number
+}
+
+export async function searchLocations(query: string): Promise<LocationSearchResult[]> {
+  const result = await apiRequest<{ results: LocationSearchResult[] }>(
+    `/location/search?q=${encodeURIComponent(query.trim())}`,
+  )
+  return result.results
+}
+
 export async function getApproximateArea(location: CurrentLocation): Promise<string | null> {
   try {
     const result = await apiRequest<{ area: string | null }>(
