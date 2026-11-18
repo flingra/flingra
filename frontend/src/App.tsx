@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { AppProviders } from './app/providers'
 import { AppRouter } from './app/router'
 import { Preloader } from './components/preloader'
-import { restoreSession } from './lib/api/auth'
+import { currentSession, restoreSession } from './lib/api/auth'
 import { useSessionStore } from './lib/stores/session-store'
 import { useAdminStore } from './lib/stores/admin-store'
 
@@ -14,7 +14,7 @@ export default function App() {
   useEffect(() => {
     restoreSession()
       .then(setSession)
-      .catch(() => setSession(null))
+      .catch(() => setSession(currentSession()))
       .finally(() => setHydrated(true))
   }, [setHydrated, setSession])
 

@@ -2,7 +2,31 @@ import { apiRequest, ensureCsrfHeaders } from './client'
 import { ApiError, type AccountStage, type Session } from './types'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-let cachedSession: Session | null = null
+const PENDING_SESSION_STORAGE_KEY = 'flingra:pending-session'
+
+function readCachedSession(): Session | null {
+  try {
+    const value = window.localStorage.getItem(PENDING_SESSION_STORAGE_KEY)
+    return value ? JSON.parse(value) as Session : null
+  } catch {
+    return null
+  }
+}
+
+function writeCachedSession(session: Session | null) {
+  if (!session) {
+    window.localStorage.removeItem(PENDING_SESSION_STORAGE_KEY)
+    return
+  }
+  window.localStorage.setItem(PENDING_SESSION_STORAGE_KEY, JSON.stringify(session))
+}
+
+let cachedSession: Session | null = readCachedSession()
+
+function setCachedSession(session: Session | null) {
+  cachedSession = session
+  writeCachedSession(session)
+}
 
 export interface SignUpInput {
   sex: 'man' | 'woman'
@@ -26,11 +50,11 @@ export async function signUp(input: SignUpInput): Promise<{ stage: AccountStage 
       referralCode: input.referralCode,
     }),
   })
-  cachedSession = {
+  setCachedSession({
     accountId: 'pending',
     maskedContact: maskContact(input.identifier),
     stage: result.stage,
-  }
+  })
   return result
 }
 
@@ -132,7 +156,7 @@ export async function signIn(input: SignInInput): Promise<Session> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   })
-  cachedSession = session
+  setCachedSession(session)
   return session
 }
 
@@ -142,7 +166,7 @@ export async function verifyContact(code: string): Promise<{ stage: AccountStage
     headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
     body: JSON.stringify({ code }),
   })
-  if (cachedSession) cachedSession = { ...cachedSession, stage: result.stage }
+  if (cachedSession) setCachedSession({ ...cachedSession, stage: result.stage })
   return result
 }
 
@@ -204,7 +228,7 @@ export async function resetPassword(token: string, password: string): Promise<vo
 
 export async function signOut(): Promise<void> {
   await apiRequest<void>('/auth/logout', { method: 'POST', headers: await ensureCsrfHeaders() })
-  cachedSession = null
+  setCachedSession(null)
 }
 
 export function currentSession(): Session | null {
@@ -212,8 +236,9 @@ export function currentSession(): Session | null {
 }
 
 export async function restoreSession(): Promise<Session | null> {
-  cachedSession = await apiRequest<Session | null>('/auth/session')
-  return cachedSession
+  const restored = await apiRequest<Session | null>('/auth/session')
+  setCachedSession(restored)
+  return restored
 }
 
 export async function completeOnboarding(): Promise<Session> {
@@ -221,7 +246,7 @@ export async function completeOnboarding(): Promise<Session> {
     method: 'POST',
     headers: await ensureCsrfHeaders(),
   })
-  cachedSession = session
+  setCachedSession(session)
   return session
 }
 
@@ -232,7 +257,7 @@ export async function continueWithGoogle(input: GoogleAuthInput = {}): Promise<S
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...input, ...google }),
   })
-  cachedSession = session
+  setCachedSession(session)
   return session
 }
 

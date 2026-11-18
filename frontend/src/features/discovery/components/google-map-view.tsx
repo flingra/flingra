@@ -12,7 +12,11 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string |
 const GOOGLE_MAPS_MAP_ID = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID as string | undefined
 
 export function isGoogleMapsConfigured() {
-  return Boolean(GOOGLE_MAPS_API_KEY)
+  if (!GOOGLE_MAPS_API_KEY) return false
+  const key = GOOGLE_MAPS_API_KEY.trim()
+  if (key.length < 20) return false
+  if (/^(your[_ -]?google|google[_ -]?api[_ -]?key|required|api[_ -]?key)$/i.test(key)) return false
+  return true
 }
 
 /** Deterministic fake coordinates near the centre so the same profile always lands in the same spot. */
