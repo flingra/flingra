@@ -81,19 +81,53 @@
     background: transparent;
   }
 
-  .profile-map-marker-inner,
-  .profile-map-marker-inner img {
-    display: block;
-  }
-
   .profile-map-marker-inner {
-    width: 100%;
-    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 132px;
   }
 
   .profile-map-marker-inner img {
-    width: 100%;
-    height: 100%;
+    width: 48px;
+    height: 48px;
+    border: 4px solid white;
+    border-radius: 9999px;
+    object-fit: cover;
+    box-shadow: 0 12px 30px -12px rgba(21, 18, 15, 0.35);
+  }
+
+  .profile-map-marker-label {
+    display: block;
+    max-width: 128px;
+    margin-top: 4px;
+    padding: 4px 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 12px 30px -12px rgba(21, 18, 15, 0.25);
+    text-align: center;
+  }
+
+  .profile-map-marker-label strong,
+  .profile-map-marker-label small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .profile-map-marker-label strong {
+    color: #15120f;
+    font-size: 12px;
+    line-height: 1.15;
+  }
+
+  .profile-map-marker-label small {
+    color: #6b6560;
+    font-size: 10px;
+    line-height: 1.2;
   }
 }
 

@@ -93,6 +93,41 @@ export function OnboardingPage() {
   const [searchingLocation, setSearchingLocation] = useState(false)
   const [locationAccuracyMeters, setLocationAccuracyMeters] = useState<number | null>(null)
 
+  useEffect(() => {
+    const query = locationSearch.trim()
+    if (query.length < 2) {
+      setLocationResults([])
+      return
+    }
+
+    let cancelled = false
+    setLocationResults([])
+    setSearchingLocation(false)
+    const timeout = window.setTimeout(async () => {
+      setSearchingLocation(true)
+      setLocationError(null)
+      try {
+        const results = await searchLocations(query)
+        if (!cancelled) {
+          setLocationResults(results)
+          if (results.length === 0) setLocationError('No locations found. Try a nearby landmark or street.')
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLocationResults([])
+          setLocationError(error instanceof Error ? error.message : 'Location search is unavailable.')
+        }
+      } finally {
+        if (!cancelled) setSearchingLocation(false)
+      }
+    }, 350)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
+  }, [locationSearch])
+
   const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | 'authenticator' | null>(null)
   const [authenticatorSetup, setAuthenticatorSetup] = useState<{ secret: string; qrDataUrl: string } | null>(null)
   const [codeSent, setCodeSent] = useState(false)
@@ -443,6 +478,9 @@ export function OnboardingPage() {
           <div className="flex gap-2">
             <Input
               aria-label="Search for an area"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={locationResults.length > 0}
               placeholder="Search a street, landmark, neighbourhood or city"
               value={locationSearch}
               onChange={(event) => setLocationSearch(event.target.value)}
@@ -457,6 +495,7 @@ export function OnboardingPage() {
               {searchingLocation ? 'Searching…' : 'Search'}
             </Button>
           </div>
+          {searchingLocation && <p className="text-sm text-ink-500" role="status">Searching locations…</p>}
           {locationResults.length > 0 && (
             <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
               {locationResults.map((result) => (

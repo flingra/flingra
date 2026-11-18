@@ -64,6 +64,9 @@ export function DiscoverPage() {
     }
 
     let cancelled = false
+    setSearchingLocation(false)
+    setLocationError(null)
+    setLocationResults([])
     const timeout = window.setTimeout(async () => {
       setSearchingLocation(true)
       setLocationError(null)
@@ -217,6 +220,9 @@ export function DiscoverPage() {
             <Search className="size-4 shrink-0 text-ink-400" aria-hidden="true" />
             <input
               aria-label="Search locations"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={locationResults.length > 0}
               value={locationSearch}
               onChange={(event) => setLocationSearch(event.target.value)}
               placeholder="Search a street, landmark, neighbourhood or city"
@@ -242,9 +248,10 @@ export function DiscoverPage() {
             </Button>
           </form>
 
-          {(locationResults.length > 0 || locationError) && (
+          {(locationResults.length > 0 || locationError || searchingLocation) && (
             <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-ink-100 bg-white p-1 shadow-float">
-              {locationError && <p className="px-3 py-2 text-sm text-danger">{locationError}</p>}
+              {searchingLocation && <p className="px-3 py-2 text-sm text-ink-500" role="status">Searching locations…</p>}
+              {locationError && <p className="px-3 py-2 text-sm text-danger" role="alert">{locationError}</p>}
               {locationResults.map((result) => (
                 <button
                   key={`${result.latitude}-${result.longitude}-${result.name}`}

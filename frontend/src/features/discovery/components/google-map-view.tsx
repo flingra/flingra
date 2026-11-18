@@ -25,11 +25,23 @@ function fnv1a(str: string) {
   return hash >>> 0
 }
 
-function geoPosition(id: string, center: { lat: number; lng: number } = LAGOS_CENTER) {
-  const hash = fnv1a(id)
-  const latOffset = (((hash >>> 16) % 1000) / 1000 - 0.5) * 0.03
-  const lngOffset = (((hash & 0xffff) % 1000) / 1000 - 0.5) * 0.03
-  return { lat: center.lat + latOffset, lng: center.lng + lngOffset }
+const AREA_CENTERS: Record<string, { lat: number; lng: number }> = {
+  'Lekki, Lagos': { lat: 6.4698, lng: 3.5852 },
+  'Yaba, Lagos': { lat: 6.5157, lng: 3.3774 },
+  'Wuse, Abuja': { lat: 9.0747, lng: 7.4824 },
+  'GRA, Port Harcourt': { lat: 4.8156, lng: 7.0498 },
+  'Bodija, Ibadan': { lat: 7.4344, lng: 3.9145 },
+  'Asokoro, Abuja': { lat: 9.0445, lng: 7.5273 },
+}
+
+function geoPosition(profile: MemberProfile, center: { lat: number; lng: number } = LAGOS_CENTER) {
+  const base = profile.latitude != null && profile.longitude != null
+    ? { lat: profile.latitude, lng: profile.longitude }
+    : AREA_CENTERS[profile.area] ?? center
+  const hash = fnv1a(profile.id)
+  const latOffset = (((hash >>> 16) % 1000) / 1000 - 0.5) * 0.018
+  const lngOffset = (((hash & 0xffff) % 1000) / 1000 - 0.5) * 0.018
+  return { lat: base.lat + latOffset, lng: base.lng + lngOffset }
 }
 
 export function OpenStreetMapView({
@@ -80,14 +92,14 @@ export function OpenStreetMapView({
 
     profiles.forEach((profile) => {
       const highlighted = profile.id === highlightedId
-      const marker = L.marker(geoPosition(profile.id, center ? { lat: center[0], lng: center[1] } : LAGOS_CENTER), {
+      const marker = L.marker(geoPosition(profile, center ? { lat: center[0], lng: center[1] } : LAGOS_CENTER), {
         interactive: true,
         keyboard: true,
         icon: L.divIcon({
           className: 'profile-map-marker',
-          html: '<div class="profile-map-marker-inner"><img alt="" /></div>',
-          iconSize: highlighted ? [56, 56] : [48, 48],
-          iconAnchor: highlighted ? [28, 28] : [24, 24],
+          html: `<div class="profile-map-marker-inner"><img alt="" /><span class="profile-map-marker-label"><strong>${profile.displayName}</strong><small>${profile.area}</small></span></div>`,
+          iconSize: highlighted ? [132, 76] : [124, 68],
+          iconAnchor: highlighted ? [66, 76] : [62, 68],
         }),
       })
 
@@ -170,7 +182,7 @@ export function GoogleMapView({
         {profiles.map((profile) => {
           const highlighted = profile.id === highlightedId
           return (
-            <AdvancedMarker key={profile.id} position={geoPosition(profile.id, center)}>
+            <AdvancedMarker key={profile.id} position={geoPosition(profile, center)}>
               <Link
                 to={`/profiles/${profile.id}`}
                 aria-label={`View ${profile.displayName}'s profile`}
@@ -182,14 +194,20 @@ export function GoogleMapView({
                     highlighted ? 'w-10 bg-primary-500/35' : 'w-7 bg-ink-900/20',
                   )}
                 />
-                <img
-                  src={profile.photos[0]}
-                  alt=""
-                  className={cn(
-                    'rounded-full border-4 object-cover shadow-float',
-                    highlighted ? 'size-14 border-primary-500' : 'size-12 border-white',
-                  )}
-                />
+                <div className="flex flex-col items-center">
+                  <img
+                    src={profile.photos[0]}
+                    alt=""
+                    className={cn(
+                      'rounded-full border-4 object-cover shadow-float',
+                      highlighted ? 'size-14 border-primary-500' : 'size-12 border-white',
+                    )}
+                  />
+                  <div className="mt-1 max-w-32 rounded-xl border border-white/80 bg-white/95 px-2.5 py-1 text-center shadow-float backdrop-blur-sm">
+                    <p className="truncate text-xs font-bold leading-tight text-ink-900">{profile.displayName}</p>
+                    <p className="truncate text-[10px] leading-tight text-ink-500">{profile.area}</p>
+                  </div>
+                </div>
               </Link>
             </AdvancedMarker>
           )
