@@ -29,7 +29,7 @@ export function Drawer({ open, onClose, title, children }: DrawerProps) {
   if (!open) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+    <div className="fixed inset-0 z-[2000] flex items-end justify-center sm:items-center">
       <div className="absolute inset-0 bg-ink-900/40" onClick={onClose} aria-hidden="true" />
       <div
         ref={containerRef}

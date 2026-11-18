@@ -171,7 +171,7 @@ export function DiscoverPage() {
         ))}
       </div>
 
-      <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] mt-4 h-[80vh] min-h-[520px] w-screen overflow-hidden shadow-soft">
+      <div className="relative mt-4 h-[70vh] min-h-[520px] w-full overflow-hidden rounded-[28px] border border-white/80 bg-ink-100 shadow-[10px_10px_30px_rgba(21,18,15,0.12),-8px_-8px_24px_rgba(255,255,255,0.95)] ring-1 ring-ink-900/5">
         <div className="absolute left-1/2 top-4 z-[1200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2">
           <form
             className="flex items-center gap-2 rounded-full border border-ink-100 bg-white p-1.5 pl-3 shadow-float"

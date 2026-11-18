@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import * as L from 'leaflet'
 import { APIProvider, AdvancedMarker, Map } from '@vis.gl/react-google-maps'
 import { cn } from '@/lib/utils'
@@ -47,6 +48,7 @@ export function OpenStreetMapView({
   onLocationSelect?: (latitude: number, longitude: number) => void
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     if (!mapContainerRef.current) return
@@ -79,8 +81,8 @@ export function OpenStreetMapView({
     profiles.forEach((profile) => {
       const highlighted = profile.id === highlightedId
       const marker = L.marker(geoPosition(profile.id, center ? { lat: center[0], lng: center[1] } : LAGOS_CENTER), {
-        interactive: false,
-        keyboard: false,
+        interactive: true,
+        keyboard: true,
         icon: L.divIcon({
           className: 'profile-map-marker',
           html: '<div class="profile-map-marker-inner"><img alt="" /></div>',
@@ -89,8 +91,20 @@ export function OpenStreetMapView({
         }),
       })
 
+      marker.on('click', () => navigate(`/profiles/${profile.id}`))
+      marker.on('keydown', (event: L.LeafletKeyboardEvent) => {
+        if (event.originalEvent.key === 'Enter' || event.originalEvent.key === ' ') {
+          event.originalEvent.preventDefault()
+          navigate(`/profiles/${profile.id}`)
+        }
+      })
       marker.addTo(markerLayer)
       const element = marker.getElement()
+      if (element) {
+        element.setAttribute('role', 'link')
+        element.setAttribute('tabindex', '0')
+        element.setAttribute('aria-label', `View ${profile.displayName}'s profile`)
+      }
       const image = element?.querySelector('img')
       if (image) {
         image.src = profile.photos[0] ?? ''
@@ -125,7 +139,7 @@ export function OpenStreetMapView({
       locationMarker?.remove()
       map.remove()
     }
-  }, [profiles, highlightedId, useMyLocation, center, zoom, onLocationSelect])
+  }, [profiles, highlightedId, useMyLocation, center, zoom, onLocationSelect, navigate])
 
   return <div ref={mapContainerRef} className="size-full bg-ink-100" aria-label="Discover members map" />
 }
@@ -157,7 +171,11 @@ export function GoogleMapView({
           const highlighted = profile.id === highlightedId
           return (
             <AdvancedMarker key={profile.id} position={geoPosition(profile.id, center)}>
-              <div className="relative -translate-y-1/2">
+              <Link
+                to={`/profiles/${profile.id}`}
+                aria-label={`View ${profile.displayName}'s profile`}
+                className="relative block -translate-y-1/2 cursor-pointer"
+              >
                 <span
                   className={cn(
                     'absolute left-1/2 top-full -mt-1 h-2.5 -translate-x-1/2 rounded-full blur-[2px]',
@@ -172,7 +190,7 @@ export function GoogleMapView({
                     highlighted ? 'size-14 border-primary-500' : 'size-12 border-white',
                   )}
                 />
-              </div>
+              </Link>
             </AdvancedMarker>
           )
         })}
