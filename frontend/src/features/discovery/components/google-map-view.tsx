@@ -25,19 +25,8 @@ function fnv1a(str: string) {
   return hash >>> 0
 }
 
-const AREA_CENTERS: Record<string, { lat: number; lng: number }> = {
-  'Lekki, Lagos': { lat: 6.4698, lng: 3.5852 },
-  'Yaba, Lagos': { lat: 6.5157, lng: 3.3774 },
-  'Wuse, Abuja': { lat: 9.0747, lng: 7.4824 },
-  'GRA, Port Harcourt': { lat: 4.8156, lng: 7.0498 },
-  'Bodija, Ibadan': { lat: 7.4344, lng: 3.9145 },
-  'Asokoro, Abuja': { lat: 9.0445, lng: 7.5273 },
-}
-
 function geoPosition(profile: MemberProfile, center: { lat: number; lng: number } = LAGOS_CENTER) {
-  const base = profile.latitude != null && profile.longitude != null
-    ? { lat: profile.latitude, lng: profile.longitude }
-    : AREA_CENTERS[profile.area] ?? center
+  const base = center
   const hash = fnv1a(profile.id)
   const latOffset = (((hash >>> 16) % 1000) / 1000 - 0.5) * 0.018
   const lngOffset = (((hash & 0xffff) % 1000) / 1000 - 0.5) * 0.018
@@ -51,6 +40,7 @@ export function OpenStreetMapView({
   center,
   zoom = 15,
   onLocationSelect,
+  locationLabel,
 }: {
   profiles?: MemberProfile[]
   highlightedId?: string
@@ -58,6 +48,7 @@ export function OpenStreetMapView({
   center?: [number, number]
   zoom?: number
   onLocationSelect?: (latitude: number, longitude: number) => void
+  locationLabel?: string
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -77,8 +68,9 @@ export function OpenStreetMapView({
       keyboard: false,
     })
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      subdomains: 'abcd',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
       maxZoom: 19,
     }).addTo(map)
 
@@ -97,7 +89,7 @@ export function OpenStreetMapView({
         keyboard: true,
         icon: L.divIcon({
           className: 'profile-map-marker',
-          html: `<div class="profile-map-marker-inner"><img alt="" /><span class="profile-map-marker-label"><strong>${profile.displayName}</strong><small>${profile.area}</small></span></div>`,
+          html: `<div class="profile-map-marker-inner"><img alt="" /><span class="profile-map-marker-label"><strong>${profile.displayName}</strong><small>${locationLabel || profile.area}</small></span></div>`,
           iconSize: highlighted ? [132, 76] : [124, 68],
           iconAnchor: highlighted ? [66, 76] : [62, 68],
         }),
@@ -151,7 +143,7 @@ export function OpenStreetMapView({
       locationMarker?.remove()
       map.remove()
     }
-  }, [profiles, highlightedId, useMyLocation, center, zoom, onLocationSelect, navigate])
+  }, [profiles, highlightedId, useMyLocation, center, zoom, onLocationSelect, locationLabel, navigate])
 
   return <div ref={mapContainerRef} className="size-full bg-ink-100" aria-label="Discover members map" />
 }
@@ -160,10 +152,12 @@ export function GoogleMapView({
   profiles,
   highlightedId,
   center = LAGOS_CENTER,
+  locationLabel,
 }: {
   profiles: MemberProfile[]
   highlightedId?: string
   center?: { lat: number; lng: number }
+  locationLabel?: string
 }) {
   if (!GOOGLE_MAPS_API_KEY) return null
 
@@ -205,7 +199,7 @@ export function GoogleMapView({
                   />
                   <div className="mt-1 max-w-32 rounded-xl border border-white/80 bg-white/95 px-2.5 py-1 text-center shadow-float backdrop-blur-sm">
                     <p className="truncate text-xs font-bold leading-tight text-ink-900">{profile.displayName}</p>
-                    <p className="truncate text-[10px] leading-tight text-ink-500">{profile.area}</p>
+                    <p className="truncate text-[10px] leading-tight text-ink-500">{locationLabel || profile.area}</p>
                   </div>
                 </div>
               </Link>

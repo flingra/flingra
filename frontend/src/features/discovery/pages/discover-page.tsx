@@ -54,6 +54,7 @@ export function DiscoverPage() {
   const [searchingLocation, setSearchingLocation] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number]>([6.4698, 3.5852])
+  const [mapLocationLabel, setMapLocationLabel] = useState('Lekki, Lagos')
   const [locationSearchLocked, setLocationSearchLocked] = useState(false)
 
   useEffect(() => {
@@ -156,6 +157,7 @@ export function DiscoverPage() {
     setLocationError(null)
     setLocationResults([])
     setMapCenter([result.latitude, result.longitude])
+    setMapLocationLabel(result.area)
     setLocationSearch(result.area)
   }
 
@@ -246,6 +248,7 @@ export function DiscoverPage() {
                   setLocationResults([])
                   setLocationError(null)
                   setMapCenter([6.4698, 3.5852])
+                  setMapLocationLabel('Lekki, Lagos')
                 }}
                 className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-400 hover:bg-ink-100"
               >
@@ -281,6 +284,7 @@ export function DiscoverPage() {
             profiles={items}
             highlightedId={items[0]?.id}
             center={{ lat: mapCenter[0], lng: mapCenter[1] }}
+            locationLabel={mapLocationLabel}
           />
         ) : (
           <OpenStreetMapView
@@ -288,6 +292,7 @@ export function DiscoverPage() {
             highlightedId={items[0]?.id}
             useMyLocation={locationEnabled}
             center={mapCenter}
+            locationLabel={mapLocationLabel}
           />
         )}
 
