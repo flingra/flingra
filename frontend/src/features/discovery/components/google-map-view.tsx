@@ -24,11 +24,11 @@ function fnv1a(str: string) {
   return hash >>> 0
 }
 
-function geoPosition(id: string) {
+function geoPosition(id: string, center: { lat: number; lng: number } = LAGOS_CENTER) {
   const hash = fnv1a(id)
   const latOffset = (((hash >>> 16) % 1000) / 1000 - 0.5) * 0.03
   const lngOffset = (((hash & 0xffff) % 1000) / 1000 - 0.5) * 0.03
-  return { lat: LAGOS_CENTER.lat + latOffset, lng: LAGOS_CENTER.lng + lngOffset }
+  return { lat: center.lat + latOffset, lng: center.lng + lngOffset }
 }
 
 export function OpenStreetMapView({
@@ -54,8 +54,13 @@ export function OpenStreetMapView({
     const map = L.map(mapContainerRef.current, {
       center: center ?? [LAGOS_CENTER.lat, LAGOS_CENTER.lng],
       zoom,
-      zoomControl: true,
-      scrollWheelZoom: true,
+      zoomControl: false,
+      scrollWheelZoom: false,
+      dragging: false,
+      touchZoom: false,
+      doubleClickZoom: false,
+      boxZoom: false,
+      keyboard: false,
     })
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -73,7 +78,9 @@ export function OpenStreetMapView({
 
     profiles.forEach((profile) => {
       const highlighted = profile.id === highlightedId
-      const marker = L.marker(geoPosition(profile.id), {
+      const marker = L.marker(geoPosition(profile.id, center ? { lat: center[0], lng: center[1] } : LAGOS_CENTER), {
+        interactive: false,
+        keyboard: false,
         icon: L.divIcon({
           className: 'profile-map-marker',
           html: '<div class="profile-map-marker-inner"><img alt="" /></div>',
@@ -98,7 +105,7 @@ export function OpenStreetMapView({
       navigator.geolocation.getCurrentPosition(
         ({ coords }) => {
           const position: L.LatLngExpression = [coords.latitude, coords.longitude]
-          map.flyTo(position, 15)
+          map.setView(position, 15)
           locationMarker = L.circleMarker(position, {
             radius: 8,
             color: '#ffffff',
@@ -126,9 +133,11 @@ export function OpenStreetMapView({
 export function GoogleMapView({
   profiles,
   highlightedId,
+  center = LAGOS_CENTER,
 }: {
   profiles: MemberProfile[]
   highlightedId?: string
+  center?: { lat: number; lng: number }
 }) {
   if (!GOOGLE_MAPS_API_KEY) return null
 
@@ -136,17 +145,18 @@ export function GoogleMapView({
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
       <Map
         mapId={GOOGLE_MAPS_MAP_ID}
-        defaultCenter={LAGOS_CENTER}
-        defaultZoom={15}
+        center={center}
+        zoom={15}
         defaultTilt={45}
         defaultHeading={20}
-        gestureHandling="greedy"
+        gestureHandling="none"
+        disableDefaultUI
         className="size-full"
       >
         {profiles.map((profile) => {
           const highlighted = profile.id === highlightedId
           return (
-            <AdvancedMarker key={profile.id} position={geoPosition(profile.id)}>
+            <AdvancedMarker key={profile.id} position={geoPosition(profile.id, center)}>
               <div className="relative -translate-y-1/2">
                 <span
                   className={cn(

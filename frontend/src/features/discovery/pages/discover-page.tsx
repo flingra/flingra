@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   ChevronDown,
-  LocateFixed,
   MapPin,
   Menu as MenuIcon,
   Music,
@@ -15,6 +14,8 @@ import {
   Film,
   Dumbbell,
   PartyPopper,
+  Search,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -22,6 +23,7 @@ import { EmptyState, ErrorState } from '@/components/ui/state-message'
 import { DEFAULT_FILTERS, getDiscoveryFeed } from '@/lib/api/profiles'
 import type { DiscoveryFilters, MemberProfile } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
+import { searchLocations, type LocationSearchResult } from '@/lib/location'
 import { CircleCard } from '../components/circle-card'
 import { FiltersDrawer } from '../components/filters-drawer'
 import { GoogleMapView, OpenStreetMapView, isGoogleMapsConfigured } from '../components/google-map-view'
@@ -47,6 +49,11 @@ export function DiscoverPage() {
   const [activeCategories, setActiveCategories] = useState<string[]>([])
   const [profiles, setProfiles] = useState<MemberProfile[]>([])
   const [cursor, setCursor] = useState(0)
+  const [locationSearch, setLocationSearch] = useState('')
+  const [locationResults, setLocationResults] = useState<LocationSearchResult[]>([])
+  const [searchingLocation, setSearchingLocation] = useState(false)
+  const [locationError, setLocationError] = useState<string | null>(null)
+  const [mapCenter, setMapCenter] = useState<[number, number]>([6.4698, 3.5852])
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['discover', filters, cursor],
@@ -86,6 +93,28 @@ export function DiscoverPage() {
   function resetAll() {
     setActiveCategories([])
     applyFilters(DEFAULT_FILTERS)
+  }
+
+  async function handleLocationSearch() {
+    if (locationSearch.trim().length < 2) return
+    setSearchingLocation(true)
+    setLocationError(null)
+    try {
+      const results = await searchLocations(locationSearch)
+      setLocationResults(results)
+      if (results.length === 0) setLocationError('No locations found nearby.')
+    } catch (error) {
+      setLocationResults([])
+      setLocationError(error instanceof Error ? error.message : 'Location search is unavailable.')
+    } finally {
+      setSearchingLocation(false)
+    }
+  }
+
+  function selectLocation(result: LocationSearchResult) {
+    setMapCenter([result.latitude, result.longitude])
+    setLocationSearch(result.area)
+    setLocationResults([])
   }
 
   const googleMapsReady = isGoogleMapsConfigured()
@@ -142,20 +171,73 @@ export function DiscoverPage() {
         ))}
       </div>
 
-      {!googleMapsReady && (
-        <p className="mt-3 rounded-2xl bg-ink-100 px-4 py-2.5 text-xs text-ink-500">
-          Using OpenStreetMap while Google Maps is being configured.
-        </p>
-      )}
-
       <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] mt-4 h-[80vh] min-h-[520px] w-screen overflow-hidden shadow-soft">
+        <div className="absolute left-1/2 top-4 z-[1200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2">
+          <form
+            className="flex items-center gap-2 rounded-full border border-ink-100 bg-white p-1.5 pl-3 shadow-float"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void handleLocationSearch()
+            }}
+          >
+            <Search className="size-4 shrink-0 text-ink-400" aria-hidden="true" />
+            <input
+              aria-label="Search locations"
+              value={locationSearch}
+              onChange={(event) => setLocationSearch(event.target.value)}
+              placeholder="Search a city or area"
+              className="min-w-0 flex-1 bg-transparent text-sm font-medium text-ink-900 outline-none placeholder:text-ink-400"
+            />
+            {locationSearch && (
+              <button
+                type="button"
+                aria-label="Clear location search"
+                onClick={() => {
+                  setLocationSearch('')
+                  setLocationResults([])
+                  setLocationError(null)
+                  setMapCenter([6.4698, 3.5852])
+                }}
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-400 hover:bg-ink-100"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+            <Button type="submit" size="icon" className="size-9 shrink-0 rounded-full" disabled={searchingLocation}>
+              <Search className="size-4" />
+            </Button>
+          </form>
+
+          {(locationResults.length > 0 || locationError) && (
+            <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-ink-100 bg-white p-1 shadow-float">
+              {locationError && <p className="px-3 py-2 text-sm text-danger">{locationError}</p>}
+              {locationResults.map((result) => (
+                <button
+                  key={`${result.latitude}-${result.longitude}-${result.name}`}
+                  type="button"
+                  onClick={() => selectLocation(result)}
+                  className="block w-full rounded-xl px-3 py-2 text-left hover:bg-ink-50"
+                >
+                  <span className="block text-sm font-semibold text-ink-900">{result.area}</span>
+                  <span className="block truncate text-xs text-ink-500">{result.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {googleMapsReady ? (
-          <GoogleMapView profiles={items} highlightedId={items[0]?.id} />
+          <GoogleMapView
+            profiles={items}
+            highlightedId={items[0]?.id}
+            center={{ lat: mapCenter[0], lng: mapCenter[1] }}
+          />
         ) : (
           <OpenStreetMapView
             profiles={items}
             highlightedId={items[0]?.id}
             useMyLocation={locationEnabled}
+            center={mapCenter}
           />
         )}
 
@@ -181,19 +263,6 @@ export function DiscoverPage() {
           </div>
         )}
 
-        {!googleMapsReady && (
-          <button
-            type="button"
-            onClick={() => setLocationEnabled((current) => !current)}
-            aria-label="Use my location"
-            aria-pressed={locationEnabled}
-            className={`absolute bottom-4 right-4 flex size-10 cursor-pointer items-center justify-center rounded-full shadow-float transition-colors ${
-              locationEnabled ? 'bg-primary-500 text-white' : 'bg-white text-ink-700 hover:bg-ink-50'
-            }`}
-          >
-            <LocateFixed className="size-4" aria-hidden="true" />
-          </button>
-        )}
       </div>
 
       {items.length > 0 && (
