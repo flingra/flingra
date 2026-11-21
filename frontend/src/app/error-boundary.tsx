@@ -1,4 +1,4 @@
-import { Component, type ReactNode } from 'react'
+import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { ErrorState } from '@/components/ui/state-message'
 
 interface Props {
@@ -14,6 +14,10 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError() {
     return { hasError: true }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Unhandled application render error', error, info.componentStack)
   }
 
   render() {
