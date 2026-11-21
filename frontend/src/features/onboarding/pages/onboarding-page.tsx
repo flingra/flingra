@@ -122,7 +122,7 @@ export function OnboardingPage() {
       } finally {
         if (!cancelled) setSearchingLocation(false)
       }
-    }, 350)
+    }, 1100)
 
     return () => {
       cancelled = true
@@ -251,6 +251,7 @@ export function OnboardingPage() {
 
   async function handleLocationSearch() {
     if (locationSearch.trim().length < 2) return
+    setLocationSearchLocked(true)
     setSearchingLocation(true)
     setLocationError(null)
     try {

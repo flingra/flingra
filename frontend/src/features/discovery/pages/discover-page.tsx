@@ -87,7 +87,7 @@ export function DiscoverPage() {
       } finally {
         if (!cancelled) setSearchingLocation(false)
       }
-    }, 350)
+    }, 1100)
 
     return () => {
       cancelled = true
@@ -137,6 +137,7 @@ export function DiscoverPage() {
 
   async function handleLocationSearch() {
     if (locationSearch.trim().length < 2) return
+    setLocationSearchLocked(true)
     setSearchingLocation(true)
     setLocationError(null)
     try {

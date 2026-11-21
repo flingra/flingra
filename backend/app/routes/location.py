@@ -8,6 +8,7 @@ from app.errors import ServiceUnavailable
 from app.routes.auth import CurrentAccount, get_app_settings
 
 router = APIRouter(prefix="/location", tags=["location"])
+NOMINATIM_USER_AGENT = "Flingra/1.0 (+https://dev.flingra.com)"
 
 
 @router.get("/search")
@@ -31,8 +32,8 @@ def search_locations(
         response = httpx.get(
             "https://nominatim.openstreetmap.org/search",
             params=params,
-            headers={"User-Agent": "Flingra/1.0 (location search)"},
-            timeout=httpx.Timeout(5.0, connect=2.0),
+            headers={"User-Agent": NOMINATIM_USER_AGENT},
+            timeout=httpx.Timeout(10.0, connect=3.0),
         )
         response.raise_for_status()
         payload = response.json()
