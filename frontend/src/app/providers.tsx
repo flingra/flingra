@@ -1,8 +1,14 @@
 import { type ReactNode, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter, useLocation } from 'react-router-dom'
 import { ToastProvider } from '@/components/ui/toast'
 import { AppErrorBoundary } from './error-boundary'
+
+function RouteErrorBoundary({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation()
+
+  return <AppErrorBoundary key={pathname}>{children}</AppErrorBoundary>
+}
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -18,7 +24,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
-          <BrowserRouter>{children}</BrowserRouter>
+          <BrowserRouter>
+            <RouteErrorBoundary>{children}</RouteErrorBoundary>
+          </BrowserRouter>
         </ToastProvider>
       </QueryClientProvider>
     </AppErrorBoundary>
