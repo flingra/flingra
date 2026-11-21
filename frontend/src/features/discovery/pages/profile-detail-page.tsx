@@ -28,6 +28,7 @@ import { getOwnProfile, getProfile } from '@/lib/api/profiles'
 import { blockMember } from '@/lib/api/safety'
 import { getOrCreateThread } from '@/lib/api/chat'
 import { isVideoUnlocked, proposeMeetupPayment, simulateRecipientResponse, unlockVideo } from '@/lib/api/wallet'
+import { getCallCreditBalance } from '@/lib/api/calls'
 import { canInteract } from '@/lib/api/subscription'
 import { ApiError, type ProfileVideo } from '@/lib/api/types'
 import { useToast } from '@/components/ui/toast'
@@ -64,6 +65,21 @@ export function ProfileDetailPage() {
   })
   const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
   const locked = !!profile && !canInteract(ownProfile, profile)
+  const isPayingCaller = ownProfile?.identity === 'man'
+  const { data: callCredits } = useQuery({ queryKey: ['call-credits'], queryFn: getCallCreditBalance, enabled: isPayingCaller })
+
+  function handleStartCall(mode: 'video' | 'voice') {
+    if (isPayingCaller && (callCredits ?? 0) <= 0) {
+      showToast({
+        title: 'No call credits left',
+        description: 'Buy call credits to start a call.',
+        variant: 'error',
+      })
+      navigate('/credits/shop')
+      return
+    }
+    setCallMode(mode)
+  }
 
   async function handleUnlockVideo() {
     if (!unlockTarget?.priceNaira || !profile) return
@@ -292,10 +308,10 @@ export function ProfileDetailPage() {
                     <HeartHandshake className="size-4" aria-hidden="true" /> Propose a payment
                   </Button>
                 )}
-                <Button variant="outline" onClick={() => setCallMode('voice')}>
+                <Button variant="outline" onClick={() => handleStartCall('voice')}>
                   <Phone className="size-4" aria-hidden="true" /> Voice call
                 </Button>
-                <Button variant="outline" onClick={() => setCallMode('video')}>
+                <Button variant="outline" onClick={() => handleStartCall('video')}>
                   <VideoIcon className="size-4" aria-hidden="true" /> Video call
                 </Button>
               </>

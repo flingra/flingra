@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Gift, Share2, Wallet as WalletIcon, Landmark, HeartHandshake } from 'lucide-react'
+import { ChevronRight, Coins, Gift, Share2, Wallet as WalletIcon, Landmark, HeartHandshake } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
@@ -21,6 +21,7 @@ import {
   listTransactions,
   refundMeetupPayment,
 } from '@/lib/api/wallet'
+import { getCallCreditBalance } from '@/lib/api/calls'
 import { ApiError, type WalletTransactionType } from '@/lib/api/types'
 
 const QUICK_AMOUNTS = [500, 1000, 5000, 10000]
@@ -38,6 +39,8 @@ const TRANSACTION_LABELS: Record<WalletTransactionType, string> = {
   'meetup-payment-refunded': 'Meetup payment refunded',
   'video-unlock': 'Video unlocked',
   'vip-subscription': 'VIP subscription',
+  'coin-purchase': 'Call credit coins bought',
+  'call-credit-spend': 'Call credit coins spent',
 }
 
 const LINKS = [
@@ -60,6 +63,7 @@ export function WalletPage() {
   const { data: balance, isLoading: balanceLoading } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance })
   const { data: transactions, isLoading: transactionsLoading } = useQuery({ queryKey: ['wallet-transactions'], queryFn: listTransactions })
   const { data: meetupPayments } = useQuery({ queryKey: ['meetup-payments'], queryFn: listMeetupPayments })
+  const { data: callCredits } = useQuery({ queryKey: ['call-credits'], queryFn: getCallCreditBalance })
 
   async function refreshWallet() {
     await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
@@ -143,6 +147,20 @@ export function WalletPage() {
           Fund wallet
         </Button>
       </Card>
+
+      <Link
+        to="/credits/shop"
+        className="mt-4 flex items-center gap-3 rounded-3xl border border-ink-100 bg-white px-5 py-4 shadow-soft transition-colors hover:bg-ink-50"
+      >
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
+          <Coins className="size-5" aria-hidden="true" />
+        </span>
+        <span className="flex-1">
+          <span className="block font-medium text-ink-800">Call credits</span>
+          <span className="block text-xs text-ink-500">{callCredits ?? 0} coins — spent on voice and video calls</span>
+        </span>
+        <ChevronRight className="size-4 text-ink-300" aria-hidden="true" />
+      </Link>
 
       <div className="mt-4 overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-soft">
         {LINKS.map(({ to, icon: Icon, label, description }, index) => (
