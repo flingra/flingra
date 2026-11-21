@@ -61,6 +61,7 @@ export function SignUpPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [step, setStep] = useState(1)
   const [googleLoading, setGoogleLoading] = useState(false)
+  const [googlePending, setGooglePending] = useState(false)
   const {
     register,
     handleSubmit,
@@ -74,8 +75,11 @@ export function SignUpPage() {
   const sex = watch('sex')
 
   async function goNext() {
-    const valid = await trigger(STEP_FIELDS[step])
-    if (valid) setStep((current) => Math.min(TOTAL_STEPS, current + 1))
+    const fields = googlePending
+      ? (step === 1 ? ['sex'] : ['dateOfBirth', 'acceptedTerms'])
+      : STEP_FIELDS[step]
+    const valid = await trigger(fields as (keyof FormValues)[])
+    if (valid) setStep((current) => Math.min(googlePending ? 2 : TOTAL_STEPS, current + 1))
   }
 
   function goBack() {
@@ -110,9 +114,13 @@ export function SignUpPage() {
 
   async function handleGoogle() {
     setFormError(null)
-    if (!(await trigger(['sex', 'dateOfBirth', 'acceptedTerms']))) {
-      setStep(watch('sex') ? 3 : 1)
-      return
+
+    if (googlePending) {
+      const valid = await trigger(['sex', 'dateOfBirth', 'acceptedTerms'])
+      if (!valid) {
+        setStep(watch('sex') ? 2 : 1)
+        return
+      }
     }
 
     setGoogleLoading(true)
@@ -127,7 +135,12 @@ export function SignUpPage() {
       setSession(session)
       navigate(STAGE_ROUTE[session.stage])
     } catch (error) {
-      setFormError(error instanceof ApiError ? error.message : 'Google sign-in failed. Try again.')
+      if (error instanceof ApiError && error.code === 'GOOGLE_SIGNUP_REQUIRED') {
+        setGooglePending(true)
+        setStep(watch('sex') ? 2 : 1)
+      } else {
+        setFormError(error instanceof ApiError ? error.message : 'Google sign-in failed. Try again.')
+      }
     } finally {
       setGoogleLoading(false)
     }
@@ -156,7 +169,13 @@ export function SignUpPage() {
           </div>
         </div>
 
-        <ProgressSteps current={step} total={TOTAL_STEPS} label="Sign-up progress" />
+        {googlePending && (
+          <div className="mb-5 rounded-xl bg-primary-50 px-4 py-3 text-sm text-primary-700">
+            Google provides your verified email, so you do not need to enter an email or password here.
+          </div>
+        )}
+
+        <ProgressSteps current={step} total={googlePending ? 2 : TOTAL_STEPS} label="Sign-up progress" />
 
         <form
           key={step}
@@ -189,7 +208,7 @@ export function SignUpPage() {
             </div>
           )}
 
-          {step === 2 && (
+          {step === 2 && !googlePending && (
             <>
               <Field
                 id="identifier"
@@ -216,6 +235,43 @@ export function SignUpPage() {
                   aria-invalid={!!errors.confirmPassword}
                   {...register('confirmPassword')}
                 />
+              </Field>
+            </>
+          )}
+
+          {googlePending && step === 2 && (
+            <>
+              <Field
+                id="dateOfBirth"
+                label="Date of birth"
+                hint={sex === 'woman' ? 'Female accounts must be 21 or older.' : 'You must be 18 or older to use Flingra.'}
+                error={errors.dateOfBirth?.message}
+              >
+                <Input id="dateOfBirth" type="date" aria-invalid={!!errors.dateOfBirth} {...register('dateOfBirth')} />
+              </Field>
+
+              <label className="flex items-start gap-3 text-sm text-ink-700">
+                <Checkbox {...register('acceptedTerms')} aria-invalid={!!errors.acceptedTerms} />
+                <span>
+                  I accept the{' '}
+                  <Link to="/terms" className="font-semibold text-primary-600 hover:underline">
+                    Terms
+                  </Link>{' '}
+                  and{' '}
+                  <Link to="/privacy" className="font-semibold text-primary-600 hover:underline">
+                    Privacy Notice
+                  </Link>
+                  .
+                </span>
+              </label>
+              {errors.acceptedTerms && (
+                <p role="alert" className="-mt-1 text-xs font-medium text-danger">
+                  {errors.acceptedTerms.message}
+                </p>
+              )}
+
+              <Field id="referralCode" label="Referral code" optional hint="Have a friend's code? Enter it to claim a signup bonus.">
+                <Input id="referralCode" autoComplete="off" placeholder="FLINGRA-XXXX" {...register('referralCode')} />
               </Field>
             </>
           )}
@@ -269,7 +325,15 @@ export function SignUpPage() {
                 Back
               </Button>
             )}
-            {step < TOTAL_STEPS ? (
+            {googlePending ? (
+              step < 2 ? (
+                <Button type="button" className="flex-1" onClick={goNext}>
+                  Continue
+                </Button>
+              ) : (
+                <GoogleButton label="Finish with Google" loading={googleLoading} onClick={handleGoogle} className="flex-1" />
+              )
+            ) : step < TOTAL_STEPS ? (
               <Button type="button" className="flex-1" onClick={goNext}>
                 Continue
               </Button>

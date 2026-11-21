@@ -143,8 +143,12 @@ export function OnboardingPage() {
   }
 
   useEffect(() => {
-    if (existingProfile && existingProfile.identity !== 'private') {
-      setDraft((current) => (current.displayName ? current : { ...current, identity: existingProfile.identity }))
+    if (existingProfile) {
+      setDraft((current) => ({
+        ...current,
+        displayName: current.displayName || existingProfile.displayName || '',
+        identity: existingProfile.identity !== 'private' ? existingProfile.identity : current.identity,
+      }))
     }
   }, [existingProfile])
 

@@ -936,15 +936,20 @@ def google_auth(
                 "google_sub": google_sub,
             },
         )
+        google_name = claims.get("name")
+        if not isinstance(google_name, str) or not google_name.strip():
+            google_name = claims.get("given_name")
+        display_name = google_name.strip()[:80] if isinstance(google_name, str) and google_name.strip() else ""
         db.execute(
             text(
                 """
-                INSERT INTO profiles (account_id, bio, photos, age_range, interests, identity)
-                VALUES (:account_id, '', '[]', :age_range, '[]', :identity)
+                INSERT INTO profiles (account_id, display_name, bio, photos, age_range, interests, identity)
+                VALUES (:account_id, :display_name, '', '[]', :age_range, '[]', :identity)
                 """
             ),
             {
                 "account_id": account_id,
+                "display_name": display_name,
                 "age_range": _age_range(body.date_of_birth),
                 "identity": body.sex,
             },

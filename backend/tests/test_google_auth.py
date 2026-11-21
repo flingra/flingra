@@ -13,6 +13,7 @@ def install_google_claims(monkeypatch, **overrides: Any) -> None:
         "sub": "google-user-123",
         "email": "google@example.com",
         "email_verified": True,
+        "name": "Google User",
         "nonce": GOOGLE_NONCE,
     }
     claims.update(overrides)
@@ -75,7 +76,7 @@ def test_google_signup_creates_verified_account_and_session(api_client, monkeypa
         account = db.execute(
             auth.text(
                 """
-                SELECT email, email_verified, gender, date_of_birth, google_sub, referred_by_code
+                SELECT id, email, email_verified, gender, date_of_birth, google_sub, referred_by_code
                 FROM accounts WHERE identifier = :identifier
                 """
             ),
@@ -86,6 +87,11 @@ def test_google_signup_creates_verified_account_and_session(api_client, monkeypa
         assert str(account["date_of_birth"]) == "1995-02-10"
         assert account["google_sub"] == "google-user-123"
         assert account["referred_by_code"] == "FRIEND-123"
+        display_name = db.execute(
+            auth.text("SELECT display_name FROM profiles WHERE account_id = :account_id"),
+            {"account_id": account["id"]},
+        ).scalar_one()
+        assert display_name == "Google User"
         assert db.execute(auth.text("SELECT COUNT(*) FROM email_verification_tokens")).scalar_one() == 0
     finally:
         db_generator.close()

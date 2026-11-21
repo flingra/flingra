@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import * as L from 'leaflet'
-import { APIProvider, AdvancedMarker, Map } from '@vis.gl/react-google-maps'
+import { APIProvider, AdvancedMarker, Map, useAdvancedMarkerRef } from '@vis.gl/react-google-maps'
 import { cn } from '@/lib/utils'
 import type { MemberProfile } from '@/lib/api/types'
 
@@ -152,6 +152,71 @@ export function OpenStreetMapView({
   return <div ref={mapContainerRef} className="size-full bg-ink-100" aria-label="Discover members map" />
 }
 
+function GoogleProfileMarker({
+  profile,
+  highlighted,
+  center,
+  locationLabel,
+}: {
+  profile: MemberProfile
+  highlighted: boolean
+  center: { lat: number; lng: number }
+  locationLabel?: string
+}) {
+  const [markerRef, marker] = useAdvancedMarkerRef()
+
+  return (
+    <AdvancedMarker ref={markerRef} position={geoPosition(profile, center)}>
+      <>
+        <DetachMarkerBeforeContentRemoval marker={marker} />
+        <Link
+          to={`/profiles/${profile.id}`}
+          aria-label={`View ${profile.displayName}'s profile`}
+          className="relative block -translate-y-1/2 cursor-pointer"
+        >
+          <span
+            className={cn(
+              'absolute left-1/2 top-full -mt-1 h-2.5 -translate-x-1/2 rounded-full blur-[2px]',
+              highlighted ? 'w-10 bg-primary-500/35' : 'w-7 bg-ink-900/20',
+            )}
+          />
+          <div className="flex flex-col items-center">
+            <img
+              src={profile.photos[0]}
+              alt=""
+              className={cn(
+                'rounded-full border-4 object-cover shadow-float',
+                highlighted ? 'size-14 border-primary-500' : 'size-12 border-white',
+              )}
+            />
+            <div className="mt-1 max-w-32 rounded-xl border border-white/80 bg-white/95 px-2.5 py-1 text-center shadow-float backdrop-blur-sm">
+              <p className="truncate text-xs font-bold leading-tight text-ink-900">{profile.displayName}</p>
+              <p className="truncate text-[10px] leading-tight text-ink-500">{locationLabel || profile.area}</p>
+            </div>
+          </div>
+        </Link>
+      </>
+    </AdvancedMarker>
+  )
+}
+
+function DetachMarkerBeforeContentRemoval({
+  marker,
+}: {
+  marker: google.maps.marker.AdvancedMarkerElement | null
+}) {
+  useLayoutEffect(() => {
+    if (!marker) return
+
+    return () => {
+      // Google Maps reads marker content while detaching, so detach before React removes portal DOM.
+      marker.map = null
+    }
+  }, [marker])
+
+  return null
+}
+
 export function GoogleMapView({
   profiles,
   highlightedId,
@@ -177,39 +242,15 @@ export function GoogleMapView({
         disableDefaultUI
         className="size-full"
       >
-        {profiles.map((profile) => {
-          const highlighted = profile.id === highlightedId
-          return (
-            <AdvancedMarker key={profile.id} position={geoPosition(profile, center)}>
-              <Link
-                to={`/profiles/${profile.id}`}
-                aria-label={`View ${profile.displayName}'s profile`}
-                className="relative block -translate-y-1/2 cursor-pointer"
-              >
-                <span
-                  className={cn(
-                    'absolute left-1/2 top-full -mt-1 h-2.5 -translate-x-1/2 rounded-full blur-[2px]',
-                    highlighted ? 'w-10 bg-primary-500/35' : 'w-7 bg-ink-900/20',
-                  )}
-                />
-                <div className="flex flex-col items-center">
-                  <img
-                    src={profile.photos[0]}
-                    alt=""
-                    className={cn(
-                      'rounded-full border-4 object-cover shadow-float',
-                      highlighted ? 'size-14 border-primary-500' : 'size-12 border-white',
-                    )}
-                  />
-                  <div className="mt-1 max-w-32 rounded-xl border border-white/80 bg-white/95 px-2.5 py-1 text-center shadow-float backdrop-blur-sm">
-                    <p className="truncate text-xs font-bold leading-tight text-ink-900">{profile.displayName}</p>
-                    <p className="truncate text-[10px] leading-tight text-ink-500">{locationLabel || profile.area}</p>
-                  </div>
-                </div>
-              </Link>
-            </AdvancedMarker>
-          )
-        })}
+        {profiles.map((profile) => (
+          <GoogleProfileMarker
+            key={profile.id}
+            profile={profile}
+            highlighted={profile.id === highlightedId}
+            center={center}
+            locationLabel={locationLabel}
+          />
+        ))}
       </Map>
     </APIProvider>
   )
