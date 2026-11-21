@@ -110,6 +110,11 @@ export function SignUpPage() {
 
   async function handleGoogle() {
     setFormError(null)
+    if (!(await trigger(['sex', 'dateOfBirth', 'acceptedTerms']))) {
+      setStep(watch('sex') ? 3 : 1)
+      return
+    }
+
     setGoogleLoading(true)
     try {
       const values = watch()
@@ -144,16 +149,14 @@ export function SignUpPage() {
       <Card className="transition-shadow duration-300 hover:shadow-float">
         <ProgressSteps current={step} total={TOTAL_STEPS} label="Sign-up progress" />
 
-        {step === 3 && (
-          <div className="mt-5">
-            <GoogleButton label="Sign up with Google" loading={googleLoading} onClick={handleGoogle} className="w-full" />
-            <div className="mt-5 flex items-center gap-3 text-xs font-medium text-ink-400">
-              <span className="h-px flex-1 bg-ink-100" />
-              or create an account
-              <span className="h-px flex-1 bg-ink-100" />
-            </div>
+        <div className="mt-5">
+          <GoogleButton label="Sign up with Google" loading={googleLoading} onClick={handleGoogle} className="w-full" />
+          <div className="mt-5 flex items-center gap-3 text-xs font-medium text-ink-400">
+            <span className="h-px flex-1 bg-ink-100" />
+            or create an account
+            <span className="h-px flex-1 bg-ink-100" />
           </div>
-        )}
+        </div>
 
         <form
           key={step}
