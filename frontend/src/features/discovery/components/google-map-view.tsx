@@ -174,6 +174,7 @@ function GoogleProfileMarker({
         fontSize: highlighted ? '13px' : '11px',
         fontWeight: '600',
       }}
+      clickable
       onClick={() => navigate(`/profiles/${profile.id}`)}
     />
   )
@@ -200,7 +201,7 @@ export function GoogleMapView({
         zoom={15}
         defaultTilt={45}
         defaultHeading={20}
-        gestureHandling="none"
+        gestureHandling="auto"
         disableDefaultUI
         className="size-full"
       >
