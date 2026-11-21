@@ -1,8 +1,7 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import * as L from 'leaflet'
-import { APIProvider, AdvancedMarker, Map, useAdvancedMarkerRef } from '@vis.gl/react-google-maps'
-import { cn } from '@/lib/utils'
+import { APIProvider, Map, Marker } from '@vis.gl/react-google-maps'
 import type { MemberProfile } from '@/lib/api/types'
 
 // Flingra is Nigeria-first; Lekki, Lagos is a reasonable default map centre for the mock feed.
@@ -163,58 +162,21 @@ function GoogleProfileMarker({
   center: { lat: number; lng: number }
   locationLabel?: string
 }) {
-  const [markerRef, marker] = useAdvancedMarkerRef()
+  const navigate = useNavigate()
 
   return (
-    <AdvancedMarker ref={markerRef} position={geoPosition(profile, center)}>
-      <>
-        <DetachMarkerBeforeContentRemoval marker={marker} />
-        <Link
-          to={`/profiles/${profile.id}`}
-          aria-label={`View ${profile.displayName}'s profile`}
-          className="relative block -translate-y-1/2 cursor-pointer"
-        >
-          <span
-            className={cn(
-              'absolute left-1/2 top-full -mt-1 h-2.5 -translate-x-1/2 rounded-full blur-[2px]',
-              highlighted ? 'w-10 bg-primary-500/35' : 'w-7 bg-ink-900/20',
-            )}
-          />
-          <div className="flex flex-col items-center">
-            <img
-              src={profile.photos[0]}
-              alt=""
-              className={cn(
-                'rounded-full border-4 object-cover shadow-float',
-                highlighted ? 'size-14 border-primary-500' : 'size-12 border-white',
-              )}
-            />
-            <div className="mt-1 max-w-32 rounded-xl border border-white/80 bg-white/95 px-2.5 py-1 text-center shadow-float backdrop-blur-sm">
-              <p className="truncate text-xs font-bold leading-tight text-ink-900">{profile.displayName}</p>
-              <p className="truncate text-[10px] leading-tight text-ink-500">{locationLabel || profile.area}</p>
-            </div>
-          </div>
-        </Link>
-      </>
-    </AdvancedMarker>
+    <Marker
+      position={geoPosition(profile, center)}
+      title={`${profile.displayName} — ${locationLabel || profile.area}`}
+      label={{
+        text: profile.displayName,
+        color: '#15120f',
+        fontSize: highlighted ? '13px' : '11px',
+        fontWeight: '600',
+      }}
+      onClick={() => navigate(`/profiles/${profile.id}`)}
+    />
   )
-}
-
-function DetachMarkerBeforeContentRemoval({
-  marker,
-}: {
-  marker: ReturnType<typeof useAdvancedMarkerRef>[1]
-}) {
-  useLayoutEffect(() => {
-    if (!marker) return
-
-    return () => {
-      // Google Maps reads marker content while detaching, so detach before React removes portal DOM.
-      marker.map = null
-    }
-  }, [marker])
-
-  return null
 }
 
 export function GoogleMapView({
