@@ -147,9 +147,7 @@ export function SignUpPage() {
       }
     >
       <Card className="transition-shadow duration-300 hover:shadow-float">
-        <ProgressSteps current={step} total={TOTAL_STEPS} label="Sign-up progress" />
-
-        <div className="mt-5">
+        <div className="mb-5">
           <GoogleButton label="Sign up with Google" loading={googleLoading} onClick={handleGoogle} className="w-full" />
           <div className="mt-5 flex items-center gap-3 text-xs font-medium text-ink-400">
             <span className="h-px flex-1 bg-ink-100" />
@@ -157,6 +155,8 @@ export function SignUpPage() {
             <span className="h-px flex-1 bg-ink-100" />
           </div>
         </div>
+
+        <ProgressSteps current={step} total={TOTAL_STEPS} label="Sign-up progress" />
 
         <form
           key={step}

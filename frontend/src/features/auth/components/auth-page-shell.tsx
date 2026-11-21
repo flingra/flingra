@@ -11,7 +11,7 @@ interface AuthPageShellProps {
 
 export function AuthPageShell({ title, subtitle, children, footer, maxWidth = 'max-w-md' }: AuthPageShellProps) {
   return (
-    <div className="relative flex h-full flex-col items-center justify-center overflow-y-auto px-4 py-6 sm:px-6 sm:py-10">
+    <div className="relative flex h-full flex-col items-center justify-start overflow-y-auto px-4 py-6 sm:justify-center sm:px-6 sm:py-10">
       <span
         className="pointer-events-none absolute -left-20 -top-20 size-64 animate-pulse rounded-full bg-primary-200/40 blur-3xl"
         aria-hidden="true"
