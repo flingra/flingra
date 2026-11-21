@@ -6,6 +6,8 @@ import type { MemberProfile } from '@/lib/api/types'
 
 // Flingra is Nigeria-first; Lekki, Lagos is a reasonable default map centre for the mock feed.
 const LAGOS_CENTER = { lat: 6.4698, lng: 3.5852 }
+const DISCOVERY_MAP_ZOOM = 16
+const PROFILE_MARKER_SPREAD = 0.008
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined
 const GOOGLE_MAPS_MAP_ID = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID as string | undefined
@@ -31,8 +33,8 @@ function fnv1a(str: string) {
 function geoPosition(profile: MemberProfile, center: { lat: number; lng: number } = LAGOS_CENTER) {
   const base = center
   const hash = fnv1a(profile.id)
-  const latOffset = (((hash >>> 16) % 1000) / 1000 - 0.5) * 0.018
-  const lngOffset = (((hash & 0xffff) % 1000) / 1000 - 0.5) * 0.018
+  const latOffset = (((hash >>> 16) % 1000) / 1000 - 0.5) * PROFILE_MARKER_SPREAD
+  const lngOffset = (((hash & 0xffff) % 1000) / 1000 - 0.5) * PROFILE_MARKER_SPREAD
   return { lat: base.lat + latOffset, lng: base.lng + lngOffset }
 }
 
@@ -41,7 +43,7 @@ export function OpenStreetMapView({
   highlightedId,
   useMyLocation = false,
   center,
-  zoom = 15,
+  zoom = DISCOVERY_MAP_ZOOM,
   onLocationSelect,
   locationLabel,
 }: {
@@ -116,8 +118,12 @@ export function OpenStreetMapView({
       if (image) {
         image.src = profile.photos[0] ?? ''
         image.className = highlighted
-          ? 'size-14 rounded-full border-4 border-primary-500 object-cover shadow-float'
-          : 'size-12 rounded-full border-4 border-white object-cover shadow-float'
+          ? 'size-14 cursor-pointer rounded-full border-4 border-primary-500 object-cover shadow-float'
+          : 'size-12 cursor-pointer rounded-full border-4 border-white object-cover shadow-float'
+        image.addEventListener('click', (event) => {
+          event.stopPropagation()
+          navigate(`/profiles/${profile.id}`)
+        })
       }
     })
 
@@ -126,7 +132,7 @@ export function OpenStreetMapView({
       navigator.geolocation.getCurrentPosition(
         ({ coords }) => {
           const position: L.LatLngExpression = [coords.latitude, coords.longitude]
-          map.setView(position, 15)
+          map.setView(position, DISCOVERY_MAP_ZOOM)
           locationMarker = L.circleMarker(position, {
             radius: 8,
             color: '#ffffff',
@@ -198,7 +204,7 @@ export function GoogleMapView({
       <Map
         mapId={GOOGLE_MAPS_MAP_ID}
         center={center}
-        zoom={15}
+        zoom={DISCOVERY_MAP_ZOOM}
         defaultTilt={45}
         defaultHeading={20}
         gestureHandling="auto"
