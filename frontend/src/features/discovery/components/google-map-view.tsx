@@ -203,7 +203,7 @@ function GoogleProfileMarker({
 function DetachMarkerBeforeContentRemoval({
   marker,
 }: {
-  marker: google.maps.marker.AdvancedMarkerElement | null
+  marker: ReturnType<typeof useAdvancedMarkerRef>[1]
 }) {
   useLayoutEffect(() => {
     if (!marker) return
