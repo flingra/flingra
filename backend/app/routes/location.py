@@ -28,6 +28,7 @@ def search_locations(
         "namedetails": 1,
     }
 
+    payload = None
     try:
         response = httpx.get(
             "https://nominatim.openstreetmap.org/search",
@@ -37,8 +38,51 @@ def search_locations(
         )
         response.raise_for_status()
         payload = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise ServiceUnavailable("Location search is temporarily unavailable.") from exc
+        if not isinstance(payload, list):
+            raise ValueError("Nominatim returned a non-list payload")
+    except (httpx.HTTPError, ValueError):
+        try:
+            fallback_params = {
+                "q": search_query,
+                "limit": 15,
+                "lang": "en",
+            }
+            fallback_response = httpx.get(
+                "https://photon.komoot.io/api",
+                params=fallback_params,
+                headers={"User-Agent": NOMINATIM_USER_AGENT},
+                timeout=httpx.Timeout(10.0, connect=3.0),
+            )
+            fallback_response.raise_for_status()
+            fallback_payload = fallback_response.json()
+            payload = []
+            for feature in fallback_payload.get("features", []):
+                properties = feature.get("properties") or {}
+                geometry = feature.get("geometry") or {}
+                coordinates = geometry.get("coordinates")
+                if properties.get("country") not in {None, "Nigeria"}:
+                    continue
+                if not isinstance(coordinates, list) or len(coordinates) < 2:
+                    continue
+                area = properties.get("name")
+                if not isinstance(area, str):
+                    area = next((properties[key] for key in (
+                        "district", "suburb", "neighbourhood", "city",
+                        "county", "state",
+                    ) if isinstance(properties.get(key), str)), None)
+                name_parts = [properties[key] for key in (
+                    "name", "street", "district", "suburb", "city", "state", "country",
+                ) if isinstance(properties.get(key), str)]
+                if not isinstance(area, str):
+                    continue
+                payload.append({
+                    "display_name": ", ".join(dict.fromkeys(name_parts)),
+                    "lat": coordinates[1],
+                    "lon": coordinates[0],
+                    "address": {"area": area},
+                })
+        except (httpx.HTTPError, ValueError, AttributeError) as exc:
+            raise ServiceUnavailable("Location search is temporarily unavailable.") from exc
 
     matches = []
     seen = set()
@@ -58,7 +102,7 @@ def search_locations(
         seen.add(position)
         area = next(
             (address[key] for key in (
-                "building", "amenity", "shop", "road", "quarter", "suburb",
+                "area", "building", "park", "amenity", "shop", "road", "quarter", "suburb",
                 "neighbourhood", "city_district", "town", "city", "village",
                 "municipality", "county", "state",
             ) if isinstance(address.get(key), str)),

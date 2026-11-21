@@ -62,3 +62,45 @@ def test_location_search_reports_provider_outage(api_client, monkeypatch) -> Non
 
     assert result.status_code == 503
     assert result.json()["error"]["message"] == "Location search is temporarily unavailable."
+
+
+def test_location_search_falls_back_to_photon(api_client, monkeypatch) -> None:
+    client = authenticated_location_client(api_client)
+
+    def fake_get(url, **_kwargs):
+        if "nominatim" in url:
+            return httpx.Response(
+                503,
+                request=httpx.Request("GET", url),
+            )
+        return httpx.Response(
+            200,
+            json={
+                "features": [
+                    {
+                        "properties": {
+                            "name": "Lekki",
+                            "city": "Lagos",
+                            "state": "Lagos",
+                            "country": "Nigeria",
+                        },
+                        "geometry": {"coordinates": [3.535, 6.436]},
+                    }
+                ]
+            },
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(location.httpx, "get", fake_get)
+
+    result = client.get("/location/search", params={"q": "Lekki"})
+
+    assert result.status_code == 200
+    assert result.json()["results"] == [
+        {
+            "name": "Lekki, Lagos, Nigeria",
+            "area": "Lekki",
+            "latitude": 6.436,
+            "longitude": 3.535,
+        }
+    ]
