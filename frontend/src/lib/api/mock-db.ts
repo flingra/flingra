@@ -184,6 +184,12 @@ export const VIP_PLANS: VipPlan[] = [
   { id: 'vip-yearly', name: 'Yearly VIP', durationDays: 365, priceNaira: 80000 },
 ]
 
+/** Coin bundle sizes the store offers. Each bundle's price is `coins * coinPriceStore.priceNaira`, computed live. */
+export const COIN_PACKAGE_SIZES = [50, 150, 400, 1000]
+
+/** Default price before an admin ever sets one, in ₦ per call-credit coin. */
+export const DEFAULT_COIN_PRICE_NAIRA = 50
+
 export const CURRENT_ACCOUNT = {
   id: 'me',
   identifier: 'you@example.com',
@@ -481,5 +487,27 @@ export const unlockedVideoStore = {
   },
   set urls(value: string[]) {
     unlockedVideosField.set(value)
+  },
+}
+
+/** Admin-set ₦ price per call-credit coin. One global price, not per-user. */
+const coinPriceField = persistedField<number>('flingra:coin-price-naira', DEFAULT_COIN_PRICE_NAIRA)
+export const coinPriceStore = {
+  get priceNaira() {
+    return coinPriceField.get()
+  },
+  set priceNaira(value: number) {
+    coinPriceField.set(value)
+  },
+}
+
+/** The signed-in account's call-credit coin balance, spent while on a call. */
+const callCreditsField = persistedField<number>('flingra:call-credits', 0)
+export const callCreditStore = {
+  get coins() {
+    return callCreditsField.get()
+  },
+  set coins(value: number) {
+    callCreditsField.set(value)
   },
 }

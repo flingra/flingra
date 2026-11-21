@@ -34,9 +34,11 @@ import { GiftShopPage } from '@/features/wallet/pages/gift-shop-page'
 import { RedeemGiftsPage } from '@/features/wallet/pages/redeem-gifts-page'
 import { ReferralsPage } from '@/features/wallet/pages/referrals-page'
 import { PayoutPage } from '@/features/wallet/pages/payout-page'
+import { CreditStorePage } from '@/features/wallet/pages/credit-store-page'
 import { AdminRoute } from '@/features/admin/admin-route'
 import { AdminLayout } from '@/features/admin/admin-layout'
 import { AdminAccountsPage, AdminAuditPage, AdminLoginPage, AdminReviewsPage } from '@/features/admin/admin-pages'
+import { AdminCoinPricingPage } from '@/features/admin/pages/admin-coin-pricing-page'
 
 export function AppRouter() {
   return (
@@ -218,6 +220,14 @@ export function AppRouter() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="credits/shop"
+          element={
+            <ProtectedRoute allow={['active']}>
+              <CreditStorePage />
+            </ProtectedRoute>
+          }
+        />
 
         <Route path="*" element={<NotFound />} />
       </Route>
@@ -249,6 +259,7 @@ export function AppRouter() {
           <Route path="admin" element={<AdminReviewsPage />} />
           <Route path="admin/admins" element={<AdminAccountsPage />} />
           <Route path="admin/audit" element={<AdminAuditPage />} />
+          <Route path="admin/coin-pricing" element={<AdminCoinPricingPage />} />
         </Route>
       </Route>
     </Routes>

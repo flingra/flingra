@@ -142,6 +142,12 @@ export interface OwnedGift {
   quantity: number
 }
 
+/** A purchasable bundle of call-credit coins. `priceNaira` is always `coins * coinPriceNaira`, computed live off the admin-set price — never stored stale. */
+export interface CoinPackage {
+  coins: number
+  priceNaira: number
+}
+
 export interface ReceivedGift {
   id: string
   giftTypeId: string
@@ -165,6 +171,8 @@ export type WalletTransactionType =
   | 'meetup-payment-refunded'
   | 'video-unlock'
   | 'vip-subscription'
+  | 'coin-purchase'
+  | 'call-credit-spend'
 
 export interface WalletTransaction {
   id: string
