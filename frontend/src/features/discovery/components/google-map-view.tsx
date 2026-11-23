@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useLayoutEffect, useRef } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import * as L from 'leaflet'
-import { APIProvider, Map, Marker } from '@vis.gl/react-google-maps'
+import { APIProvider, AdvancedMarker, Map, useAdvancedMarkerRef } from '@vis.gl/react-google-maps'
+import { cn } from '@/lib/utils'
 import type { MemberProfile } from '@/lib/api/types'
 
 // Flingra is Nigeria-first; Lekki, Lagos is a reasonable default map centre for the mock feed.
@@ -31,6 +32,16 @@ function fnv1a(str: string) {
 }
 
 function geoPosition(profile: MemberProfile, center: { lat: number; lng: number } = LAGOS_CENTER) {
+  if (
+    profile.latitude != null &&
+    profile.longitude != null &&
+    Number.isFinite(profile.latitude) &&
+    Number.isFinite(profile.longitude) &&
+    Math.abs(profile.latitude) <= 90 &&
+    Math.abs(profile.longitude) <= 180
+  ) {
+    return { lat: profile.latitude, lng: profile.longitude }
+  }
   const base = center
   const hash = fnv1a(profile.id)
   const latOffset = (((hash >>> 16) % 1000) / 1000 - 0.5) * PROFILE_MARKER_SPREAD
@@ -44,6 +55,7 @@ export function OpenStreetMapView({
   useMyLocation = false,
   center,
   zoom = DISCOVERY_MAP_ZOOM,
+  userLocation,
   onLocationSelect,
   locationLabel,
 }: {
@@ -52,6 +64,7 @@ export function OpenStreetMapView({
   useMyLocation?: boolean
   center?: [number, number]
   zoom?: number
+  userLocation?: { latitude: number; longitude: number }
   onLocationSelect?: (latitude: number, longitude: number) => void
   locationLabel?: string
 }) {
@@ -62,7 +75,9 @@ export function OpenStreetMapView({
     if (!mapContainerRef.current) return
 
     const map = L.map(mapContainerRef.current, {
-      center: center ?? [LAGOS_CENTER.lat, LAGOS_CENTER.lng],
+      center: userLocation
+        ? [userLocation.latitude, userLocation.longitude]
+        : center ?? [LAGOS_CENTER.lat, LAGOS_CENTER.lng],
       zoom,
       zoomControl: false,
       scrollWheelZoom: false,
@@ -127,6 +142,16 @@ export function OpenStreetMapView({
       }
     })
 
+    const userLocationMarker = userLocation
+      ? L.circleMarker([userLocation.latitude, userLocation.longitude], {
+          radius: 8,
+          color: '#ffffff',
+          fillColor: '#4f46e5',
+          fillOpacity: 1,
+          weight: 3,
+        }).addTo(map)
+      : undefined
+
     let locationMarker: L.CircleMarker | undefined
     if (useMyLocation && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -149,10 +174,11 @@ export function OpenStreetMapView({
     window.requestAnimationFrame(() => map.invalidateSize())
 
     return () => {
+      userLocationMarker?.remove()
       locationMarker?.remove()
       map.remove()
     }
-  }, [profiles, highlightedId, useMyLocation, center, zoom, onLocationSelect, locationLabel, navigate])
+  }, [profiles, highlightedId, useMyLocation, center, zoom, userLocation, onLocationSelect, locationLabel, navigate])
 
   return <div ref={mapContainerRef} className="size-full bg-ink-100" aria-label="Discover members map" />
 }
@@ -168,22 +194,69 @@ function GoogleProfileMarker({
   center: { lat: number; lng: number }
   locationLabel?: string
 }) {
-  const navigate = useNavigate()
+  const [markerRef, marker] = useAdvancedMarkerRef()
 
   return (
-    <Marker
-      position={geoPosition(profile, center)}
-      title={`${profile.displayName} — ${locationLabel || profile.area}`}
-      label={{
-        text: profile.displayName,
-        color: '#15120f',
-        fontSize: highlighted ? '13px' : '11px',
-        fontWeight: '600',
-      }}
-      clickable
-      onClick={() => navigate(`/profiles/${profile.id}`)}
-    />
+    <AdvancedMarker ref={markerRef} position={geoPosition(profile, center)}>
+      <>
+        <DetachMarkerBeforeContentRemoval marker={marker} />
+        <Link
+          to={`/profiles/${profile.id}`}
+          aria-label={`View ${profile.displayName}'s profile`}
+          className="relative block -translate-y-1/2 cursor-pointer"
+        >
+          <span
+            className={cn(
+              'absolute left-1/2 top-full -mt-1 h-2.5 -translate-x-1/2 rounded-full blur-[2px]',
+              highlighted ? 'w-10 bg-primary-500/35' : 'w-7 bg-ink-900/20',
+            )}
+          />
+          <div className="flex flex-col items-center">
+            {profile.photos[0] ? (
+              <img
+                src={profile.photos[0]}
+                alt=""
+                className={cn(
+                  'rounded-full border-4 object-cover shadow-float',
+                  highlighted ? 'size-14 border-primary-500' : 'size-12 border-white',
+                )}
+              />
+            ) : (
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'flex items-center justify-center rounded-full border-4 bg-primary-100 font-semibold text-primary-700 shadow-float',
+                  highlighted ? 'size-14 border-primary-500' : 'size-12 border-white',
+                )}
+              >
+                {profile.displayName.slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            <div className="mt-1 max-w-32 rounded-xl border border-white/80 bg-white/95 px-2.5 py-1 text-center shadow-float backdrop-blur-sm">
+              <p className="truncate text-xs font-bold leading-tight text-ink-900">{profile.displayName}</p>
+              <p className="truncate text-[10px] leading-tight text-ink-500">{locationLabel || profile.area}</p>
+            </div>
+          </div>
+        </Link>
+      </>
+    </AdvancedMarker>
   )
+}
+
+function DetachMarkerBeforeContentRemoval({
+  marker,
+}: {
+  marker: ReturnType<typeof useAdvancedMarkerRef>[1]
+}) {
+  useLayoutEffect(() => {
+    if (!marker) return
+
+    return () => {
+      marker.map = null
+    }
+  }, [marker])
+
+  return null
 }
 
 export function GoogleMapView({
@@ -191,11 +264,13 @@ export function GoogleMapView({
   highlightedId,
   center = LAGOS_CENTER,
   locationLabel,
+  userLocation,
 }: {
   profiles: MemberProfile[]
   highlightedId?: string
   center?: { lat: number; lng: number }
   locationLabel?: string
+  userLocation?: { latitude: number; longitude: number } | null
 }) {
   if (!GOOGLE_MAPS_API_KEY) return null
 
@@ -211,6 +286,14 @@ export function GoogleMapView({
         disableDefaultUI
         className="size-full"
       >
+        {userLocation && (
+          <AdvancedMarker position={{ lat: userLocation.latitude, lng: userLocation.longitude }} title="Your location">
+            <span className="relative flex size-5 items-center justify-center" aria-label="Your location">
+              <span className="absolute size-5 animate-ping rounded-full bg-primary-500/30" />
+              <span className="relative size-3 rounded-full border-2 border-white bg-primary-600 shadow-float" />
+            </span>
+          </AdvancedMarker>
+        )}
         {profiles.map((profile) => (
           <GoogleProfileMarker
             key={profile.id}

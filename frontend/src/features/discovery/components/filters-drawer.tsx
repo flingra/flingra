@@ -15,9 +15,10 @@ interface FiltersDrawerProps {
   onClose: () => void
   filters: DiscoveryFilters
   onApply: (filters: DiscoveryFilters) => void
+  distanceEnabled: boolean
 }
 
-export function FiltersDrawer({ open, onClose, filters, onApply }: FiltersDrawerProps) {
+export function FiltersDrawer({ open, onClose, filters, onApply, distanceEnabled }: FiltersDrawerProps) {
   const [draft, setDraft] = useState(filters)
 
   function toggleInterest(interest: string) {
@@ -52,7 +53,15 @@ export function FiltersDrawer({ open, onClose, filters, onApply }: FiltersDrawer
             />
           </Field>
         </div>
-        <Field id="maxDistance" label="Maximum distance" hint="Exact location stays private.">
+        <Field
+          id="maxDistance"
+          label="Maximum distance"
+          hint={
+            distanceEnabled
+              ? 'Approximate distance from your current location. Exact location stays private.'
+              : 'Enable Distance above the map to filter from your current location.'
+          }
+        >
           <Input
             id="maxDistance"
             type="number"

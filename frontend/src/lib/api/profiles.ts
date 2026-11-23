@@ -42,13 +42,49 @@ function matchesFilters(profile: MemberProfile, filters: DiscoveryFilters, viewe
   return true
 }
 
+function distanceBetween(
+  latitude: number,
+  longitude: number,
+  targetLatitude: number,
+  targetLongitude: number,
+) {
+  const radians = (degrees: number) => degrees * (Math.PI / 180)
+  const latitudeDelta = radians(targetLatitude - latitude)
+  const longitudeDelta = radians(targetLongitude - longitude)
+  const originLatitude = radians(latitude)
+  const targetLatitudeRadians = radians(targetLatitude)
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(originLatitude) * Math.cos(targetLatitudeRadians) * Math.sin(longitudeDelta / 2) ** 2
+  return 6371 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+}
+
 export async function getDiscoveryFeed(
   filters: DiscoveryFilters,
   cursor = 0,
+  origin?: { latitude: number; longitude: number },
 ): Promise<PagedResult<MemberProfile>> {
   await delay(null, 650)
   const viewerIsVip = ownProfileStore.profile?.subscriptionTier === 'vip'
-  const eligible = PROFILES.filter((profile) => profile.id !== 'me' && matchesFilters(profile, filters, viewerIsVip))
+  const eligible = PROFILES.flatMap((profile) => {
+    if (profile.id === 'me') return []
+    const latitude = profile.latitude
+    const longitude = profile.longitude
+    const hasCoordinates =
+      origin &&
+      latitude != null &&
+      longitude != null &&
+      Number.isFinite(latitude) &&
+      Number.isFinite(longitude) &&
+      Math.abs(latitude) <= 90 &&
+      Math.abs(longitude) <= 180
+    const distanceKm =
+      hasCoordinates && origin && latitude != null && longitude != null
+        ? distanceBetween(origin.latitude, origin.longitude, latitude, longitude)
+        : profile.distanceKm
+    const candidate = { ...profile, distanceKm }
+    return matchesFilters(candidate, filters, viewerIsVip) ? [candidate] : []
+  })
   const items = eligible.slice(cursor, cursor + PAGE_SIZE)
   const nextCursor = cursor + PAGE_SIZE < eligible.length ? cursor + PAGE_SIZE : null
   return { items, nextCursor }

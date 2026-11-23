@@ -23,7 +23,7 @@ import { EmptyState, ErrorState } from '@/components/ui/state-message'
 import { DEFAULT_FILTERS, getDiscoveryFeed } from '@/lib/api/profiles'
 import type { DiscoveryFilters, MemberProfile } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
-import { searchLocations, type LocationSearchResult } from '@/lib/location'
+import { getCurrentLocation, searchLocations, type CurrentLocation, type LocationSearchResult } from '@/lib/location'
 import { CircleCard } from '../components/circle-card'
 import { FiltersDrawer } from '../components/filters-drawer'
 import { GoogleMapView, OpenStreetMapView, isGoogleMapsConfigured } from '../components/google-map-view'
@@ -46,6 +46,8 @@ export function DiscoverPage() {
   const [filters, setFilters] = useState<DiscoveryFilters>(DEFAULT_FILTERS)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [locationEnabled, setLocationEnabled] = useState(false)
+  const [userLocation, setUserLocation] = useState<CurrentLocation | null>(null)
+  const [locating, setLocating] = useState(false)
   const [activeCategories, setActiveCategories] = useState<string[]>([])
   const [profiles, setProfiles] = useState<MemberProfile[]>([])
   const [cursor, setCursor] = useState(0)
@@ -53,9 +55,19 @@ export function DiscoverPage() {
   const [locationResults, setLocationResults] = useState<LocationSearchResult[]>([])
   const [searchingLocation, setSearchingLocation] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
+  const [distanceError, setDistanceError] = useState<string | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number]>([6.4698, 3.5852])
   const [mapLocationLabel, setMapLocationLabel] = useState('Lekki, Lagos')
   const [locationSearchLocked, setLocationSearchLocked] = useState(false)
+  const effectiveFilters = useMemo(
+    () => (locationEnabled ? filters : { ...filters, maxDistanceKm: 200 }),
+    [filters, locationEnabled],
+  )
+  const activeMapCenter = useMemo<[number, number]>(
+    () => (userLocation ? [userLocation.latitude, userLocation.longitude] : mapCenter),
+    [mapCenter, userLocation],
+  )
+  const activeMapLocationLabel = userLocation ? 'Your location' : mapLocationLabel
 
   useEffect(() => {
     if (locationSearchLocked) return
@@ -96,8 +108,8 @@ export function DiscoverPage() {
   }, [locationSearch, locationSearchLocked])
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ['discover', filters, cursor],
-    queryFn: () => getDiscoveryFeed(filters, cursor),
+    queryKey: ['discover', effectiveFilters, userLocation?.latitude, userLocation?.longitude, cursor],
+    queryFn: () => getDiscoveryFeed(effectiveFilters, cursor, userLocation ?? undefined),
   })
 
   const allItems = useMemo(
@@ -135,6 +147,31 @@ export function DiscoverPage() {
     applyFilters(DEFAULT_FILTERS)
   }
 
+  async function toggleDistanceFilter() {
+    if (locationEnabled) {
+      setLocationEnabled(false)
+      setUserLocation(null)
+      setCursor(0)
+      setProfiles([])
+      setDistanceError(null)
+      return
+    }
+
+    setLocating(true)
+    setDistanceError(null)
+    try {
+      const location = await getCurrentLocation()
+      setUserLocation(location)
+      setLocationEnabled(true)
+      setCursor(0)
+      setProfiles([])
+    } catch (error) {
+      setDistanceError(error instanceof Error ? error.message : 'We could not get your current location.')
+    } finally {
+      setLocating(false)
+    }
+  }
+
   async function handleLocationSearch() {
     if (locationSearch.trim().length < 2) return
     setLocationSearchLocked(true)
@@ -153,6 +190,11 @@ export function DiscoverPage() {
   }
 
   function selectLocation(result: LocationSearchResult) {
+    setLocationEnabled(false)
+    setUserLocation(null)
+    setDistanceError(null)
+    setCursor(0)
+    setProfiles([])
     setLocationSearchLocked(true)
     setSearchingLocation(false)
     setLocationError(null)
@@ -191,13 +233,14 @@ export function DiscoverPage() {
       <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
         <button
           type="button"
-          onClick={() => setLocationEnabled((current) => !current)}
+          onClick={() => void toggleDistanceFilter()}
+          disabled={locating}
           aria-pressed={locationEnabled}
           className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
             locationEnabled ? 'border-ink-900 bg-ink-900 text-white' : 'border-ink-200 bg-white text-ink-700 hover:border-ink-300'
           }`}
         >
-          <MapPin className="size-4" aria-hidden="true" /> Distance
+          <MapPin className="size-4" aria-hidden="true" /> {locating ? 'Locating…' : 'Distance'}
         </button>
         {CATEGORY_CHIPS.map(({ interest, label, icon: Icon }) => (
           <button
@@ -215,6 +258,7 @@ export function DiscoverPage() {
           </button>
         ))}
       </div>
+      {distanceError && <p className="mt-2 text-sm text-danger" role="alert">{distanceError}</p>}
 
       <div className="relative mt-4 h-[70vh] min-h-[520px] w-full overflow-hidden rounded-[28px] border border-white/80 bg-ink-100 shadow-[10px_10px_30px_rgba(21,18,15,0.12),-8px_-8px_24px_rgba(255,255,255,0.95)] ring-1 ring-ink-900/5">
         <div className="absolute left-1/2 top-4 z-[1200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2">
@@ -284,16 +328,17 @@ export function DiscoverPage() {
           <GoogleMapView
             profiles={items}
             highlightedId={items[0]?.id}
-            center={{ lat: mapCenter[0], lng: mapCenter[1] }}
-            locationLabel={mapLocationLabel}
+            center={{ lat: activeMapCenter[0], lng: activeMapCenter[1] }}
+            locationLabel={activeMapLocationLabel}
+            userLocation={userLocation}
           />
         ) : (
           <OpenStreetMapView
             profiles={items}
             highlightedId={items[0]?.id}
-            useMyLocation={locationEnabled}
-            center={mapCenter}
-            locationLabel={mapLocationLabel}
+            center={activeMapCenter}
+            userLocation={userLocation ?? undefined}
+            locationLabel={activeMapLocationLabel}
           />
         )}
 
@@ -337,7 +382,13 @@ export function DiscoverPage() {
         </div>
       )}
 
-      <FiltersDrawer open={filtersOpen} onClose={() => setFiltersOpen(false)} filters={filters} onApply={applyFilters} />
+      <FiltersDrawer
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        filters={filters}
+        onApply={applyFilters}
+        distanceEnabled={locationEnabled}
+      />
     </div>
   )
 }
