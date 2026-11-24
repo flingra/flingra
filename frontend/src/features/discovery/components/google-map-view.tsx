@@ -115,9 +115,10 @@ export function GoogleMapView({
         mapId={GOOGLE_MAPS_MAP_ID}
         center={mapCenter}
         zoom={DISCOVERY_MAP_ZOOM}
-        defaultTilt={45}
-        defaultHeading={20}
-        gestureHandling="auto"
+        defaultTilt={0}
+        defaultHeading={0}
+        gestureHandling="cooperative"
+        mapTypeId="roadmap"
         disableDefaultUI
         className="size-full"
       >

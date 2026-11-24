@@ -28,7 +28,6 @@ import {
   stopLocationSharing,
 } from '@/lib/api/profiles'
 import type { DiscoveryFilters, MemberProfile } from '@/lib/api/types'
-import { useSessionStore } from '@/lib/stores/session-store'
 import { getCurrentLocation, searchLocations, type CurrentLocation, type LocationSearchResult } from '@/lib/location'
 import { CircleCard } from '../components/circle-card'
 import { FiltersDrawer } from '../components/filters-drawer'
@@ -47,9 +46,9 @@ const CATEGORY_CHIPS = [
   { interest: 'Fitness', label: 'Fitness', icon: Dumbbell },
   { interest: 'Nightlife', label: 'Nightlife', icon: PartyPopper },
 ]
+const FALLBACK_MAP_CENTER: [number, number] = [9.076, 7.398]
 
 export function DiscoverPage() {
-  const session = useSessionStore((state) => state.session)
   const queryClient = useQueryClient()
   const [filters, setFilters] = useState<DiscoveryFilters>(DEFAULT_FILTERS)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -65,6 +64,7 @@ export function DiscoverPage() {
   const [locationError, setLocationError] = useState<string | null>(null)
   const [locationDialogOpen, setLocationDialogOpen] = useState(false)
   const [locationRequestMessage, setLocationRequestMessage] = useState<string | null>(null)
+  const [currentLocationMessage, setCurrentLocationMessage] = useState<string | null>(null)
   const [sharingLocation, setSharingLocation] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [shareLocating, setShareLocating] = useState(false)
@@ -72,23 +72,62 @@ export function DiscoverPage() {
   const locationWatchId = useRef<number | null>(null)
   const lastLocationPublishedAt = useRef(0)
   const sharingLocationRef = useRef(false)
-  const [mapCenter, setMapCenter] = useState<[number, number]>([6.4698, 3.5852])
-  const [mapLocationLabel, setMapLocationLabel] = useState('Lekki, Lagos')
+  const initialLocationRequest = useRef<Promise<CurrentLocation> | null>(null)
+  const [mapCenter, setMapCenter] = useState<[number, number] | null>(null)
+  const [mapLocationLabel, setMapLocationLabel] = useState('')
   const [locationSearchLocked, setLocationSearchLocked] = useState(false)
+  const manualMapLocationSelected = useRef(false)
   const effectiveFilters = useMemo(
     () => (locationEnabled ? filters : { ...filters, maxDistanceKm: 200 }),
     [filters, locationEnabled],
   )
-  const activeMapCenter = useMemo<[number, number]>(
-    () => (userLocation ? [userLocation.latitude, userLocation.longitude] : mapCenter),
-    [mapCenter, userLocation],
-  )
-  const activeMapLocationLabel = userLocation ? 'Your location' : mapLocationLabel
   const { data: ownProfile } = useQuery({
     queryKey: ['own-profile'],
     queryFn: getOwnProfile,
     retry: false,
   })
+  const savedMapCenter: [number, number] | null =
+    ownProfile?.latitude != null && ownProfile.longitude != null
+      ? [ownProfile.latitude, ownProfile.longitude]
+      : null
+  const activeMapCenter = useMemo<[number, number]>(
+    () =>
+      userLocation
+        ? [userLocation.latitude, userLocation.longitude]
+        : mapCenter ?? savedMapCenter ?? FALLBACK_MAP_CENTER,
+    [mapCenter, savedMapCenter, userLocation],
+  )
+  const activeMapLocationLabel = userLocation
+    ? 'Your current location'
+    : mapLocationLabel || (savedMapCenter ? ownProfile?.area : '') || 'Choose an area'
+  const discoveryOrigin = userLocation
+    ? { latitude: userLocation.latitude, longitude: userLocation.longitude }
+    : mapCenter
+      ? { latitude: mapCenter[0], longitude: mapCenter[1] }
+      : undefined
+
+  useEffect(() => {
+    let active = true
+    setCurrentLocationMessage('Requesting your current location…')
+    initialLocationRequest.current ??= getCurrentLocation()
+    initialLocationRequest.current
+      .then((location) => {
+        if (!active || manualMapLocationSelected.current) return
+        setUserLocation(location)
+        setCursor(0)
+        setProfiles([])
+        setCurrentLocationMessage(null)
+      })
+      .catch(() => {
+        if (!active || manualMapLocationSelected.current) return
+        setCurrentLocationMessage(
+          'Location is unavailable. Showing your saved area if available; search for a place to choose another area.',
+        )
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
     if (locationSearchLocked) return
@@ -141,7 +180,7 @@ export function DiscoverPage() {
       getDiscoveryFeed(
         effectiveFilters,
         cursor,
-        { latitude: activeMapCenter[0], longitude: activeMapCenter[1] },
+        discoveryOrigin,
         locationEnabled,
       ),
     refetchInterval: cursor === 0 ? 30_000 : false,
@@ -237,7 +276,6 @@ export function DiscoverPage() {
   function resetAll() {
     setActiveCategories([])
     setLocationEnabled(false)
-    setUserLocation(null)
     applyFilters(DEFAULT_FILTERS)
   }
 
@@ -249,7 +287,6 @@ export function DiscoverPage() {
   function toggleDistanceFilter() {
     if (locationEnabled) {
       setLocationEnabled(false)
-      setUserLocation(null)
       setCursor(0)
       setProfiles([])
       return
@@ -264,10 +301,12 @@ export function DiscoverPage() {
     setLocating(true)
     try {
       const location = await getCurrentLocation()
+      manualMapLocationSelected.current = true
       setUserLocation(location)
       setLocationEnabled(true)
       setCursor(0)
       setProfiles([])
+      setCurrentLocationMessage(null)
       setLocationDialogOpen(false)
     } catch {
       setLocationRequestMessage('We couldn’t get a location fix this time. Try again or choose an area on the map.')
@@ -343,6 +382,7 @@ export function DiscoverPage() {
   }
 
   function selectLocation(result: LocationSearchResult) {
+    manualMapLocationSelected.current = true
     setLocationEnabled(false)
     setUserLocation(null)
     setCursor(0)
@@ -354,6 +394,7 @@ export function DiscoverPage() {
     setMapCenter([result.latitude, result.longitude])
     setMapLocationLabel(result.area)
     setLocationSearch(result.area)
+    setCurrentLocationMessage(null)
   }
 
   const googleMapsReady = isGoogleMapsConfigured()
@@ -368,7 +409,7 @@ export function DiscoverPage() {
         >
           <MapPin className="size-4 shrink-0 text-primary-500" aria-hidden="true" />
           <span className="flex-1 truncate font-semibold text-ink-900">
-            {session?.stage === 'active' ? 'Discovering near you' : 'Set your area'}
+            {userLocation ? 'Near your current location' : activeMapLocationLabel}
           </span>
           <ChevronDown className="size-4 shrink-0 text-ink-400" aria-hidden="true" />
         </button>
@@ -427,10 +468,13 @@ export function DiscoverPage() {
       {shareLocationMessage && (
         <p className="mt-2 text-sm text-ink-500" role="status">{shareLocationMessage}</p>
       )}
-      <div className="relative mt-3 h-[54dvh] min-h-[360px] max-h-[480px] w-full overflow-hidden rounded-2xl border border-white/80 bg-ink-100 shadow-[10px_10px_30px_rgba(21,18,15,0.12),-8px_-8px_24px_rgba(255,255,255,0.95)] ring-1 ring-ink-900/5 sm:mt-4 sm:h-[70vh] sm:min-h-[520px] sm:max-h-none sm:rounded-[28px]">
+      {currentLocationMessage && (
+        <p className="mt-2 text-xs text-ink-500" role="status">{currentLocationMessage}</p>
+      )}
+      <div className="relative mt-3 h-[54dvh] min-h-[360px] max-h-[480px] w-full overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-sm sm:mt-4 sm:h-[70vh] sm:min-h-[520px] sm:max-h-none">
         <div className="absolute left-1/2 top-3 z-[1200] w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 sm:top-4 sm:w-[calc(100%-2rem)]">
           <form
-            className="flex items-center gap-2 rounded-full border border-ink-100 bg-white p-1.5 pl-3 shadow-float"
+            className="flex items-center gap-2 rounded-full border border-ink-100 bg-white/95 p-1.5 pl-3 shadow-md backdrop-blur"
             onSubmit={(event) => {
               event.preventDefault()
               void handleLocationSearch()
@@ -459,8 +503,10 @@ export function DiscoverPage() {
                   setLocationSearch('')
                   setLocationResults([])
                   setLocationError(null)
-                  setMapCenter([6.4698, 3.5852])
-                  setMapLocationLabel('Lekki, Lagos')
+                  manualMapLocationSelected.current = true
+                  setMapCenter(null)
+                  setMapLocationLabel('')
+                  setCurrentLocationMessage(null)
                 }}
                 className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-400 hover:bg-ink-100"
               >
@@ -505,6 +551,12 @@ export function DiscoverPage() {
               Google Maps is not configured for this environment.
             </p>
           </div>
+        )}
+
+        {googleMapsReady && (
+          <p className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-full border border-ink-100 bg-white/90 px-3 py-1.5 text-xs font-medium text-ink-600 shadow-sm sm:hidden">
+            Use two fingers to move the map
+          </p>
         )}
 
         {isLoading && cursor === 0 && (

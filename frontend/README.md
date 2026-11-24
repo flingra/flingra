@@ -19,12 +19,18 @@ VITE_GOOGLE_MAPS_MAP_ID=your-map-id-here
   Requires a billing account and the Maps JavaScript API enabled on the project.
   Restrict the key to the frontend website origin.
 - `VITE_GOOGLE_MAPS_MAP_ID` (optional): Google Cloud Console → Maps → Map
-  Management → create a map with render type **Vector**. Required for the
-  tilted 45° "3D" buildings view — without it the map still loads with pins,
-  just flat.
+  Management → create a map ID if you want to apply a cloud-based map style.
 
 The onboarding location picker retains its OpenStreetMap fallback. Restart
 `npm run dev` after changing local environment settings.
+On mobile, Discover uses cooperative map gestures: one finger scrolls the page,
+and two fingers pan or zoom the map.
+Discover requests a fresh browser location when opened and uses it to center
+the map and sort nearby profiles. This does not publish or save live location;
+that remains a separate, opt-in action. If access is denied, Discover uses the
+saved profile area when coordinates are available and lets the member search
+for another area. The browser may remember a denied permission, which must be
+changed in its site settings before it will ask again.
 
 ## Google sign-in
 

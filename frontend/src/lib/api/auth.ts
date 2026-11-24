@@ -150,6 +150,28 @@ function googlePromptError(notification: GooglePromptNotification): ApiError {
   return new ApiError('GOOGLE_SIGN_IN_INCOMPLETE', 'Google sign-in did not finish. Try again or use email and password.')
 }
 
+function normalizeGoogleSignInError(
+  error: unknown,
+  stage: 'prompt' | 'api',
+): ApiError {
+  if (error instanceof ApiError) return error
+  if (error instanceof TypeError) {
+    return new ApiError(
+      stage === 'prompt' ? 'GOOGLE_BROWSER_NETWORK_ERROR' : 'GOOGLE_API_NETWORK_ERROR',
+      stage === 'prompt'
+        ? 'The browser could not complete Google sign-in. Check browser privacy settings or try another browser.'
+        : 'Could not reach the Flingra API to finish Google sign-in. Check your connection and try again.',
+    )
+  }
+  if (error instanceof Error) {
+    return new ApiError(
+      'GOOGLE_SIGN_IN_FAILED',
+      `Google sign-in failed (${error.name}): ${error.message || 'unknown error'}`,
+    )
+  }
+  return new ApiError('GOOGLE_SIGN_IN_FAILED', 'Google sign-in failed for an unknown reason.')
+}
+
 let googleScriptPromise: Promise<void> | null = null
 
 function loadGoogleIdentityServices(): Promise<void> {
@@ -310,12 +332,23 @@ export async function completeOnboarding(): Promise<Session> {
 }
 
 export async function continueWithGoogle(input: GoogleAuthInput = {}): Promise<Session> {
-  const google = await getGoogleCredential()
-  const session = await apiRequest<Session>('/auth/oauth/google', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...input, ...google }),
-  })
+  let google: { credential: string; nonce: string }
+  try {
+    google = await getGoogleCredential()
+  } catch (error) {
+    throw normalizeGoogleSignInError(error, 'prompt')
+  }
+
+  let session: Session
+  try {
+    session = await apiRequest<Session>('/auth/oauth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...input, ...google }),
+    })
+  } catch (error) {
+    throw normalizeGoogleSignInError(error, 'api')
+  }
   setCachedSession(session)
   return session
 }
