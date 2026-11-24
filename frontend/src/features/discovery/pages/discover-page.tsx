@@ -359,12 +359,12 @@ export function DiscoverPage() {
   const googleMapsReady = isGoogleMapsConfigured()
 
   return (
-    <div className="mx-auto max-w-5xl overflow-x-hidden px-4 pb-10 pt-4 sm:px-6">
+    <div className="mx-auto max-w-5xl overflow-x-hidden px-3 pb-8 pt-3 sm:px-6 sm:pb-10 sm:pt-4">
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={() => setFiltersOpen(true)}
-          className="flex flex-1 cursor-pointer items-center gap-2 rounded-full bg-white px-4 py-3 text-left shadow-soft transition-shadow hover:shadow-float"
+          className="flex flex-1 cursor-pointer items-center gap-2 rounded-full bg-white px-3 py-2.5 text-left shadow-soft transition-shadow hover:shadow-float sm:px-4 sm:py-3"
         >
           <MapPin className="size-4 shrink-0 text-primary-500" aria-hidden="true" />
           <span className="flex-1 truncate font-semibold text-ink-900">
@@ -376,19 +376,19 @@ export function DiscoverPage() {
           type="button"
           onClick={() => setFiltersOpen(true)}
           aria-label="Open filters"
-          className="cursor-pointer rounded-full bg-white p-3.5 text-ink-700 shadow-soft transition-shadow hover:shadow-float"
+          className="cursor-pointer rounded-full bg-white p-3 text-ink-700 shadow-soft transition-shadow hover:shadow-float sm:p-3.5"
         >
           <MenuIcon className="size-4" aria-hidden="true" />
         </button>
       </div>
 
-      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1 sm:mt-4">
         <button
           type="button"
           onClick={() => void toggleDistanceFilter()}
           disabled={locating}
           aria-pressed={locationEnabled}
-          className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+          className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors sm:px-4 sm:py-2 sm:text-sm ${
             locationEnabled ? 'border-ink-900 bg-ink-900 text-white' : 'border-ink-200 bg-white text-ink-700 hover:border-ink-300'
           }`}
         >
@@ -399,7 +399,7 @@ export function DiscoverPage() {
           onClick={toggleLocationSharing}
           disabled={shareLocating}
           aria-pressed={sharingLocation}
-          className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+          className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors sm:px-4 sm:py-2 sm:text-sm ${
             sharingLocation
               ? 'border-primary-600 bg-primary-600 text-white'
               : 'border-ink-200 bg-white text-ink-700 hover:border-ink-300'
@@ -414,7 +414,7 @@ export function DiscoverPage() {
             type="button"
             onClick={() => toggleCategory(interest)}
             aria-pressed={activeCategories.includes(interest)}
-            className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors sm:px-4 sm:py-2 sm:text-sm ${
               activeCategories.includes(interest)
                 ? 'border-ink-900 bg-ink-900 text-white'
                 : 'border-ink-200 bg-white text-ink-700 hover:border-ink-300'
@@ -427,8 +427,8 @@ export function DiscoverPage() {
       {shareLocationMessage && (
         <p className="mt-2 text-sm text-ink-500" role="status">{shareLocationMessage}</p>
       )}
-      <div className="relative mt-4 h-[70vh] min-h-[520px] w-full overflow-hidden rounded-[28px] border border-white/80 bg-ink-100 shadow-[10px_10px_30px_rgba(21,18,15,0.12),-8px_-8px_24px_rgba(255,255,255,0.95)] ring-1 ring-ink-900/5">
-        <div className="absolute left-1/2 top-4 z-[1200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2">
+      <div className="relative mt-3 h-[54dvh] min-h-[360px] max-h-[480px] w-full overflow-hidden rounded-2xl border border-white/80 bg-ink-100 shadow-[10px_10px_30px_rgba(21,18,15,0.12),-8px_-8px_24px_rgba(255,255,255,0.95)] ring-1 ring-ink-900/5 sm:mt-4 sm:h-[70vh] sm:min-h-[520px] sm:max-h-none sm:rounded-[28px]">
+        <div className="absolute left-1/2 top-3 z-[1200] w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 sm:top-4 sm:w-[calc(100%-2rem)]">
           <form
             className="flex items-center gap-2 rounded-full border border-ink-100 bg-white p-1.5 pl-3 shadow-float"
             onSubmit={(event) => {
