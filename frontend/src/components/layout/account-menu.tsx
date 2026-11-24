@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { ChevronDown, LifeBuoy, LogOut, Settings, User } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
-import { signOut } from '@/lib/api/auth'
-import { useSessionStore } from '@/lib/stores/session-store'
+import { useSignOut } from '@/lib/hooks/use-sign-out'
 
 export function AccountMenu({ name, photo }: { name: string; photo?: string }) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  const navigate = useNavigate()
-  const setSession = useSessionStore((state) => state.setSession)
+  const { isSigningOut, signOutAndRedirect } = useSignOut()
 
   useEffect(() => {
     if (!open) return
@@ -28,10 +26,7 @@ export function AccountMenu({ name, photo }: { name: string; photo?: string }) {
   }, [open])
 
   async function handleSignOut() {
-    await signOut()
-    setSession(null)
-    setOpen(false)
-    navigate('/login')
+    if (await signOutAndRedirect()) setOpen(false)
   }
 
   return (
@@ -80,10 +75,13 @@ export function AccountMenu({ name, photo }: { name: string; photo?: string }) {
           <button
             type="button"
             role="menuitem"
-            onClick={handleSignOut}
-            className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left text-sm text-danger hover:bg-danger/5"
+            onClick={() => void handleSignOut()}
+            disabled={isSigningOut}
+            aria-busy={isSigningOut}
+            className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left text-sm text-danger hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <LogOut className="size-4" aria-hidden="true" /> Sign out
+            <LogOut className="size-4" aria-hidden="true" />
+            {isSigningOut ? 'Signing out...' : 'Sign out'}
           </button>
         </div>
       )}

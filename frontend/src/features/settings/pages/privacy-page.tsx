@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Download, Eye } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -10,16 +9,14 @@ import { Dialog } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { PageSpinner } from '@/components/ui/spinner'
 import { useToast } from '@/components/ui/toast'
+import { useSignOut } from '@/lib/hooks/use-sign-out'
 import { getOwnProfile, saveOwnProfile } from '@/lib/api/profiles'
 import { requestAccountDeletion, requestDataExport } from '@/lib/api/settings'
-import { signOut } from '@/lib/api/auth'
-import { useSessionStore } from '@/lib/stores/session-store'
 import type { AudiencePreference } from '@/lib/api/types'
 
 export function PrivacyPage() {
   const { showToast } = useToast()
-  const navigate = useNavigate()
-  const setSession = useSessionStore((state) => state.setSession)
+  const { signOutAndRedirect } = useSignOut()
   const { data, isLoading } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile })
 
   const [wantsToDiscover, setWantsToDiscover] = useState<AudiencePreference>('everyone')
@@ -56,9 +53,7 @@ export function PrivacyPage() {
     setDeleting(true)
     try {
       await requestAccountDeletion()
-      await signOut()
-      setSession(null)
-      navigate('/')
+      await signOutAndRedirect('/')
       showToast({ title: 'Account deletion requested', variant: 'info' })
     } finally {
       setDeleting(false)

@@ -1,9 +1,9 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, Crown, LogOut, Lock, Shield, User, Wallet, BadgeCheck } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { signOut } from '@/lib/api/auth'
+import { useSignOut } from '@/lib/hooks/use-sign-out'
 import { getOwnProfile } from '@/lib/api/profiles'
 import { useSessionStore } from '@/lib/stores/session-store'
 
@@ -16,16 +16,9 @@ const ROWS = [
 ]
 
 export function SettingsPage() {
-  const navigate = useNavigate()
   const session = useSessionStore((state) => state.session)
-  const setSession = useSessionStore((state) => state.setSession)
+  const { isSigningOut, signOutAndRedirect } = useSignOut()
   const { data: profile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
-
-  async function handleSignOut() {
-    await signOut()
-    setSession(null)
-    navigate('/login')
-  }
 
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
@@ -65,8 +58,13 @@ export function SettingsPage() {
         ))}
       </div>
 
-      <Button variant="outline" className="mt-6 w-full text-danger" onClick={handleSignOut}>
-        <LogOut className="size-4" aria-hidden="true" /> Sign out
+      <Button
+        variant="outline"
+        className="mt-6 w-full text-danger"
+        onClick={() => void signOutAndRedirect()}
+        loading={isSigningOut}
+      >
+        <LogOut className="size-4" aria-hidden="true" /> {isSigningOut ? 'Signing out...' : 'Sign out'}
       </Button>
     </div>
   )
