@@ -120,7 +120,7 @@ export function OnboardingPage() {
       } catch {
         if (!cancelled) {
           setLocationResults([])
-          setLocationError('Location search is temporarily unavailable. Choose an area on the map or enter it below.')
+          setLocationError('Location search is temporarily unavailable. Enter an area manually.')
         }
       } finally {
         if (!cancelled) setSearchingLocation(false)
@@ -250,7 +250,7 @@ export function OnboardingPage() {
     try {
       setLocationResults(await searchLocations(locationSearch))
     } catch {
-      setLocationError('Location search is temporarily unavailable. Choose an area on the map or enter it below.')
+      setLocationError('Location search is temporarily unavailable. Enter an area manually.')
       setLocationResults([])
     } finally {
       setSearchingLocation(false)
@@ -271,31 +271,6 @@ export function OnboardingPage() {
       longitude: result.longitude,
     }))
     setLocationAccuracyMeters(null)
-  }
-
-  async function handleMapLocation(latitude: number, longitude: number) {
-    setLocationSearchLocked(true)
-    setLocationResults([])
-    setSearchingLocation(false)
-    setDraft((current) => ({
-      ...current,
-      useBrowserLocation: false,
-      latitude,
-      longitude,
-    }))
-    setLocationAccuracyMeters(null)
-    try {
-      const area = await getApproximateArea({ latitude, longitude, accuracyMeters: 0 })
-      if (area) {
-        setLocationSearch(area)
-        setDraft((current) => ({ ...current, area }))
-        setLocationError(null)
-      } else {
-        setLocationError('Check the area or city name below and adjust it if needed.')
-      }
-    } catch {
-      setLocationError('Check the area or city name below and adjust it if needed.')
-    }
   }
 
   function handleAreaChange(area: string) {
@@ -547,14 +522,13 @@ export function OnboardingPage() {
           {locationError && <p className="text-sm text-ink-500" role="status">{locationError}</p>}
 
           <div>
-            <p className="mb-2 text-xs font-medium text-ink-500">Or tap the map to choose an approximate area</p>
+            <p className="mb-2 text-xs font-medium text-ink-500">Read-only map preview of the selected area</p>
             <div className="h-52 overflow-hidden rounded-2xl border border-ink-100">
               <OpenStreetMapView
                 center={draft.latitude !== null && draft.longitude !== null
                   ? [draft.latitude, draft.longitude]
                   : [6.4698, 3.5852]}
                 zoom={draft.latitude !== null && draft.longitude !== null ? 13 : 11}
-                onLocationSelect={handleMapLocation}
               />
             </div>
           </div>

@@ -1,5 +1,4 @@
 import { useLayoutEffect } from 'react'
-import { Link } from 'react-router-dom'
 import { APIProvider, AdvancedMarker, Map, useAdvancedMarkerRef } from '@vis.gl/react-google-maps'
 import { cn } from '@/lib/utils'
 import type { MemberProfile } from '@/lib/api/types'
@@ -30,14 +29,10 @@ function GoogleProfileMarker({
   const [markerRef, marker] = useAdvancedMarkerRef()
 
   return (
-    <AdvancedMarker ref={markerRef} position={geoPosition(profile, center)}>
+    <AdvancedMarker ref={markerRef} position={geoPosition(profile, center)} clickable={false}>
       <>
         <DetachMarkerBeforeContentRemoval marker={marker} />
-        <Link
-          to={`/profiles/${profile.id}`}
-          aria-label={`View ${profile.displayName}'s profile`}
-          className="relative block -translate-y-1/2 cursor-pointer"
-        >
+        <div aria-hidden="true" className="relative block -translate-y-1/2 select-none">
           <span
             className={cn(
               'absolute left-1/2 top-full -mt-1 h-2.5 -translate-x-1/2 rounded-full blur-[2px]',
@@ -70,7 +65,7 @@ function GoogleProfileMarker({
               <p className="truncate text-[10px] leading-tight text-ink-500">{locationLabel || profile.area}</p>
             </div>
           </div>
-        </Link>
+        </div>
       </>
     </AdvancedMarker>
   )
@@ -111,35 +106,41 @@ export function GoogleMapView({
 
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
-      <Map
-        mapId={GOOGLE_MAPS_MAP_ID}
-        center={mapCenter}
-        zoom={DISCOVERY_MAP_ZOOM}
-        defaultTilt={0}
-        defaultHeading={0}
-        gestureHandling="cooperative"
-        mapTypeId="roadmap"
-        disableDefaultUI
-        className="size-full"
-      >
-        {userLocation && (
-          <AdvancedMarker position={{ lat: userLocation.latitude, lng: userLocation.longitude }} title="Your location">
-            <span className="relative flex size-5 items-center justify-center" aria-label="Your location">
-              <span className="absolute size-5 animate-ping rounded-full bg-primary-500/30" />
-              <span className="relative size-3 rounded-full border-2 border-white bg-primary-600 shadow-float" />
-            </span>
-          </AdvancedMarker>
-        )}
-        {profiles.map((profile) => (
-          <GoogleProfileMarker
-            key={profile.id}
-            profile={profile}
-            highlighted={profile.id === highlightedId}
-            center={mapCenter}
-            locationLabel={locationLabel}
-          />
-        ))}
-      </Map>
+      <div className="size-full" role="img" aria-label="Read-only map showing approximate member locations">
+        <Map
+          mapId={GOOGLE_MAPS_MAP_ID}
+          center={mapCenter}
+          zoom={DISCOVERY_MAP_ZOOM}
+          defaultTilt={0}
+          defaultHeading={0}
+          gestureHandling="none"
+          draggable={false}
+          keyboardShortcuts={false}
+          disableDoubleClickZoom
+          scrollwheel={false}
+          mapTypeId="roadmap"
+          disableDefaultUI
+          className="size-full"
+        >
+          {userLocation && (
+            <AdvancedMarker position={{ lat: userLocation.latitude, lng: userLocation.longitude }} title="Your location">
+              <span className="relative flex size-5 items-center justify-center" aria-hidden="true">
+                <span className="absolute size-5 animate-ping rounded-full bg-primary-500/30" />
+                <span className="relative size-3 rounded-full border-2 border-white bg-primary-600 shadow-float" />
+              </span>
+            </AdvancedMarker>
+          )}
+          {profiles.map((profile) => (
+            <GoogleProfileMarker
+              key={profile.id}
+              profile={profile}
+              highlighted={profile.id === highlightedId}
+              center={mapCenter}
+              locationLabel={locationLabel}
+            />
+          ))}
+        </Map>
+      </div>
     </APIProvider>
   )
 }

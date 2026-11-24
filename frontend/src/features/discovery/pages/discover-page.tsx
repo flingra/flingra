@@ -154,7 +154,7 @@ export function DiscoverPage() {
       } catch {
         if (!cancelled) {
           setLocationResults([])
-          setLocationError('Location search is temporarily unavailable. Choose an area on the map instead.')
+          setLocationError('Location search is temporarily unavailable. Select a suggestion or enter an area manually.')
         }
       } finally {
         if (!cancelled) setSearchingLocation(false)
@@ -309,7 +309,7 @@ export function DiscoverPage() {
       setCurrentLocationMessage(null)
       setLocationDialogOpen(false)
     } catch {
-      setLocationRequestMessage('We couldn’t get a location fix this time. Try again or choose an area on the map.')
+      setLocationRequestMessage('We couldn’t get a location fix this time. Try again or search for an area.')
     } finally {
       setLocating(false)
     }
@@ -375,7 +375,7 @@ export function DiscoverPage() {
       if (results.length === 0) setLocationError('No locations found nearby.')
     } catch {
       setLocationResults([])
-      setLocationError('Location search is temporarily unavailable. Choose an area on the map instead.')
+      setLocationError('Location search is temporarily unavailable. Select a suggestion or enter an area manually.')
     } finally {
       setSearchingLocation(false)
     }
@@ -554,8 +554,8 @@ export function DiscoverPage() {
         )}
 
         {googleMapsReady && (
-          <p className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-full border border-ink-100 bg-white/90 px-3 py-1.5 text-xs font-medium text-ink-600 shadow-sm sm:hidden">
-            Use two fingers to move the map
+          <p className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-full border border-ink-100 bg-white/90 px-3 py-1.5 text-xs font-medium text-ink-600 shadow-sm">
+            Read-only map · Search or filter to update
           </p>
         )}
 
