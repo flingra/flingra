@@ -180,6 +180,7 @@ class DiscoveryProfileResponse(BaseModel):
     identity: Literal["man", "woman", "private"]
     show_identity: bool = Field(serialization_alias="showIdentity")
     subscription_tier: Literal["free", "vip"] = Field(serialization_alias="subscriptionTier")
+    is_demo: bool = Field(default=False, serialization_alias="isDemo")
 
 
 class LiveLocationUpdate(BaseModel):

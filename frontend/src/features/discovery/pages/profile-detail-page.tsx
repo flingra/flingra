@@ -198,8 +198,18 @@ export function ProfileDetailPage() {
             </div>
           )}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/50 to-transparent" />
-          <span className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-xs font-semibold text-ink-900 shadow-soft">
-            <ShieldCheck className="size-3.5 text-success" aria-hidden="true" /> Verified profile
+          <span
+            className={`absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold shadow-soft ${
+              profile.isDemo ? 'bg-amber-100 text-amber-900' : 'bg-white/95 text-ink-900'
+            }`}
+          >
+            {profile.isDemo ? (
+              'Demo profile · test verification'
+            ) : (
+              <>
+                <ShieldCheck className="size-3.5 text-success" aria-hidden="true" /> Verified profile
+              </>
+            )}
           </span>
           <div className="absolute bottom-4 left-4 right-4 text-white">
             <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold drop-shadow-sm">

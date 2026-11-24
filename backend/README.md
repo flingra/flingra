@@ -41,6 +41,8 @@ Optional settings include:
 - `FLINGRA_SESSION_TTL_HOURS` — session lifetime.
 - `FLINGRA_RATE_LIMIT_REDIS_URL` — Redis URL used by shared auth-abuse limits.
 - `FLINGRA_RATE_LIMITING_ENABLED` — leave enabled outside isolated tests.
+- `FLINGRA_DEMO_PROFILES_ENABLED` — default `false`; enable only on a private
+  environment to make explicitly tagged synthetic Discover profiles visible.
 - `FLINGRA_MAX_REQUEST_BYTES` — maximum API request body (defaults to 1 MiB).
 - `FLINGRA_GOOGLE_CLIENT_ID` — Google OAuth Web client ID used to verify
   Google Identity Services ID tokens. Add the same client ID to the authorized
@@ -141,6 +143,28 @@ required for every account; a document upload sets its status to `pending`.
 Use the `IdentityVerifiedAccount` dependency for messaging, livestream, and
 payment endpoints so only approved accounts can use those features. Those
 feature APIs are not implemented yet; the frontend currently simulates them.
+
+## Synthetic Discover cohort
+
+The optional seed command creates 50 clearly named synthetic profiles across
+all 36 states and the FCT. They use reserved `example.test` emails, test-only
+email/document verification states, and no real identity documents. The command
+is dry-run by default and does not connect to a database unless both `--apply`
+and `--confirm-private-database` are passed:
+
+```sh
+python -m app.seed_demo_discovery
+FLINGRA_DEMO_PROFILES_ENABLED=true python -m app.seed_demo_discovery \
+  --apply --confirm-private-database
+```
+
+Apply migrations before seeding. To display the cohort, set
+`FLINGRA_DEMO_PROFILES_ENABLED=true` on the private API environment as well.
+The default is off, so demo profiles are hidden from Discover and profile
+details when the flag is disabled. Demo profiles have no photos or videos yet
+and use the app's initials fallback; add only media with appropriate usage
+rights and model releases. Do not enable this flag on an environment serving
+real users.
 
 Admin accounts are separate from user accounts and cannot self-register. After
 applying migrations, provision staff accounts from the backend environment

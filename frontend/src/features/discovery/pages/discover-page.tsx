@@ -180,14 +180,18 @@ export function DiscoverPage() {
             setShareLocationMessage('Location updates are paused. Check your connection or turn sharing off.')
           })
       },
-      () => {
+      (error) => {
+        if (error.code !== error.PERMISSION_DENIED) {
+          setShareLocationMessage('Waiting for a fresh location update. Sharing expires automatically if updates stop.')
+          return
+        }
         if (locationWatchId.current !== null) {
           navigator.geolocation.clearWatch(locationWatchId.current)
           locationWatchId.current = null
         }
         sharingLocationRef.current = false
         setSharingLocation(false)
-        setShareLocationMessage('Live sharing paused. Turn it on again to resume location updates.')
+        setShareLocationMessage('Location permission was removed. Turn sharing on again to resume updates.')
         void stopLocationSharing().catch(() => {
           setShareLocationMessage('Sharing will expire automatically if location updates stop.')
         })

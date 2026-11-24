@@ -59,7 +59,7 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 two_factor_method TEXT, onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE,
                 document_verification TEXT, document_type TEXT, vip_expires_at DATETIME,
                 latitude REAL, longitude REAL, live_latitude REAL, live_longitude REAL,
-                location_shared_at DATETIME,
+                location_shared_at DATETIME, demo_cohort_id TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )

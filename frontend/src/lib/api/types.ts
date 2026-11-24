@@ -34,6 +34,7 @@ export interface MemberProfile {
   identity: 'man' | 'woman' | 'private'
   showIdentity: boolean
   subscriptionTier: SubscriptionTier
+  isDemo?: boolean
 }
 
 export interface VipPlan {

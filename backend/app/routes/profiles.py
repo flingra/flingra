@@ -9,9 +9,10 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from app.audit import record_audit_event
+from app.config import Settings
 from app.dependencies import db_session
 from app.errors import ApiException
-from app.routes.auth import CurrentAccount, IdentityVerifiedAccount, require_csrf
+from app.routes.auth import CurrentAccount, IdentityVerifiedAccount, get_app_settings, require_csrf
 from app.schemas import (
     AudiencePreference,
     DiscoveryFeedResponse,
@@ -33,6 +34,7 @@ def _visible_profile_rows(
     db: Session,
     viewer_id: str,
     viewer_identity: str,
+    include_demo_profiles: bool,
     profile_id: str | None = None,
 ) -> list[dict[str, Any]]:
     viewer_audience = {"man": "men", "woman": "women"}.get(viewer_identity)
@@ -40,6 +42,7 @@ def _visible_profile_rows(
     parameters: dict[str, Any] = {
         "viewer_id": viewer_id,
         "viewer_audience": viewer_audience,
+        "include_demo_profiles": include_demo_profiles,
     }
     if profile_id is not None:
         parameters["profile_id"] = profile_id
@@ -52,7 +55,7 @@ def _visible_profile_rows(
                        p.latitude, p.longitude, p.live_latitude, p.live_longitude,
                        p.location_shared_at, p.interests, p.discoverable_by,
                        p.wants_to_discover, p.identity, p.show_identity,
-                       p.subscription_tier, p.created_at
+                       p.subscription_tier, p.created_at, p.demo_cohort_id
                 FROM profiles p
                 JOIN accounts a ON a.id = p.account_id
                 WHERE a.id != :viewer_id
@@ -60,6 +63,7 @@ def _visible_profile_rows(
                   AND p.onboarding_complete = TRUE
                   AND p.moderation_status = 'approved'
                   AND p.document_verification = 'verified'
+                  AND (:include_demo_profiles = TRUE OR p.demo_cohort_id IS NULL)
                   AND (
                       p.discoverable_by = 'everyone'
                       OR (:viewer_audience IS NOT NULL AND p.discoverable_by = :viewer_audience)
@@ -161,6 +165,7 @@ def _member_profile(
         identity=row["identity"],
         show_identity=bool(row["show_identity"]),
         subscription_tier=row["subscription_tier"],
+        is_demo=row["demo_cohort_id"] is not None,
     )
 
 
@@ -419,6 +424,7 @@ def get_discovery_feed(
     request: Request,
     account: IdentityVerifiedAccount,
     db: Annotated[Session, Depends(db_session)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
     min_age: int = Query(default=20, alias="minAge", ge=18, le=99),
     max_age: int = Query(default=45, alias="maxAge", ge=18, le=99),
     max_distance_km: float | None = Query(default=None, alias="maxDistanceKm", gt=0, le=200),
@@ -454,6 +460,7 @@ def get_discovery_feed(
         db,
         account.account_id,
         viewer["identity"],
+        settings.demo_profiles_enabled,
     )
     target_identity = {"men": "man", "women": "woman"}.get(looking_for)
     requested_interests = set(interests)
@@ -522,6 +529,7 @@ def get_discoverable_profile(
     request: Request,
     account: IdentityVerifiedAccount,
     db: Annotated[Session, Depends(db_session)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
 ) -> DiscoveryProfileResponse:
     _require_discovery_ready(account)
     viewer = _viewer_profile(db, account.account_id)
@@ -529,6 +537,7 @@ def get_discoverable_profile(
         db,
         account.account_id,
         viewer["identity"],
+        settings.demo_profiles_enabled,
         profile_id,
     )
     if not visible_rows:

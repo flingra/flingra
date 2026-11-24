@@ -62,6 +62,7 @@ def _create_candidate(
     wants_to_discover="men",
     latitude=6.51,
     longitude=3.4,
+    demo_cohort_id=None,
 ):
     account_id = uuid.uuid4().hex
     db, generator = _session(client)
@@ -93,13 +94,14 @@ def _create_candidate(
                     account_id, display_name, bio, photos, videos, age_range, area,
                     interests, discoverable_by, wants_to_discover, identity, show_identity,
                     subscription_tier, moderation_status, onboarding_complete,
-                    document_verification, latitude, longitude
+                    document_verification, latitude, longitude, demo_cohort_id
                 )
                 VALUES (
                     :account_id, 'Candidate', 'A test profile', '["/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]',
                     '[{"url":"https://media.example.test/demo.mp4"}]', '30–35', 'Yaba, Lagos',
                     '["Tech"]', :discoverable_by, :wants_to_discover, :identity, TRUE,
-                    'free', :moderation_status, TRUE, :document_status, :latitude, :longitude
+                    'free', :moderation_status, TRUE, :document_status, :latitude, :longitude,
+                    :demo_cohort_id
                 )
                 """
             ),
@@ -112,6 +114,7 @@ def _create_candidate(
                 "document_status": document_status,
                 "latitude": latitude,
                 "longitude": longitude,
+                "demo_cohort_id": demo_cohort_id,
             },
         )
         db.commit()
@@ -191,6 +194,26 @@ def test_profile_detail_only_returns_discoverable_verified_profiles(api_client, 
     assert hidden.json()["error"]["code"] == "PROFILE_NOT_FOUND"
 
 
+def test_demo_profiles_require_flag_and_are_marked(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    _create_viewer(client, monkeypatch)
+    demo_id = _create_candidate(client, demo_cohort_id="discover-test")
+
+    hidden = client.get("/discovery", params={"lookingFor": "women"})
+    assert hidden.status_code == 200
+    assert demo_id not in {profile["id"] for profile in hidden.json()["items"]}
+
+    client.app.state.settings.demo_profiles_enabled = True
+    visible = client.get("/discovery", params={"lookingFor": "women"})
+    assert visible.status_code == 200
+    demo = next(profile for profile in visible.json()["items"] if profile["id"] == demo_id)
+    assert demo["isDemo"] is True
+    assert client.get(f"/profiles/{demo_id}").json()["isDemo"] is True
+
+    client.app.state.settings.demo_profiles_enabled = False
+    assert client.get(f"/profiles/{demo_id}").status_code == 404
+
+
 def test_current_location_sharing_can_be_enabled_and_stopped(api_client, monkeypatch) -> None:
     client, _ = api_client
     _create_viewer(client, monkeypatch)
@@ -233,7 +256,7 @@ def test_current_location_sharing_can_be_enabled_and_stopped(api_client, monkeyp
 def test_discovery_uses_recent_live_coordinates_and_returns_coarse_location(api_client, monkeypatch) -> None:
     client, _ = api_client
     _create_viewer(client, monkeypatch)
-    candidate_id = _create_candidate(latitude=7.0, longitude=3.4)
+    candidate_id = _create_candidate(client, latitude=7.0, longitude=3.4)
     db, generator = _session(client)
     try:
         db.execute(
