@@ -11,7 +11,7 @@ import {
 } from './types'
 
 export const DEFAULT_FILTERS: DiscoveryFilters = {
-  minAge: 20,
+  minAge: 21,
   maxAge: 45,
   maxDistanceKm: 25,
   interests: [],

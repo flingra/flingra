@@ -1,4 +1,5 @@
 import { useLayoutEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { APIProvider, AdvancedMarker, Map, useAdvancedMarkerRef } from '@vis.gl/react-google-maps'
 import { cn } from '@/lib/utils'
 import type { MemberProfile } from '@/lib/api/types'
@@ -29,10 +30,14 @@ function GoogleProfileMarker({
   const [markerRef, marker] = useAdvancedMarkerRef()
 
   return (
-    <AdvancedMarker ref={markerRef} position={geoPosition(profile, center)} clickable={false}>
+    <AdvancedMarker ref={markerRef} position={geoPosition(profile, center)} clickable>
       <>
         <DetachMarkerBeforeContentRemoval marker={marker} />
-        <div aria-hidden="true" className="relative block -translate-y-1/2 select-none">
+        <Link
+          to={`/profiles/${profile.id}`}
+          aria-label={`View ${profile.displayName}'s profile`}
+          className="relative block -translate-y-1/2 cursor-pointer select-none"
+        >
           <span
             className={cn(
               'absolute left-1/2 top-full -mt-1 h-2.5 -translate-x-1/2 rounded-full blur-[2px]',
@@ -65,7 +70,7 @@ function GoogleProfileMarker({
               <p className="truncate text-[10px] leading-tight text-ink-500">{locationLabel || profile.area}</p>
             </div>
           </div>
-        </div>
+        </Link>
       </>
     </AdvancedMarker>
   )
@@ -106,7 +111,11 @@ export function GoogleMapView({
 
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
-      <div className="size-full" role="img" aria-label="">
+      <div
+        className="size-full"
+        role="region"
+        aria-label="Read-only map showing approximate member locations. Select an avatar to open a profile."
+      >
         <Map
           mapId={GOOGLE_MAPS_MAP_ID}
           center={mapCenter}

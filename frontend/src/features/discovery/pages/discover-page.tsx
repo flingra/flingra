@@ -55,7 +55,6 @@ export function DiscoverPage() {
   const [locationEnabled, setLocationEnabled] = useState(false)
   const [userLocation, setUserLocation] = useState<CurrentLocation | null>(null)
   const [locating, setLocating] = useState(false)
-  const [activeCategories, setActiveCategories] = useState<string[]>([])
   const [profiles, setProfiles] = useState<MemberProfile[]>([])
   const [cursor, setCursor] = useState(0)
   const [locationSearch, setLocationSearch] = useState('')
@@ -104,7 +103,9 @@ export function DiscoverPage() {
     ? { latitude: userLocation.latitude, longitude: userLocation.longitude }
     : mapCenter
       ? { latitude: mapCenter[0], longitude: mapCenter[1] }
-      : undefined
+      : savedMapCenter
+        ? { latitude: savedMapCenter[0], longitude: savedMapCenter[1] }
+        : undefined
 
   useEffect(() => {
     let active = true
@@ -191,13 +192,7 @@ export function DiscoverPage() {
     () => (cursor === 0 ? data?.items ?? [] : [...profiles, ...(data?.items ?? [])]),
     [cursor, data, profiles],
   )
-  const items = useMemo(
-    () =>
-      activeCategories.length === 0
-        ? allItems
-        : allItems.filter((profile) => profile.interests.some((interest) => activeCategories.includes(interest))),
-    [allItems, activeCategories],
-  )
+  const items = allItems
 
   function watchSharedLocation() {
     if (!navigator.geolocation || locationWatchId.current !== null) return
@@ -256,7 +251,7 @@ export function DiscoverPage() {
   }, [])
 
   function applyFilters(next: DiscoveryFilters) {
-    setFilters(next)
+    setFilters({ ...next, interests: [...new Set(next.interests)] })
     setCursor(0)
     setProfiles([])
     setFiltersOpen(false)
@@ -268,25 +263,31 @@ export function DiscoverPage() {
   }
 
   function toggleCategory(interest: string) {
-    setActiveCategories((current) =>
-      current.includes(interest) ? current.filter((item) => item !== interest) : [...current, interest],
-    )
+    const interests = filters.interests.includes(interest)
+      ? filters.interests.filter((item) => item !== interest)
+      : [...filters.interests, interest]
+    applyFilters({ ...filters, interests })
   }
 
   function resetAll() {
-    setActiveCategories([])
     setLocationEnabled(false)
     applyFilters(DEFAULT_FILTERS)
   }
 
   function clearInterestFilters() {
-    setActiveCategories([])
     applyFilters({ ...filters, interests: [] })
   }
 
   function toggleDistanceFilter() {
     if (locationEnabled) {
       setLocationEnabled(false)
+      setCursor(0)
+      setProfiles([])
+      return
+    }
+
+    if (discoveryOrigin) {
+      setLocationEnabled(true)
       setCursor(0)
       setProfiles([])
       return
@@ -454,9 +455,9 @@ export function DiscoverPage() {
             key={interest}
             type="button"
             onClick={() => toggleCategory(interest)}
-            aria-pressed={activeCategories.includes(interest)}
+            aria-pressed={filters.interests.includes(interest)}
             className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors sm:px-4 sm:py-2 sm:text-sm ${
-              activeCategories.includes(interest)
+              filters.interests.includes(interest)
                 ? 'border-ink-900 bg-ink-900 text-white'
                 : 'border-ink-200 bg-white text-ink-700 hover:border-ink-300'
             }`}

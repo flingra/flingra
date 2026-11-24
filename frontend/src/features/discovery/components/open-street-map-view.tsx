@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import * as L from 'leaflet'
 import type { MemberProfile } from '@/lib/api/types'
 import { DISCOVERY_MAP_ZOOM, geoPosition, LAGOS_CENTER } from './map-utils'
@@ -21,6 +22,7 @@ export function OpenStreetMapView({
   locationLabel?: string
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     if (!mapContainerRef.current) return
@@ -53,8 +55,8 @@ export function OpenStreetMapView({
       const marker = L.marker(
         geoPosition(profile, center ? { lat: center[0], lng: center[1] } : LAGOS_CENTER),
         {
-          interactive: false,
-          keyboard: false,
+          interactive: true,
+          keyboard: true,
           icon: L.divIcon({
             className: 'profile-map-marker',
             html: `<div class="profile-map-marker-inner"><img alt="" /><span class="profile-map-marker-label"><strong>${profile.displayName}</strong><small>${locationLabel || profile.area}</small></span></div>`,
@@ -64,17 +66,26 @@ export function OpenStreetMapView({
         },
       )
 
+      marker.on('click', () => navigate(`/profiles/${profile.id}`))
+      marker.on('keydown', (event: L.LeafletKeyboardEvent) => {
+        if (event.originalEvent.key === 'Enter' || event.originalEvent.key === ' ') {
+          event.originalEvent.preventDefault()
+          navigate(`/profiles/${profile.id}`)
+        }
+      })
       marker.addTo(markerLayer)
       const element = marker.getElement()
       if (element) {
-        element.setAttribute('aria-hidden', 'true')
+        element.setAttribute('role', 'link')
+        element.setAttribute('tabindex', '0')
+        element.setAttribute('aria-label', `View ${profile.displayName}'s profile`)
       }
       const image = element?.querySelector('img')
       if (image) {
         image.src = profile.photos[0] ?? ''
         image.className = highlighted
-          ? 'size-14 rounded-full border-4 border-primary-500 object-cover shadow-float'
-          : 'size-12 rounded-full border-4 border-white object-cover shadow-float'
+          ? 'size-14 cursor-pointer rounded-full border-4 border-primary-500 object-cover shadow-float'
+          : 'size-12 cursor-pointer rounded-full border-4 border-white object-cover shadow-float'
       }
     })
 
@@ -114,7 +125,14 @@ export function OpenStreetMapView({
       locationMarker?.remove()
       map.remove()
     }
-  }, [profiles, highlightedId, useMyLocation, center, zoom, userLocation, locationLabel])
+  }, [profiles, highlightedId, useMyLocation, center, zoom, userLocation, locationLabel, navigate])
 
-  return <div ref={mapContainerRef} className="size-full bg-ink-100" role="img" aria-label="" />
+  return (
+    <div
+      ref={mapContainerRef}
+      className="size-full bg-ink-100"
+      role="region"
+      aria-label="Read-only map preview. Select a profile avatar to open its profile."
+    />
+  )
 }
