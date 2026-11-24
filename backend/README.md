@@ -12,6 +12,11 @@ From this directory, install the package and test dependencies:
 python -m pip install -e ".[test]"
 ```
 
+Configure local values in `backend/.env`. Its commented payment, payout, SMS,
+and livestream variables are provisional placeholders only; the current
+backend ignores them until those providers are selected and their integrations
+are implemented. Keep the populated `.env` local and uncommitted.
+
 Configure MySQL either with `FLINGRA_DATABASE_URL` (SQLAlchemy URL) or with
 these separate fields in `backend/.env`:
 
@@ -97,9 +102,10 @@ runtime account broad DDL privileges just to make the application start.
 
 The migration runner applies the existing account/session migrations, the
 forward migration aligning account identifiers, genders, and profiles with the
-frontend contract, the migration removing facial-verification data, and the
-media metadata, admin/audit, and Google-account-link migrations. It records applied migration
-filenames in `schema_migrations`.
+frontend contract, the migration removing facial-verification data, the media
+metadata, admin/audit, and Google-account-link migrations, and the newer
+safety, chat, content, session-device, subscription-catalog, and wallet-ledger
+migrations. It records applied migration filenames in `schema_migrations`.
 For a database containing the legacy tables but no migration history, it marks
 the four existing migrations as the baseline, then applies the remaining
 migrations in order.
@@ -126,23 +132,67 @@ Implemented endpoints:
 - `POST /auth/password/forgot`, `/auth/password/reset`, `/auth/logout`
 - `GET /auth/session`, `POST /auth/onboarding/complete`
 - `GET /profiles/me`, `PATCH /profiles/me`, `GET /profiles/{profile_id}`
+- `GET /profiles` (VIP showcase), `GET /videos/nearby`, `GET /presence/{author_id}`
 - `GET /discovery` — verified, approved member feed with age, interest, audience,
   distance and pagination filters; the live-only filter is unavailable until
   livestream presence is backed by the API
-- `POST /media/photos`, `POST /media/documents`, `GET /media/{media_id}`
+- `POST /media/photos`, `POST /media/documents`, `POST /media/videos`,
+  `POST /statuses`, `GET /media/{media_id}`
+- `GET /posts/me`, `POST /posts`, `DELETE /posts/{post_id}`
+- `GET /statuses/nearby`
+- `GET/POST /safety/blocks`, `DELETE /safety/blocks/{target_id}`
+- `POST /safety/reports`
+- `GET/POST /safety/emergency-contacts`, `DELETE /safety/emergency-contacts/{contact_id}`
+- `GET /safety/check-ins`
+- `POST /safety/check-ins` — returns `503` until an SMS provider is configured; it never
+  reports a contact as notified when no message was sent
+- `POST /chat/threads`, `GET /chat/threads`
+- `GET/POST /chat/threads/{thread_id}/messages`
+- `POST /chat/attachments` — returns `503` until private storage and recipient
+  authorization are configured
+- `GET /settings/sessions`, `DELETE /settings/sessions/{session_id}`
+- `POST /settings/password`
+- `POST /settings/data-export`, `POST /settings/account/delete` — return `202` with a
+  queued request; a background processor is still required to produce exports and
+  complete deletion
+- `GET /subscriptions/plans`, `GET /subscriptions/me`
+- `POST /subscriptions` — purchases VIP using an already-settled internal wallet balance
+- `GET /wallet/balance`, `GET /wallet/transactions`, `POST /wallet/top-ups`
+- `GET /wallet/gifts/catalog`, `/wallet/gifts/owned`, `/wallet/gifts/received`
+- `POST /wallet/gifts/buy`, `/wallet/gifts/{gift_type_id}/spend`,
+  `/wallet/gifts/{gift_id}/redeem`, `/wallet/gifts/redeem-all`
 - `POST /admin/auth/login`, `GET /admin/auth/session`, `POST /admin/auth/logout`
 - `GET /admin/reviews`, `GET /admin/reviews/{review_id}`
 - `GET /admin/reviews/{review_id}/document`
 - `POST /admin/reviews/{review_id}/decision`
+- `GET /admin/safety/reviews`, `POST /admin/safety/reviews/{review_id}/decision`
 - `GET /admin/users/{account_id}/audit`
 - `GET /admin/admins`, `PATCH /admin/admins/{admin_id}` (super admin only)
 
 All signup and sign-in paths enforce a minimum age of 21; existing sessions
 belonging to underage accounts are revoked when used. Government ID review is
 required for every account; a document upload sets its status to `pending`.
-Use the `IdentityVerifiedAccount` dependency for messaging, livestream, and
-payment endpoints so only approved accounts can use those features. Those
-feature APIs are not implemented yet; the frontend currently simulates them.
+Safety reports and blocks are persisted; blocking immediately hides either
+member from discovery, chat, and member interactions. Safety reviewers can
+process the resulting queue through the admin API. Chat currently supports
+database-backed text messages only. Chat attachments, realtime delivery, and
+meetup-payment cards are disabled rather than simulated.
+
+Image posts and 24-hour image statuses are persisted. Video uploads/statuses,
+livestream transport, wallet top-ups, payouts, call-credit billing, and SMS
+notifications remain unavailable until their required media, realtime,
+payment, or messaging providers are configured. VIP purchases and gifts can
+use funds already present in the internal ledger; there is no supported way to
+fund that balance yet, so new accounts cannot buy these items with real money.
+Ledger amounts are stored in kobo and displayed in whole naira. External
+payments require a provider, verified signed webhooks, idempotent settlement,
+and a complete payout workflow before they can be enabled.
+
+The backend endpoints added for these flows are not yet wired into every
+frontend API adapter. The frontend remains mock-backed in chat, safety,
+posts/status, settings, presence, livestream, wallet, payout, calls, and
+subscriptions. Do not treat those UI flows as production-backed just because
+a corresponding read or core endpoint exists.
 
 ## Synthetic Discover cohort
 
@@ -252,8 +302,22 @@ Current event names include `auth.signup`, `auth.login`,
 `admin.review.document_viewed`, `admin.review.decided`, and
 `discovery.feed_viewed`, `profile.discoverable_viewed`,
 `admin.audit.user_history_viewed`, `admin.account.list_viewed`,
-`admin.account.updated`, `admin.account.update_denied`, and
-`admin.authorization.denied`. Outcomes are
+`admin.account.updated`, `admin.account.update_denied`,
+`admin.authorization.denied`, `safety.member_blocked`,
+`safety.member_unblocked`, `safety.member_reported`,
+`safety.emergency_contact_added`, `safety.emergency_contact_removed`,
+`safety.blocks_viewed`, `safety.emergency_contacts_viewed`,
+`safety.check_ins_viewed`, `chat.thread_created`, `chat.threads_viewed`,
+`chat.messages_viewed`, `chat.message_sent`, `content.post_created`,
+`content.post_deleted`, `content.own_posts_viewed`,
+`content.nearby_statuses_viewed`, `settings.password_changed`,
+`settings.sessions_viewed`, `settings.session_revoked`,
+`privacy.data_export_requested`, `privacy.account_deletion_requested`,
+`privacy.account_deletion_queued`, `wallet.balance_viewed`,
+`wallet.transactions_viewed`, `wallet.gift_inventory_viewed`,
+`wallet.received_gifts_viewed`, `wallet.gift_purchased`,
+`wallet.gift_sent`, `wallet.gifts_redeemed`, `subscription.status_viewed`,
+and `subscription.vip_purchased`. Outcomes are
 `success`, `failure`, or `denied`. User audit history is chronological (oldest first), with stable
 event IDs and request IDs for correlation.
 
@@ -268,10 +332,11 @@ never included in logs or API error responses. Phone-based signup is
 currently unavailable until an SMS provider is configured. Facial/selfie
 verification is not used. Completed profiles enter pending moderation for manual admin review. The
 backend now supports basic profile/document approval and rejection, but does
-not yet implement report queues, blocking controls, admin MFA, password
-rotation/recovery, or an admin frontend. The frontend
-uses the backend for Discover feeds and discoverable profile details; other
-feature areas still use mock APIs and need their own integrations.
+implement safety reports, blocking, and a safety-review queue. Admin MFA,
+password rotation/recovery, privacy-request processing, and an admin frontend
+remain unimplemented. The frontend uses the backend for Discover feeds and
+discoverable profile details; other feature areas still use mock APIs and need
+their own integrations.
 
 Media endpoints require verified, authenticated accounts and CSRF tokens.
 Uploaded JPEG/PNG/WebP images are decoded and re-encoded as JPEG to remove

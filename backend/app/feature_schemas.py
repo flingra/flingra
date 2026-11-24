@@ -1,0 +1,220 @@
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+ReportReason = Literal["fake-profile", "harassment", "inappropriate-content", "underage", "other"]
+AttachmentType = Literal["image", "video", "file"]
+
+
+class BlockCreateRequest(BaseModel):
+    target_id: str = Field(alias="targetId", min_length=1, max_length=64)
+
+
+class ReportCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    target_id: str = Field(alias="targetId", min_length=1, max_length=64)
+    reason: ReportReason
+    description: str | None = Field(default=None, max_length=2000)
+    also_block: bool = Field(default=False, alias="alsoBlock")
+
+
+class BlockedAccountResponse(BaseModel):
+    id: str
+    display_name: str = Field(serialization_alias="displayName")
+    photo: str | None
+    blocked_at: datetime = Field(serialization_alias="blockedAt")
+
+
+class EmergencyContactRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    phone: str = Field(min_length=1, max_length=32)
+    relationship: str = Field(min_length=1, max_length=80)
+
+
+class EmergencyContactResponse(BaseModel):
+    id: str
+    name: str
+    phone: str
+    relationship: str
+
+
+class SafetyCheckInResponse(BaseModel):
+    id: str
+    message: str
+    notified_contacts: list[str] = Field(serialization_alias="notifiedContacts")
+    location_link: str | None = Field(serialization_alias="locationLink")
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class SafetyCheckInCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    message: str = Field(default="", max_length=1000)
+    location_link: str | None = Field(default=None, alias="locationLink", max_length=2048)
+
+
+class ChatAttachment(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    url: str = Field(min_length=1, max_length=2048)
+    type: AttachmentType
+    name: str = Field(min_length=1, max_length=255)
+
+
+class ChatThreadCreateRequest(BaseModel):
+    other_id: str = Field(alias="otherId", min_length=1, max_length=64)
+
+
+class ChatMessageCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    text: str = Field(default="", max_length=5000)
+    attachment: ChatAttachment | None = None
+
+
+class ChatThreadResponse(BaseModel):
+    id: str
+    other_id: str = Field(serialization_alias="otherId")
+    other_name: str = Field(serialization_alias="otherName")
+    other_photo: str = Field(serialization_alias="otherPhoto")
+    last_message: str = Field(serialization_alias="lastMessage")
+    last_message_at: datetime = Field(serialization_alias="lastMessageAt")
+
+
+class DirectMessageResponse(BaseModel):
+    id: str
+    thread_id: str = Field(serialization_alias="threadId")
+    author_id: str = Field(serialization_alias="authorId")
+    text: str
+    attachment: ChatAttachment | None = None
+    payment_id: str | None = Field(default=None, serialization_alias="paymentId")
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class PostCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    photos: list[str] = Field(default_factory=list, max_length=10)
+    video: str | None = Field(default=None, max_length=2048)
+    caption: str | None = Field(default=None, max_length=2000)
+
+
+class PostResponse(BaseModel):
+    id: str
+    author_id: str = Field(serialization_alias="authorId")
+    photos: list[str]
+    video: str | None = None
+    caption: str | None = None
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class PostListResponse(BaseModel):
+    items: list[PostResponse]
+    next_cursor: int | None = Field(default=None, serialization_alias="nextCursor")
+
+
+class StatusCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    media: str = Field(min_length=1, max_length=2048)
+    kind: Literal["image", "video"]
+
+
+class StatusResponse(BaseModel):
+    id: str
+    author_id: str = Field(serialization_alias="authorId")
+    author_name: str = Field(serialization_alias="authorName")
+    author_photo: str = Field(serialization_alias="authorPhoto")
+    media: str
+    kind: Literal["image", "video"]
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class PasswordChangeRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    current_password: str = Field(alias="currentPassword", min_length=1, max_length=128)
+    new_password: str = Field(alias="newPassword", min_length=8, max_length=128)
+
+
+class DeviceSessionResponse(BaseModel):
+    id: str
+    device: str
+    last_active: str = Field(serialization_alias="lastActive")
+    current: bool
+
+
+class PrivacyRequestResponse(BaseModel):
+    request_id: str = Field(serialization_alias="requestId")
+    status: Literal["queued"] = "queued"
+
+
+class VipPlanResponse(BaseModel):
+    id: str
+    name: str
+    duration_days: int = Field(serialization_alias="durationDays")
+    price_naira: int = Field(serialization_alias="priceNaira")
+
+
+class SubscriptionStatusResponse(BaseModel):
+    tier: Literal["free", "vip"]
+    expires_at: datetime | None = Field(default=None, serialization_alias="expiresAt")
+
+
+class VipSubscriptionRequest(BaseModel):
+    plan_id: str = Field(alias="planId", min_length=1, max_length=64)
+
+
+class GiftPurchaseRequest(BaseModel):
+    gift_type_id: str = Field(alias="giftTypeId", min_length=1, max_length=40)
+    quantity: int = Field(default=1, ge=1, le=50)
+
+
+class GiftSendRequest(BaseModel):
+    recipient_id: str = Field(alias="recipientId", min_length=1, max_length=64)
+
+
+class GiftTypeResponse(BaseModel):
+    id: str
+    name: str
+    emoji: str
+    price_naira: int = Field(serialization_alias="priceNaira")
+
+
+class OwnedGiftResponse(BaseModel):
+    gift_type_id: str = Field(serialization_alias="giftTypeId")
+    quantity: int
+
+
+class ReceivedGiftResponse(BaseModel):
+    id: str
+    gift_type_id: str = Field(serialization_alias="giftTypeId")
+    from_id: str = Field(serialization_alias="fromId")
+    from_name: str = Field(serialization_alias="fromName")
+    value_naira: int = Field(serialization_alias="valueNaira")
+    redeemed: bool
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class WalletTransactionResponse(BaseModel):
+    id: str
+    type: str
+    amount_naira: int = Field(serialization_alias="amountNaira")
+    description: str
+    status: Literal["completed", "pending"]
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class WalletTopUpRequest(BaseModel):
+    amount_naira: int = Field(alias="amountNaira", gt=0, le=10_000_000)
+
+
+
+class AdminSafetyDecisionRequest(BaseModel):
+    decision: Literal["reviewed", "dismissed"]
+    reason: str = Field(min_length=1, max_length=1000)

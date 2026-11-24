@@ -1,0 +1,297 @@
+import io
+import uuid
+from datetime import UTC, datetime, timedelta
+
+from PIL import Image
+from sqlalchemy import text
+
+from app.dependencies import db_session
+from test_discovery import _create_candidate, _create_viewer
+
+
+def _session(client):
+    generator = client.app.dependency_overrides[db_session]()
+    return next(generator), generator
+
+
+def test_settings_sessions_password_and_privacy_requests(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    account_id = _create_viewer(client, monkeypatch)
+    csrf = client.cookies["flingra_csrf"]
+
+    sessions = client.get("/settings/sessions")
+    assert sessions.status_code == 200
+    assert len(sessions.json()) == 1
+    assert sessions.json()[0]["current"] is True
+
+    changed = client.post(
+        "/settings/password",
+        headers={"X-CSRF-Token": csrf},
+        json={"currentPassword": "secure-password-123", "newPassword": "new-secure-password-456"},
+    )
+    assert changed.status_code == 204
+    old_login = client.post(
+        "/auth/login",
+        json={"identifier": "viewer@example.test", "password": "secure-password-123"},
+    )
+    assert old_login.status_code == 401
+
+    export = client.post("/settings/data-export", headers={"X-CSRF-Token": csrf})
+    assert export.status_code == 202
+    assert export.json()["status"] == "queued"
+
+    deletion = client.post("/settings/account/delete", headers={"X-CSRF-Token": csrf})
+    assert deletion.status_code == 202
+    db, generator = _session(client)
+    try:
+        assert db.execute(
+            text("SELECT account_state FROM accounts WHERE id = :account_id"),
+            {"account_id": account_id},
+        ).scalar_one() == "deletion_requested"
+        assert db.execute(
+            text("SELECT COUNT(*) FROM privacy_requests WHERE account_id = :account_id"),
+            {"account_id": account_id},
+        ).scalar_one() == 2
+    finally:
+        generator.close()
+
+
+def test_posts_require_owned_media_and_status_expires(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    account_id = _create_viewer(client, monkeypatch)
+    csrf = client.cookies["flingra_csrf"]
+    db, generator = _session(client)
+    photo_urls = []
+    try:
+        for _ in range(3):
+            media_id = uuid.uuid4().hex
+            photo_urls.append(f"/media/{media_id}")
+            db.execute(
+                text(
+                    """
+                    INSERT INTO media_objects (
+                        id, account_id, purpose, object_key, content_type, size_bytes, sha256
+                    )
+                    VALUES (:id, :account_id, 'profile-photo', :object_key, 'image/jpeg', 1, 'test')
+                    """
+                ),
+                {
+                    "id": media_id,
+                    "account_id": account_id,
+                    "object_key": f"accounts/{account_id}/test/{media_id}",
+                },
+            )
+        db.commit()
+    finally:
+        generator.close()
+
+    post = client.post(
+        "/posts",
+        headers={"X-CSRF-Token": csrf},
+        json={"photos": photo_urls, "caption": "A test post"},
+    )
+    assert post.status_code == 201
+    assert post.json()["photos"] == photo_urls
+
+    image = Image.new("RGB", (4, 4), "red")
+    image_bytes = io.BytesIO()
+    image.save(image_bytes, format="PNG")
+    status = client.post(
+        "/statuses",
+        headers={"X-CSRF-Token": csrf},
+        files={"file": ("status.png", image_bytes.getvalue(), "image/png")},
+    )
+    assert status.status_code == 201
+    assert status.json()["kind"] == "image"
+    assert len(client.get("/statuses/nearby").json()) == 1
+
+
+def test_subscription_catalog_and_status_are_backend_owned(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    _create_viewer(client, monkeypatch)
+
+    plans = client.get("/subscriptions/plans")
+    assert plans.status_code == 200
+    assert [plan["id"] for plan in plans.json()] == ["vip-weekly", "vip-monthly", "vip-yearly"]
+    assert plans.json()[0]["priceNaira"] == 3500
+    assert client.get("/subscriptions/me").json() == {"tier": "free", "expiresAt": None}
+
+    purchase = client.post(
+        "/subscriptions",
+        headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
+        json={"planId": "vip-weekly"},
+    )
+    assert purchase.status_code == 409
+    assert purchase.json()["error"]["code"] == "INSUFFICIENT_BALANCE"
+
+
+def test_wallet_gift_purchase_and_vip_subscription_use_atomic_ledger(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    account_id = _create_viewer(client, monkeypatch)
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text(
+                "INSERT INTO wallet_accounts (account_id, balance_kobo) VALUES (:account_id, 1000000)"
+            ),
+            {"account_id": account_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+    csrf = client.cookies["flingra_csrf"]
+
+    bought = client.post(
+        "/wallet/gifts/buy",
+        headers={"X-CSRF-Token": csrf},
+        json={"giftTypeId": "rose", "quantity": 2},
+    )
+    assert bought.status_code == 200
+    assert bought.json() == {"balanceNaira": 9000}
+    assert client.get("/wallet/gifts/owned").json()[0]["quantity"] == 2
+
+    vip = client.post(
+        "/subscriptions",
+        headers={"X-CSRF-Token": csrf},
+        json={"planId": "vip-weekly"},
+    )
+    assert vip.status_code == 201
+    assert vip.json()["tier"] == "vip"
+    assert client.get("/wallet/balance").json() == {"balanceNaira": 5500}
+    assert [row["type"] for row in client.get("/wallet/transactions").json()] == [
+        "vip-subscription",
+        "gift-purchase",
+    ]
+
+
+def test_expired_vip_is_treated_as_free_for_profile_and_chat_access(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    _create_viewer(client, monkeypatch)
+    target_id = _create_candidate(client)
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text(
+                """
+                UPDATE profiles
+                SET subscription_tier = 'vip', vip_expires_at = :expires_at
+                WHERE account_id = :target_id
+                """
+            ),
+            {
+                "target_id": target_id,
+                "expires_at": datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1),
+            },
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    profile = client.get(f"/profiles/{target_id}")
+    assert profile.status_code == 200
+    assert profile.json()["subscriptionTier"] == "free"
+
+    thread = client.post(
+        "/chat/threads",
+        headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
+        json={"otherId": target_id},
+    )
+    assert thread.status_code == 201
+
+
+def test_expired_vip_viewer_cannot_access_active_vip_chat(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    viewer_id = _create_viewer(client, monkeypatch)
+    target_id = _create_candidate(client)
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text(
+                """
+                UPDATE profiles
+                SET subscription_tier = 'vip', vip_expires_at = :expires_at
+                WHERE account_id = :account_id
+                """
+            ),
+            {
+                "account_id": viewer_id,
+                "expires_at": datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1),
+            },
+        )
+        db.execute(
+            text(
+                """
+                UPDATE profiles
+                SET subscription_tier = 'vip', vip_expires_at = :expires_at
+                WHERE account_id = :account_id
+                """
+            ),
+            {
+                "account_id": target_id,
+                "expires_at": datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1),
+            },
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    response = client.post(
+        "/chat/threads",
+        headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
+        json={"otherId": target_id},
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "VIP_REQUIRED"
+    assert client.get("/subscriptions/me").json() == {"tier": "free", "expiresAt": None}
+
+
+def test_gift_redemption_credits_wallet_only_once(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    account_id = _create_viewer(client, monkeypatch)
+    target_id = _create_candidate(client)
+    gift_id = uuid.uuid4().hex
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO received_gifts (
+                    id, recipient_id, sender_id, gift_type_id, value_kobo, redeemed
+                )
+                VALUES (:id, :recipient_id, :sender_id, 'rose', 50000, FALSE)
+                """
+            ),
+            {"id": gift_id, "recipient_id": account_id, "sender_id": target_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    headers = {"X-CSRF-Token": client.cookies["flingra_csrf"]}
+    first = client.post(f"/wallet/gifts/{gift_id}/redeem", headers=headers)
+    second = client.post(f"/wallet/gifts/{gift_id}/redeem", headers=headers)
+
+    assert first.status_code == 204
+    assert second.status_code == 409
+    assert client.get("/wallet/balance").json() == {"balanceNaira": 500}
+    assert len(client.get("/wallet/transactions").json()) == 1
+
+
+def test_provider_dependent_uploads_fail_closed(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    _create_viewer(client, monkeypatch)
+    csrf = client.cookies["flingra_csrf"]
+
+    chat_attachment = client.post(
+        "/chat/attachments",
+        headers={"X-CSRF-Token": csrf},
+        files={"file": ("attachment.txt", b"x" * (1024 * 1024 + 1), "text/plain")},
+    )
+    video_upload = client.post(
+        "/media/videos",
+        headers={"X-CSRF-Token": csrf},
+        files={"file": ("clip.mp4", b"video data", "video/mp4")},
+    )
+
+    assert chat_attachment.status_code == 503
+    assert video_upload.status_code == 503

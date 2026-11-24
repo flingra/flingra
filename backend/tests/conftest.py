@@ -74,7 +74,8 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
             """
             CREATE TABLE sessions (
                 id TEXT PRIMARY KEY, account_id TEXT NOT NULL, session_token_hash BLOB UNIQUE NOT NULL,
-                expires_at DATETIME NOT NULL, revoked_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                expires_at DATETIME NOT NULL, revoked_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                device_label TEXT NOT NULL DEFAULT 'Unknown device', last_active_at DATETIME
             )
             """
         )
@@ -132,6 +133,161 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 actor_id TEXT, subject_account_id TEXT, outcome TEXT NOT NULL,
                 request_id TEXT NOT NULL, metadata TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE safety_blocks (
+                blocker_id TEXT NOT NULL, blocked_id TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (blocker_id, blocked_id)
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE safety_reports (
+                id TEXT PRIMARY KEY, reporter_id TEXT NOT NULL, target_account_id TEXT NOT NULL,
+                reason TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'open',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP, resolved_at DATETIME
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE moderation_review_requests (
+                id TEXT PRIMARY KEY, requester_id TEXT NOT NULL, target_account_id TEXT NOT NULL,
+                source_type TEXT NOT NULL, source_id TEXT NOT NULL, reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open', created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE emergency_contacts (
+                id TEXT PRIMARY KEY, account_id TEXT NOT NULL, name TEXT NOT NULL,
+                phone TEXT NOT NULL, relationship TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE safety_check_ins (
+                id TEXT PRIMARY KEY, account_id TEXT NOT NULL, message TEXT NOT NULL,
+                location_link TEXT, status TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE chat_threads (
+                id TEXT PRIMARY KEY, participant_a_id TEXT NOT NULL, participant_b_id TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP, last_message_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (participant_a_id, participant_b_id)
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE chat_messages (
+                id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, author_id TEXT NOT NULL,
+                message_text TEXT NOT NULL DEFAULT '', attachment_json TEXT, attachment_media_id TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE member_posts (
+                id TEXT PRIMARY KEY, author_id TEXT NOT NULL, photos TEXT NOT NULL,
+                video_url TEXT, caption TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE member_statuses (
+                id TEXT PRIMARY KEY, author_id TEXT NOT NULL, media_url TEXT NOT NULL,
+                media_kind TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME NOT NULL
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE privacy_requests (
+                id TEXT PRIMARY KEY, account_id TEXT NOT NULL, request_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued', created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE subscription_plans (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, duration_days INTEGER NOT NULL,
+                price_kobo INTEGER NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO subscription_plans (id, name, duration_days, price_kobo, active)
+            VALUES
+                ('vip-weekly', 'Weekly VIP', 7, 350000, TRUE),
+                ('vip-monthly', 'Monthly VIP', 30, 1000000, TRUE),
+                ('vip-yearly', 'Yearly VIP', 365, 8000000, TRUE)
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE wallet_accounts (
+                account_id TEXT PRIMARY KEY, balance_kobo INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE wallet_transactions (
+                id TEXT PRIMARY KEY, account_id TEXT NOT NULL, transaction_type TEXT NOT NULL,
+                amount_kobo INTEGER NOT NULL, description TEXT NOT NULL, status TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE gift_catalog (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, emoji TEXT NOT NULL,
+                price_kobo INTEGER NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO gift_catalog (id, name, emoji, price_kobo, active)
+            VALUES
+                ('rose', 'Rose', '🌹', 50000, TRUE),
+                ('fire', 'Fire', '🔥', 100000, TRUE),
+                ('diamond', 'Diamond', '💎', 500000, TRUE),
+                ('crown', 'Crown', '👑', 1000000, TRUE)
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE gift_inventory (
+                account_id TEXT NOT NULL, gift_type_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (account_id, gift_type_id)
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE received_gifts (
+                id TEXT PRIMARY KEY, recipient_id TEXT NOT NULL, sender_id TEXT NOT NULL,
+                gift_type_id TEXT NOT NULL, value_kobo INTEGER NOT NULL,
+                redeemed BOOLEAN NOT NULL DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
         )

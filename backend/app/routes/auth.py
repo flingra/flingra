@@ -216,8 +216,8 @@ def get_authenticated_account(
     result = db.execute(
         text(
             """
-            SELECT s.id AS session_id, a.id, a.identifier, a.identifier_type,
-                   a.email_verified, a.date_of_birth, p.onboarding_complete
+            SELECT s.id AS session_id, s.last_active_at, a.id, a.identifier, a.identifier_type,
+                   a.email_verified, a.date_of_birth, a.account_state, p.onboarding_complete
             FROM sessions s
             JOIN accounts a ON a.id = s.account_id
             LEFT JOIN profiles p ON p.account_id = a.id
@@ -230,6 +230,14 @@ def get_authenticated_account(
     ).mappings().first()
     if result is None:
         raise ApiException("UNAUTHENTICATED", "Sign in to continue.", 401)
+    if result["account_state"] == "deletion_requested":
+        raise ApiException("ACCOUNT_DELETION_PENDING", "This account is scheduled for deletion.", 403)
+    if result["last_active_at"] is None or _as_datetime(result["last_active_at"]) < _now() - timedelta(minutes=1):
+        db.execute(
+            text("UPDATE sessions SET last_active_at = :now WHERE id = :session_id"),
+            {"now": _now(), "session_id": result["session_id"]},
+        )
+        db.commit()
     if _age_on(result["date_of_birth"], date.today()) < MINIMUM_ACCOUNT_AGE:
         db.execute(
             text("UPDATE sessions SET revoked_at = :revoked_at WHERE id = :session_id"),
@@ -297,8 +305,12 @@ def _create_session(db: Session, account_id: str, request: Request, response: Re
     db.execute(
         text(
             """
-            INSERT INTO sessions (id, account_id, session_token_hash, expires_at)
-            VALUES (:id, :account_id, :token_hash, :expires_at)
+            INSERT INTO sessions (
+                id, account_id, session_token_hash, expires_at, device_label, last_active_at
+            )
+            VALUES (
+                :id, :account_id, :token_hash, :expires_at, :device_label, :last_active_at
+            )
             """
         ),
         {
@@ -306,6 +318,8 @@ def _create_session(db: Session, account_id: str, request: Request, response: Re
             "account_id": account_id,
             "token_hash": hash_token(raw_token),
             "expires_at": _now() + timedelta(hours=settings.session_ttl_hours),
+            "device_label": request.headers.get("user-agent", "Unknown device")[:255],
+            "last_active_at": _now(),
         },
     )
     _set_session_cookies(response, request, raw_token)
@@ -511,7 +525,7 @@ def sign_in(
     account = db.execute(
         text(
             """
-            SELECT id, identifier, identifier_type, password_hash, email_verified,
+            SELECT id, identifier, identifier_type, password_hash, email_verified, account_state,
                    date_of_birth, login_failed_attempts, locked_until
             FROM accounts
             WHERE identifier = :identifier
@@ -589,6 +603,20 @@ def sign_in(
         )
         db.commit()
         raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.", 403)
+
+    if account["account_state"] == "deletion_requested":
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=str(account["id"]),
+            outcome="denied",
+            metadata={"reason": "account_deletion_pending"},
+        )
+        db.commit()
+        raise ApiException("ACCOUNT_DELETION_PENDING", "This account is scheduled for deletion.", 403)
 
     db.execute(
         text("UPDATE accounts SET login_failed_attempts = 0, locked_until = NULL WHERE id = :account_id"),

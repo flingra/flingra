@@ -17,9 +17,17 @@ from app.migrate import run_configured_migrations
 from app.middleware import ApiHardeningMiddleware, RedisRateLimitMiddleware
 from app.routes.auth import router as auth_router
 from app.routes.admin import router as admin_router
-from app.routes.media import router as media_router
+from app.routes.media import router as media_router, status_router
 from app.routes.profiles import discovery_router, router as profiles_router
 from app.routes.location import router as location_router
+from app.routes.safety import router as safety_router
+from app.routes.chat import router as chat_router
+from app.routes.settings import router as settings_router
+from app.routes.admin_safety import router as admin_safety_router
+from app.routes.content import router as content_router
+from app.routes.profile_extras import router as profile_extras_router
+from app.routes.subscriptions import router as subscriptions_router
+from app.routes.commerce import router as commerce_router
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -90,10 +98,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.include_router(auth_router)
     application.include_router(admin_router)
+    application.include_router(admin_safety_router)
     application.include_router(profiles_router)
     application.include_router(discovery_router)
     application.include_router(location_router)
     application.include_router(media_router)
+    application.include_router(status_router)
+    application.include_router(content_router)
+    application.include_router(profile_extras_router)
+    application.include_router(subscriptions_router)
+    application.include_router(commerce_router)
+    application.include_router(safety_router)
+    application.include_router(chat_router)
+    application.include_router(settings_router)
 
     if app_settings.allowed_origins:
         if "*" in app_settings.allowed_origins:

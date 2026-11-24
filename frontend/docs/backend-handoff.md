@@ -1,6 +1,8 @@
 # Flingra frontend → backend handoff
 
-Status: authentication in the frontend uses the local FastAPI backend, including Google Identity Services sign-in; the remaining platform features still use the mock API layer. The Python backend now has an initial auth/session and own-profile API slice, but the frontend is not yet connected to it and most endpoints remain mock-only. This document is the contract: every endpoint, data shape, business rule, and edge case the frontend already assumes. Build the real API to match this, not the other way around, unless something here is wrong or needs to change — in that case flag it so the frontend gets updated too.
+Status: authentication, profile, and Discover clients use the FastAPI backend. Backend routes now also cover persisted text chat, blocks/reports, image posts/statuses, session management, privacy-request queues, wallet/gift ledgers, and wallet-funded VIP subscriptions. Frontend adapters for these newer routes have not all been switched over; many still use `mock-db.ts`. External wallet funding, payouts, call-credit billing, livestream transport, video uploads, chat attachments/realtime delivery, emergency SMS, and background processing are not production-ready and must fail closed rather than simulate success.
+
+This document remains the functional contract: it describes the data shapes, business rules, and edge cases that existing frontend components assume. The live backend support and provider gaps are summarized in [`backend/README.md`](../../backend/README.md).
 
 The mock layer lives in `frontend/src/lib/api/*.ts`. Each file below is both the mock implementation today and the target REST contract tomorrow. Every function is `async`, called from React Query hooks or event handlers, and returns/throws exactly what's described. Swap the body of each function for a real `fetch` call; keep the same function signature and return shape so none of the ~40 page/component files need to change.
 
@@ -194,7 +196,7 @@ Interest tag pool (`lib/constants/interests.ts`, 28 items) and `CATEGORY_CHIPS` 
 | `sendMessage(threadId, text, attachment?)` | `POST /chat/threads/:id/messages` | Updates the thread's `lastMessage`/`lastMessageAt` (shows `📎 filename` as the preview when it's an attachment-only message). Needs to be real-time (WebSocket/SSE) for the other party — the mock fakes this with a client-side timer (`simulateReply`), which real backend should NOT port; instead push the message to the real recipient's live session. |
 | `proposePaymentInChat(threadId, otherId, otherName, amountNaira)` → `DirectMessage` | `POST /chat/threads/:id/payment-proposals` | Thin wrapper: calls the same meetup-payment proposal flow as §6.5, then drops an embedded proposal card message (`paymentId` set, `text` is a human-readable summary) into the thread. |
 
-Chat should be a real-time surface in production (WebSocket), not polling — the frontend currently has no live chat transport since there's no real backend; design for push.
+The backend now persists text threads/messages and checks membership, verification, VIP access, and blocks. The frontend chat adapter is still mock-backed. Real-time delivery, attachment upload/access, and payment-proposal cards are not implemented; do not restore simulated replies as a substitute.
 
 ## 6. Business rules that span multiple features
 
@@ -238,6 +240,8 @@ This is the most stateful flow in the app and was deliberately redesigned mid-pr
 - `refundMeetupPayment(paymentId)` → only valid from `'held'`, **only the original payer** can call it. Returns funds to the payer, sets `status: 'refunded'`.
 - The mock's `simulateRecipientResponse(paymentId)` fakes the recipient's accept/decline (85% accept) on a timer since there's no second real account — **do not port this**; in production the recipient's own client calls accept/decline for real, and that should push a notification/update to the payer's chat thread and the wallet page in real time.
 
+The backend does not yet expose meetup-payment endpoints. Keep this flow disabled until a real settled wallet ledger and its dispute/refund controls are available.
+
 Entry points in the UI: a "Propose a payment" button in the chat page (renders an inline Accept/Decline card via `DirectMessage.paymentId`), a matching button in the active call screen (enabled once `connected`), and a button on the profile detail page. All three call the same underlying `proposeMeetupPayment`.
 
 ### 6.6 Referrals & wallet bonuses (`lib/api/payout.ts`)
@@ -265,6 +269,8 @@ Women's profiles can mark individual videos `locked: true, priceNaira`. `unlockV
 
 The mock's `simulateJoinRequest`, `simulateIncomingGift`, `simulateIncomingMessage`, `simulateReceivedGift` (livestream/wallet) exist purely to make the solo-account demo feel alive — **none of this ported**; real multi-user rooms replace all of it with genuine events from other connected clients.
 
+Backend status: wallet balance/transaction reads and gift catalog, inventory, send, receive, and redemption use the persistent ledger. Gift sending records the recipient's received gift and redemption credits the recipient once. Livestream and realtime APIs remain unavailable; the mock adapter is not wired to these backend routes.
+
 ## 8. VIP subscription (`lib/api/subscription.ts`)
 
 | Function | Endpoint | Notes |
@@ -272,7 +278,7 @@ The mock's `simulateJoinRequest`, `simulateIncomingGift`, `simulateIncomingMessa
 | `getSubscriptionStatus()` → `{ tier, expiresAt? }` | `GET /subscriptions/me` | If `vipExpiresAt` is in the past, report `tier: 'free'` even if the stored profile still says `'vip'` — **lazy expiry check, not a cron**; real backend can do either (lazy check or a scheduled downgrade job) but must give the same answer. |
 | `subscribeToVip(planId)` → `{ tier: 'vip', expiresAt }` | `POST /subscriptions` | Unknown plan → `PLAN_NOT_FOUND`. No profile → `NO_PROFILE`. Insufficient balance → `INSUFFICIENT_BALANCE`. **Stacks**: if already VIP and not yet expired, the new duration extends from the *current* `vipExpiresAt`, not from now. Debits wallet at plan price, logs a `vip-subscription` transaction. |
 
-Real payment: this currently debits the mock in-app wallet, which itself is only funded by a `fundWallet(amountNaira)` mock top-up with no real payment rail behind it yet (see §10 — real payment provider integration is entirely backend/provider work, not yet modeled here beyond "wallet balance goes up/down").
+The backend exposes the plan catalog and current subscription status and debits an already-settled internal wallet balance for purchases. External wallet funding is not implemented, so the current frontend purchase still uses its mock wallet and should not be presented as a production payment flow.
 
 ## 9. Identity verification (new `/settings/verification` feature)
 
@@ -285,10 +291,12 @@ Not its own API file yet — reads/writes land on `OwnProfile` fields directly v
 
 Be precise about this boundary when scoping backend work:
 
-- **Real-money rails are entirely unbuilt.** `fundWallet(amountNaira)` in `lib/api/wallet.ts` just adds to a number in `sessionStorage` — there is no payment provider integration anywhere in the frontend. The backend engineer owns choosing and integrating a real Nigerian payment provider (Paystack/Flutterwave-class) for wallet funding, and a real payout rail for `requestPayout`.
-- **Naira amounts are plain JS numbers** (`amountNaira: number`) throughout — no currency-minor-unit (kobo) convention established yet in the frontend types. Decide and document the convention (e.g. "all API amounts are kobo integers") before wiring the real payment provider, since providers like Paystack bill in kobo.
-- Everything else monetary (gifts, VIP, video unlocks, meetup escrow, payouts) is modeled as debits/credits against a single wallet balance (`walletStore.balanceNaira`) with a running `WalletTransaction` ledger (`listTransactions()`), already typed via `WalletTransactionType`. Keep the same transaction-type taxonomy so the wallet/transactions page doesn't need client changes.
+- **External real-money rails are not implemented.** `fundWallet(amountNaira)` in `lib/api/wallet.ts` remains a mock; the backend's `POST /wallet/top-ups` fails closed until a payment provider and verified settlement webhook exist. A real payout rail is also still required for `requestPayout`.
+- **Internal ledger unit:** wallet and catalog amounts are stored as integer kobo in the backend. Existing API responses use whole-naira display values to preserve the frontend contract; provider adapters must convert to/from kobo explicitly and must never credit a wallet from an unverified client callback.
+- Gifts and VIP now use the backend wallet ledger. Video unlocks, meetup escrow, and payouts remain unavailable. Keep the existing transaction-type taxonomy when wiring the client wallet so the wallet/transactions page remains compatible.
 - `getBankAccount()` / `saveBankAccount(account: BankAccount)` (`lib/api/payout.ts`) — a single bank account per user today (`BankAccount: { bankName, accountNumber, accountName }`), validated non-empty only (`INVALID_BANK_ACCOUNT`) — no real bank-account-number validation (e.g. NUBAN checksum) yet; consider adding it server-side.
+
+Backend status: wallet balances and ledger transactions are persisted, but `POST /wallet/top-ups` returns `503` until verified provider settlement exists. Payout, bank-account, and referral endpoints are not implemented; do not wire the mock payout or referral actions as successful backend operations.
 
 ## 11. Safety (`lib/api/safety.ts`)
 
@@ -300,6 +308,8 @@ Be precise about this boundary when scoping backend work:
 | `listSafetyCheckIns()` / `notifyEmergencyContacts(message, locationLink?)` | `GET /safety/check-ins`, `POST /safety/check-ins` | **No real SMS/call goes out from the frontend today** — this needs a real provider (e.g. Termii, as noted in `architecture.md`) wired in on the backend. `NO_CONTACTS` if the user has none saved yet. |
 | `getCurrentLocationLink()` → Google-Maps link or `null` | n/a (pure browser Geolocation wrapper, client-side only) | Produces `https://maps.google.com/?q=lat,lng` from the browser's geolocation API; resolves `null` on denial/failure/no support. This one is genuinely client-only — nothing to port, but note that a raw lat/lng link is being sent to emergency contacts verbatim; confirm that's the intended precision/privacy tradeoff for a safety feature (architecture.md's privacy baseline says minimize precise location exposure — this flow is a deliberate, consented exception since the user is actively requesting help, but flag it explicitly if backend/legal wants a different approach).
 
+Backend status: blocks and reports are persisted, blocks affect discovery immediately, and safety-reviewer admin endpoints expose/resolve the moderation queue. Emergency contacts are persisted. Check-in history is readable, but a check-in POST returns `503` until an SMS provider is configured; no contact is represented as notified when no SMS was sent. The frontend safety adapter still needs wiring to these endpoints.
+
 ## 12. Settings (`lib/api/settings.ts`)
 
 | Function | Endpoint | Notes |
@@ -308,6 +318,8 @@ Be precise about this boundary when scoping backend work:
 | `listSessions()` / `revokeSession(id)` | `GET /settings/sessions`, `DELETE /settings/sessions/:id` | Device/session list (`DeviceSession: { id, device, lastActive, current }`) — real version needs actual multi-device session tracking tied to the auth/session system in §3. |
 | `requestDataExport()` | `POST /settings/data-export` | Currently a no-op delay; real version is a GDPR/NDPR-style data export job. |
 | `requestAccountDeletion()` | `POST /settings/account/delete` | Currently a no-op delay; needs a real deletion/anonymization pipeline per `architecture.md`'s privacy baseline. |
+
+Backend status: password changes and session revocation are implemented. Export and account deletion requests are durably queued, and deletion immediately revokes active sessions; a worker still needs to generate exports, delete/anonymize records, and clean up private media. The frontend adapter is not yet wired.
 
 ## 13. Posts & status (`lib/api/posts.ts`, `lib/api/status.ts`)
 
@@ -318,9 +330,11 @@ Be precise about this boundary when scoping backend work:
 | `listNearbyStatuses()` → `Status[]` | `GET /statuses/nearby` | 24-hour-style ephemeral media feed (seed data doesn't currently model expiry — add TTL/expiry server-side if that's the intended semantics). |
 | `createStatus(file)` → `Status` | `POST /statuses` (multipart) | Video statuses capped at **50 seconds** (`MAX_STATUS_VIDEO_SECONDS`), checked client-side via `<video>` duration before upload — **re-validate server-side**, don't trust the client check. `STATUS_VIDEO_TOO_LONG` if over. |
 
+Backend status: own-post CRUD and nearby image-status reads are implemented. Post media must belong to the author; video posts and video statuses are disabled until validated video storage/processing is configured. Image statuses expire after 24 hours. Frontend post/status adapters remain mock-backed.
+
 ## 14. Presence (`lib/api/presence.ts`)
 
-`getPresence(authorId)` → `{ hasStatus, isLive, streamId? }` — synchronous, purely derived (checks whether the account has an active status or an active livestream). Backs the live/status ring decoration on every avatar across the app. Real version is likely a lightweight presence/cache lookup (Redis-backed, per `architecture.md`), not a full query, since it's called for every avatar rendered on screen.
+`getPresence(authorId)` → `{ hasStatus, isLive, streamId? }` — currently mock-backed in the frontend. The backend has `GET /presence/{author_id}` for persisted status presence; it reports `isLive: false` until livestream transport/presence exists. Consider Redis only after measured load justifies it.
 
 ## 15. Routes (for reference — confirms which pages need which data)
 
@@ -354,4 +368,4 @@ These are frontend-enforced today and may need backend-side policy decisions, no
 3. **Meetup payments only flow man → woman** — confirmed as the current product rule.
 4. **Referral bonus credits the new signer-upper, not the referrer** — confirm this is the intended mechanic.
 5. **Raw lat/lng Google Maps link sent to emergency contacts** — confirm the precision tradeoff (see §11) is acceptable for the real safety feature, given `architecture.md`'s general location-minimization guidance.
-6. **Naira amounts have no defined minor-unit convention yet** — must be settled before integrating a real payment provider (see §10).
+6. **Referral policy remains unresolved** — confirm whether a referral reward should benefit the new signer-upper, the referrer, or both before implementing any credits. The backend stores monetary values in kobo and exposes existing API display values in whole naira; provider integrations must convert explicitly.

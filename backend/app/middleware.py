@@ -44,6 +44,7 @@ _SECURITY_HEADERS = (
     (b"referrer-policy", b"no-referrer"),
     (b"cache-control", b"no-store"),
 )
+MAX_CHAT_ATTACHMENT_REQUEST_BYTES = 25 * 1024 * 1024 + 65_536
 
 
 class RequestTooLarge(Exception):
@@ -84,11 +85,12 @@ class ApiHardeningMiddleware:
                 message["headers"] = headers
             await send(message)
 
-        route_max_bytes = (
-            self.max_upload_bytes
-            if scope.get("method") == "POST" and scope.get("path") in {"/media/photos", "/media/documents"}
-            else self.max_request_bytes
-        )
+        if scope.get("method") == "POST" and scope.get("path") == "/chat/attachments":
+            route_max_bytes = MAX_CHAT_ATTACHMENT_REQUEST_BYTES
+        elif scope.get("method") == "POST" and scope.get("path") in {"/media/photos", "/media/documents"}:
+            route_max_bytes = self.max_upload_bytes
+        else:
+            route_max_bytes = self.max_request_bytes
         content_length = next(
             (value for key, value in scope.get("headers", []) if key.lower() == b"content-length"),
             None,

@@ -55,7 +55,7 @@ def _visible_profile_rows(
                        p.latitude, p.longitude, p.live_latitude, p.live_longitude,
                        p.location_shared_at, p.interests, p.discoverable_by,
                        p.wants_to_discover, p.identity, p.show_identity,
-                       p.subscription_tier, p.created_at, p.demo_cohort_id
+                       p.subscription_tier, p.vip_expires_at, p.created_at, p.demo_cohort_id
                 FROM profiles p
                 JOIN accounts a ON a.id = p.account_id
                 WHERE a.id != :viewer_id
@@ -64,6 +64,11 @@ def _visible_profile_rows(
                   AND p.moderation_status = 'approved'
                   AND p.document_verification = 'verified'
                   AND (:include_demo_profiles = TRUE OR p.demo_cohort_id IS NULL)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM safety_blocks b
+                      WHERE (b.blocker_id = :viewer_id AND b.blocked_id = a.id)
+                         OR (b.blocker_id = a.id AND b.blocked_id = :viewer_id)
+                  )
                   AND (
                       p.discoverable_by = 'everyone'
                       OR (:viewer_audience IS NOT NULL AND p.discoverable_by = :viewer_audience)
@@ -89,6 +94,15 @@ def _parse_json_list(value: Any) -> list[Any]:
 
 def _parse_date(value: date | str) -> date:
     return value if isinstance(value, date) else date.fromisoformat(value)
+
+
+def _effective_subscription_tier(tier: str, expires_at: datetime | str | None) -> str:
+    if tier != "vip" or expires_at is None:
+        return tier
+    expiry = expires_at if isinstance(expires_at, datetime) else datetime.fromisoformat(expires_at)
+    if expiry.tzinfo is not None:
+        expiry = expiry.astimezone(timezone.utc).replace(tzinfo=None)
+    return "free" if expiry <= datetime.now(timezone.utc).replace(tzinfo=None) else "vip"
 
 
 def _current_age(birth_date: date | str) -> int:
@@ -164,7 +178,7 @@ def _member_profile(
         wants_to_discover=row["wants_to_discover"],
         identity=row["identity"],
         show_identity=bool(row["show_identity"]),
-        subscription_tier=row["subscription_tier"],
+        subscription_tier=_effective_subscription_tier(row["subscription_tier"], row["vip_expires_at"]),
         is_demo=row["demo_cohort_id"] is not None,
     )
 
@@ -173,7 +187,7 @@ def _viewer_profile(db: Session, account_id: str) -> dict[str, Any]:
     row = db.execute(
         text(
             """
-            SELECT identity, subscription_tier, latitude, longitude
+            SELECT identity, subscription_tier, vip_expires_at, latitude, longitude
             FROM profiles
             WHERE account_id = :account_id
             """
@@ -182,7 +196,12 @@ def _viewer_profile(db: Session, account_id: str) -> dict[str, Any]:
     ).mappings().first()
     if row is None:
         raise ApiException("NO_PROFILE", "Finish onboarding to create your profile.", 404)
-    return dict(row)
+    profile = dict(row)
+    profile["subscription_tier"] = _effective_subscription_tier(
+        profile["subscription_tier"],
+        profile["vip_expires_at"],
+    )
+    return profile
 
 
 def _require_discovery_ready(account: IdentityVerifiedAccount) -> None:
@@ -490,7 +509,9 @@ def get_discovery_feed(
                 origin_longitude,
             )
         viewer_is_vip = viewer["subscription_tier"] == "vip"
-        target_is_vip = row["subscription_tier"] == "vip"
+        target_is_vip = (
+            _effective_subscription_tier(row["subscription_tier"], row["vip_expires_at"]) == "vip"
+        )
         distance_waived = viewer_is_vip and target_is_vip
         if (
             max_distance_km is not None
