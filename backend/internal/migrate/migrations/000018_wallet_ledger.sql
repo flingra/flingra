@@ -4,7 +4,7 @@ CREATE TABLE wallet_accounts (
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_wallet_accounts_account
         FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE wallet_transactions (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -17,7 +17,7 @@ CREATE TABLE wallet_transactions (
     CONSTRAINT fk_wallet_transactions_account
         FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_wallet_transactions_account_created (account_id, created_at, id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE gift_catalog (
     id VARCHAR(40) NOT NULL PRIMARY KEY,
@@ -25,7 +25,7 @@ CREATE TABLE gift_catalog (
     emoji VARCHAR(16) NOT NULL,
     price_kobo BIGINT UNSIGNED NOT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO gift_catalog (id, name, emoji, price_kobo, active) VALUES
     ('rose', 'Rose', '🌹', 50000, TRUE),
@@ -42,7 +42,7 @@ CREATE TABLE gift_inventory (
         FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE,
     CONSTRAINT fk_gift_inventory_type
         FOREIGN KEY (gift_type_id) REFERENCES gift_catalog (id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE received_gifts (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -59,4 +59,4 @@ CREATE TABLE received_gifts (
     CONSTRAINT fk_received_gifts_type
         FOREIGN KEY (gift_type_id) REFERENCES gift_catalog (id) ON DELETE RESTRICT,
     KEY ix_received_gifts_recipient_created (recipient_id, created_at, id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

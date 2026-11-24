@@ -8,7 +8,7 @@ CREATE TABLE safety_blocks (
     CONSTRAINT fk_safety_blocks_blocked
         FOREIGN KEY (blocked_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_safety_blocks_blocked (blocked_id, blocker_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE safety_reports (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -25,7 +25,7 @@ CREATE TABLE safety_reports (
         FOREIGN KEY (target_account_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_safety_reports_status_created (status, created_at, id),
     KEY ix_safety_reports_target_created (target_account_id, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE moderation_review_requests (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -41,7 +41,7 @@ CREATE TABLE moderation_review_requests (
     CONSTRAINT fk_moderation_review_target
         FOREIGN KEY (target_account_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_moderation_review_status_created (status, created_at, id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE emergency_contacts (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -53,7 +53,7 @@ CREATE TABLE emergency_contacts (
     CONSTRAINT fk_emergency_contacts_account
         FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_emergency_contacts_account (account_id, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE safety_check_ins (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -65,7 +65,7 @@ CREATE TABLE safety_check_ins (
     CONSTRAINT fk_safety_check_ins_account
         FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_safety_check_ins_account_created (account_id, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE chat_threads (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -78,7 +78,7 @@ CREATE TABLE chat_threads (
     CONSTRAINT fk_chat_threads_b FOREIGN KEY (participant_b_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_chat_threads_a_last (participant_a_id, last_message_at),
     KEY ix_chat_threads_b_last (participant_b_id, last_message_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE chat_messages (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -91,7 +91,7 @@ CREATE TABLE chat_messages (
     CONSTRAINT fk_chat_messages_thread FOREIGN KEY (thread_id) REFERENCES chat_threads (id) ON DELETE CASCADE,
     CONSTRAINT fk_chat_messages_author FOREIGN KEY (author_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_chat_messages_thread_created (thread_id, created_at, id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE member_posts (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -102,7 +102,7 @@ CREATE TABLE member_posts (
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_member_posts_author FOREIGN KEY (author_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_member_posts_author_created (author_id, created_at, id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE member_statuses (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -114,7 +114,7 @@ CREATE TABLE member_statuses (
     CONSTRAINT fk_member_statuses_author FOREIGN KEY (author_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_member_statuses_expiry_created (expires_at, created_at, id),
     KEY ix_member_statuses_author_expiry (author_id, expires_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE privacy_requests (
     id CHAR(32) NOT NULL PRIMARY KEY,
@@ -124,4 +124,4 @@ CREATE TABLE privacy_requests (
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_privacy_requests_account FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE,
     KEY ix_privacy_requests_account_type_created (account_id, request_type, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
