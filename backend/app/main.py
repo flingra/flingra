@@ -8,10 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import Settings, get_settings
-from app.database import check_database
+from app.database import check_database, get_engine
 from app.errors import ApiException, ServiceUnavailable
+from app.migrate import run_configured_migrations
 from app.middleware import ApiHardeningMiddleware, RedisRateLimitMiddleware
 from app.routes.auth import router as auth_router
 from app.routes.admin import router as admin_router
@@ -25,14 +27,31 @@ logger = logging.getLogger("uvicorn.error")
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or get_settings()
 
+    def apply_pending_migrations() -> list[str]:
+        if get_engine(app_settings).dialect.name == "mysql":
+            return run_configured_migrations(app_settings)
+        return []
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        application.state.database_schema_ready = None
         try:
             check_database(app_settings)
         except ServiceUnavailable as exc:
             logger.error("Database connection check failed: %s", exc.message)
         else:
             logger.info("Database connection check succeeded.")
+            try:
+                applied = apply_pending_migrations()
+            except (OSError, RuntimeError, SQLAlchemyError):
+                application.state.database_schema_ready = False
+                logger.exception("Database schema migration failed.")
+            else:
+                application.state.database_schema_ready = True
+                if applied:
+                    logger.info("Applied %d database migration(s).", len(applied))
+                elif get_engine(app_settings).dialect.name == "mysql":
+                    logger.info("Database schema is up to date.")
         redis_client = application.state.rate_limit_redis
         if app_settings.rate_limiting_enabled:
             if redis_client is None:
@@ -121,6 +140,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @application.get("/health/ready", tags=["health"])
     async def ready() -> dict[str, str]:
         check_database(app_settings)
+        if application.state.database_schema_ready is None:
+            try:
+                applied = apply_pending_migrations()
+            except (OSError, RuntimeError, SQLAlchemyError) as exc:
+                application.state.database_schema_ready = False
+                logger.exception("Database schema migration failed.")
+                raise ServiceUnavailable("Database schema is not ready.") from exc
+            else:
+                application.state.database_schema_ready = True
+                if applied:
+                    logger.info("Applied %d database migration(s).", len(applied))
+        if not application.state.database_schema_ready:
+            raise ServiceUnavailable("Database schema is not ready.")
         if app_settings.rate_limiting_enabled:
             redis_client = application.state.rate_limit_redis
             if redis_client is None:

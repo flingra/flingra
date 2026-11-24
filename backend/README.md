@@ -66,7 +66,20 @@ deployed environment. When running behind a reverse proxy, configure Uvicorn's
 `--proxy-headers` and `--forwarded-allow-ips` only for the actual proxy addresses
 so clients cannot spoof the IP used by rate limits.
 
-Apply the SQL migrations once after configuring the database:
+The API automatically applies pending SQL migrations during startup when the
+MySQL database is reachable. Applied filenames are recorded in
+`schema_migrations`, and a MySQL advisory lock prevents app workers from
+applying the same migration concurrently. If migration setup fails, the API
+still starts for liveness checks, but `/health/ready` returns `503`.
+
+For production, configure `FLINGRA_MIGRATION_DATABASE_URL` with a dedicated
+database account that has the required DDL permissions. The app uses that
+connection only while applying migrations; regular requests continue using
+`FLINGRA_DATABASE_URL` or the `FLINGRA_DB_*` settings. Without a separate
+migration URL, startup uses the runtime database account, which must then have
+DDL permissions.
+
+You can also apply migrations explicitly after configuring the database:
 
 ```sh
 python -m app.migrate
@@ -80,7 +93,7 @@ database provider does not grant these privileges to the application user, set
 have the database administrator apply the SQL migrations. Do not grant the
 runtime account broad DDL privileges just to make the application start.
 
-The migration command applies the existing account/session migrations, the
+The migration runner applies the existing account/session migrations, the
 forward migration aligning account identifiers, genders, and profiles with the
 frontend contract, the migration removing facial-verification data, and the
 media metadata, admin/audit, and Google-account-link migrations. It records applied migration
@@ -97,10 +110,10 @@ python -m uvicorn app.main:app --reload
 ```
 
 `GET /health/live` checks that the process is running. `GET /health/ready`
-checks that the database is configured and reachable. Database migrations must be
-applied before feature endpoints are enabled. On startup, the Uvicorn terminal
-logs whether the database connection check succeeded or failed; the API still
-starts if the database is unavailable so the process liveness endpoint remains usable.
+checks that the database is configured, reachable, and its migrations have
+completed. On startup, the Uvicorn terminal logs database connection and
+migration results; the API still starts if the database is unavailable so the
+process liveness endpoint remains usable.
 
 ## Current scope
 
