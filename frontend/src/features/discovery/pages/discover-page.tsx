@@ -236,7 +236,14 @@ export function DiscoverPage() {
 
   function resetAll() {
     setActiveCategories([])
+    setLocationEnabled(false)
+    setUserLocation(null)
     applyFilters(DEFAULT_FILTERS)
+  }
+
+  function clearInterestFilters() {
+    setActiveCategories([])
+    applyFilters({ ...filters, interests: [] })
   }
 
   function toggleDistanceFilter() {
@@ -517,9 +524,17 @@ export function DiscoverPage() {
         {!isLoading && !isError && items.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/80 p-6">
             <EmptyState
-              title="No matches yet"
-              description="Try a different category or widen your filters."
-              action={{ label: 'Reset filters', onClick: resetAll }}
+              title={allItems.length > 0 ? 'No profiles match these interests' : 'No matches yet'}
+              description={
+                allItems.length > 0
+                  ? 'Clear the interest filters to see all profiles matching your other preferences.'
+                  : 'Try Show me: Everyone, widen the age or distance range, or reset filters to start fresh.'
+              }
+              action={
+                allItems.length > 0
+                  ? { label: 'Clear interest filters', onClick: clearInterestFilters }
+                  : { label: 'Reset all filters', onClick: resetAll }
+              }
             />
           </div>
         )}
