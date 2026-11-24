@@ -30,7 +30,7 @@ import {
   searchLocations,
   type LocationSearchResult,
 } from '@/lib/location'
-import { OpenStreetMapView } from '@/features/discovery/components/google-map-view'
+import { OpenStreetMapView } from '@/features/discovery/components/open-street-map-view'
 import { LocationAccessDialog } from '@/features/discovery/components/location-access-dialog'
 
 interface Draft {

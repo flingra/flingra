@@ -45,10 +45,10 @@ Optional settings include:
   environment to make explicitly tagged synthetic Discover profiles visible.
 - `FLINGRA_MAX_REQUEST_BYTES` — maximum API request body (defaults to 1 MiB).
 - `FLINGRA_GOOGLE_CLIENT_ID` — Google OAuth Web client ID used to verify
-  Google Identity Services ID tokens. Add the same client ID to the authorized
+  Google Identity Services ID tokens. Add the frontend origin to this OAuth
+  client's Authorized JavaScript origins in Google Cloud Console.
 - `FLINGRA_OPENCAGE_API_KEY` — server-side OpenCage reverse-geocoding key used
-  to turn private browser coordinates into an approximate display area. Add the same client ID to the authorized
-  JavaScript origins in Google Cloud Console.
+  to turn private browser coordinates into an approximate display area.
 - `FLINGRA_BREVO_API_KEY` — secret API key for Brevo transactional email.
 - `FLINGRA_BREVO_SENDER_EMAIL` — a verified sender address in Brevo.
 - `FLINGRA_BREVO_SENDER_NAME` — optional sender display name.

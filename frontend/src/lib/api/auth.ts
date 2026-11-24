@@ -73,9 +73,18 @@ interface GoogleIdentityServices {
         auto_select?: boolean
         cancel_on_tap_outside?: boolean
       }): void
-      prompt(listener: (notification: { isNotDisplayed(): boolean; isSkippedMoment(): boolean }) => void): void
+      prompt(listener: (notification: GooglePromptNotification) => void): void
     }
   }
+}
+
+interface GooglePromptNotification {
+  isNotDisplayed(): boolean
+  isSkippedMoment(): boolean
+  isDismissedMoment(): boolean
+  getNotDisplayedReason(): string
+  getSkippedReason(): string
+  getDismissedReason(): string
 }
 
 declare global {
@@ -94,6 +103,51 @@ interface GoogleAuthInput {
 function googleNonce(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24))
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function googlePromptError(notification: GooglePromptNotification): ApiError {
+  if (notification.isNotDisplayed()) {
+    const reason = notification.getNotDisplayedReason()
+    if (reason === 'unregistered_origin') {
+      return new ApiError(
+        'GOOGLE_ORIGIN_NOT_ALLOWED',
+        'Google sign-in is not enabled for this website. Add this site to the OAuth client’s Authorized JavaScript origins.',
+      )
+    }
+    if (reason === 'invalid_client') {
+      return new ApiError(
+        'GOOGLE_CLIENT_MISCONFIGURED',
+        'Google sign-in is not configured correctly for this environment.',
+      )
+    }
+    if (reason === 'browser_not_supported') {
+      return new ApiError(
+        'GOOGLE_BROWSER_UNSUPPORTED',
+        'Google sign-in is not supported in this browser. Try a current browser or use email and password.',
+      )
+    }
+    return new ApiError(
+      'GOOGLE_PROMPT_NOT_DISPLAYED',
+      'Google sign-in could not display its prompt. Check the OAuth client’s authorized website origins, or use email and password.',
+    )
+  }
+
+  const reason = notification.isSkippedMoment()
+    ? notification.getSkippedReason()
+    : notification.getDismissedReason()
+  if (reason === 'user_cancel' || reason === 'tap_outside') {
+    return new ApiError('GOOGLE_CANCELLED', 'Google sign-in was cancelled. Try again or use email and password.')
+  }
+  if (reason === 'auto_cancel') {
+    return new ApiError('GOOGLE_PROMPT_TIMEOUT', 'Google sign-in timed out. Try again or use email and password.')
+  }
+  if (reason === 'issuppressed_by_user') {
+    return new ApiError(
+      'GOOGLE_PROMPT_SUPPRESSED',
+      'The Google sign-in prompt is suppressed by browser settings. Try again or use email and password.',
+    )
+  }
+  return new ApiError('GOOGLE_SIGN_IN_INCOMPLETE', 'Google sign-in did not finish. Try again or use email and password.')
 }
 
 let googleScriptPromise: Promise<void> | null = null
@@ -142,9 +196,14 @@ async function getGoogleCredential(): Promise<{ credential: string; nonce: strin
       },
     })
     google.accounts.id.prompt((notification) => {
-      if (!settled && (notification.isNotDisplayed() || notification.isSkippedMoment())) {
+      if (
+        !settled &&
+        (notification.isNotDisplayed() ||
+          notification.isSkippedMoment() ||
+          notification.isDismissedMoment())
+      ) {
         settled = true
-        reject(new ApiError('GOOGLE_CANCELLED', 'Google sign-in was cancelled.'))
+        reject(googlePromptError(notification))
       }
     })
   })

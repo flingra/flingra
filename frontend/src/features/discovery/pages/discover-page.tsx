@@ -32,7 +32,7 @@ import { useSessionStore } from '@/lib/stores/session-store'
 import { getCurrentLocation, searchLocations, type CurrentLocation, type LocationSearchResult } from '@/lib/location'
 import { CircleCard } from '../components/circle-card'
 import { FiltersDrawer } from '../components/filters-drawer'
-import { GoogleMapView, OpenStreetMapView, isGoogleMapsConfigured } from '../components/google-map-view'
+import { GoogleMapView, isGoogleMapsConfigured } from '../components/google-map-view'
 import { LocationAccessDialog } from '../components/location-access-dialog'
 
 const CATEGORY_CHIPS = [
@@ -500,13 +500,11 @@ export function DiscoverPage() {
             userLocation={userLocation}
           />
         ) : (
-          <OpenStreetMapView
-            profiles={items}
-            highlightedId={items[0]?.id}
-            center={activeMapCenter}
-            userLocation={userLocation ?? undefined}
-            locationLabel={activeMapLocationLabel}
-          />
+          <div className="flex size-full items-center justify-center bg-ink-100 p-6 text-center">
+            <p className="max-w-sm text-sm font-medium text-ink-600" role="status">
+              Google Maps is not configured for this environment.
+            </p>
+          </div>
         )}
 
         {isLoading && cursor === 0 && (
