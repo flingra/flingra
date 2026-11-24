@@ -116,5 +116,5 @@ export function OpenStreetMapView({
     }
   }, [profiles, highlightedId, useMyLocation, center, zoom, userLocation, locationLabel])
 
-  return <div ref={mapContainerRef} className="size-full bg-ink-100" role="img" aria-label="Read-only map preview" />
+  return <div ref={mapContainerRef} className="size-full bg-ink-100" role="img" aria-label="" />
 }

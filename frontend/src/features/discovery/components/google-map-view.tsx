@@ -106,7 +106,7 @@ export function GoogleMapView({
 
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
-      <div className="size-full" role="img" aria-label="Read-only map showing approximate member locations">
+      <div className="size-full" role="img" aria-label="">
         <Map
           mapId={GOOGLE_MAPS_MAP_ID}
           center={mapCenter}

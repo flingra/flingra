@@ -522,7 +522,7 @@ export function OnboardingPage() {
           {locationError && <p className="text-sm text-ink-500" role="status">{locationError}</p>}
 
           <div>
-            <p className="mb-2 text-xs font-medium text-ink-500">Read-only map preview of the selected area</p>
+            <p className="mb-2 text-xs font-medium text-ink-500"></p>
             <div className="h-52 overflow-hidden rounded-2xl border border-ink-100">
               <OpenStreetMapView
                 center={draft.latitude !== null && draft.longitude !== null
