@@ -155,6 +155,47 @@ class OwnProfileResponse(BaseModel):
         default=None, serialization_alias="documentType"
     )
     vip_expires_at: datetime | None = Field(default=None, serialization_alias="vipExpiresAt")
+    location_sharing_enabled: bool = Field(
+        default=False,
+        serialization_alias="locationSharingEnabled",
+    )
+
+
+class DiscoveryProfileResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    display_name: str = Field(serialization_alias="displayName")
+    bio: str
+    photos: list[str]
+    videos: list[ProfileVideo] | None = None
+    age_range: str = Field(serialization_alias="ageRange")
+    area: str
+    latitude: float | None = None
+    longitude: float | None = None
+    distance_km: float | None = Field(serialization_alias="distanceKm")
+    interests: list[str]
+    discoverable_by: AudiencePreference = Field(serialization_alias="discoverableBy")
+    wants_to_discover: AudiencePreference = Field(serialization_alias="wantsToDiscover")
+    identity: Literal["man", "woman", "private"]
+    show_identity: bool = Field(serialization_alias="showIdentity")
+    subscription_tier: Literal["free", "vip"] = Field(serialization_alias="subscriptionTier")
+
+
+class LiveLocationUpdate(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class LocationSharingResponse(BaseModel):
+    location_sharing_enabled: bool = Field(serialization_alias="locationSharingEnabled")
+
+
+class DiscoveryFeedResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    items: list[DiscoveryProfileResponse]
+    next_cursor: int | None = Field(serialization_alias="nextCursor")
 
 
 class OwnProfilePatch(BaseModel):

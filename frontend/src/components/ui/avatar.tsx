@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { resolveMediaUrl } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 
 interface AvatarProps {
@@ -38,7 +39,7 @@ export function Avatar({ src, name, size = 'md', className }: AvatarProps) {
     >
       {showImage ? (
         <img
-          src={src}
+          src={resolveMediaUrl(src)}
           alt=""
           className="size-full object-cover"
           onError={() => setFailed(true)}

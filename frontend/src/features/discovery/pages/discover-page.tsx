@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDown,
   MapPin,
@@ -20,7 +20,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState, ErrorState } from '@/components/ui/state-message'
-import { DEFAULT_FILTERS, getDiscoveryFeed } from '@/lib/api/profiles'
+import {
+  DEFAULT_FILTERS,
+  getDiscoveryFeed,
+  getOwnProfile,
+  publishCurrentLocation,
+  stopLocationSharing,
+} from '@/lib/api/profiles'
 import type { DiscoveryFilters, MemberProfile } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
 import { getCurrentLocation, searchLocations, type CurrentLocation, type LocationSearchResult } from '@/lib/location'
@@ -44,6 +50,7 @@ const CATEGORY_CHIPS = [
 
 export function DiscoverPage() {
   const session = useSessionStore((state) => state.session)
+  const queryClient = useQueryClient()
   const [filters, setFilters] = useState<DiscoveryFilters>(DEFAULT_FILTERS)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [locationEnabled, setLocationEnabled] = useState(false)
@@ -58,6 +65,13 @@ export function DiscoverPage() {
   const [locationError, setLocationError] = useState<string | null>(null)
   const [locationDialogOpen, setLocationDialogOpen] = useState(false)
   const [locationRequestMessage, setLocationRequestMessage] = useState<string | null>(null)
+  const [sharingLocation, setSharingLocation] = useState(false)
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [shareLocating, setShareLocating] = useState(false)
+  const [shareLocationMessage, setShareLocationMessage] = useState<string | null>(null)
+  const locationWatchId = useRef<number | null>(null)
+  const lastLocationPublishedAt = useRef(0)
+  const sharingLocationRef = useRef(false)
   const [mapCenter, setMapCenter] = useState<[number, number]>([6.4698, 3.5852])
   const [mapLocationLabel, setMapLocationLabel] = useState('Lekki, Lagos')
   const [locationSearchLocked, setLocationSearchLocked] = useState(false)
@@ -70,6 +84,11 @@ export function DiscoverPage() {
     [mapCenter, userLocation],
   )
   const activeMapLocationLabel = userLocation ? 'Your location' : mapLocationLabel
+  const { data: ownProfile } = useQuery({
+    queryKey: ['own-profile'],
+    queryFn: getOwnProfile,
+    retry: false,
+  })
 
   useEffect(() => {
     if (locationSearchLocked) return
@@ -110,8 +129,23 @@ export function DiscoverPage() {
   }, [locationSearch, locationSearchLocked])
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ['discover', effectiveFilters, userLocation?.latitude, userLocation?.longitude, cursor],
-    queryFn: () => getDiscoveryFeed(effectiveFilters, cursor, userLocation ?? undefined),
+    queryKey: [
+      'discover',
+      effectiveFilters,
+      activeMapCenter[0],
+      activeMapCenter[1],
+      locationEnabled,
+      cursor,
+    ],
+    queryFn: () =>
+      getDiscoveryFeed(
+        effectiveFilters,
+        cursor,
+        { latitude: activeMapCenter[0], longitude: activeMapCenter[1] },
+        locationEnabled,
+      ),
+    refetchInterval: cursor === 0 ? 30_000 : false,
+    refetchIntervalInBackground: false,
   })
 
   const allItems = useMemo(
@@ -125,6 +159,58 @@ export function DiscoverPage() {
         : allItems.filter((profile) => profile.interests.some((interest) => activeCategories.includes(interest))),
     [allItems, activeCategories],
   )
+
+  function watchSharedLocation() {
+    if (!navigator.geolocation || locationWatchId.current !== null) return
+    locationWatchId.current = navigator.geolocation.watchPosition(
+      ({ coords }) => {
+        const now = Date.now()
+        if (now - lastLocationPublishedAt.current < 30_000) return
+        lastLocationPublishedAt.current = now
+        void publishCurrentLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        })
+          .then(() => {
+            setShareLocationMessage(null)
+            void queryClient.invalidateQueries({ queryKey: ['discover'] })
+            void queryClient.invalidateQueries({ queryKey: ['own-profile'] })
+          })
+          .catch(() => {
+            setShareLocationMessage('Location updates are paused. Check your connection or turn sharing off.')
+          })
+      },
+      () => {
+        if (locationWatchId.current !== null) {
+          navigator.geolocation.clearWatch(locationWatchId.current)
+          locationWatchId.current = null
+        }
+        sharingLocationRef.current = false
+        setSharingLocation(false)
+        setShareLocationMessage('Live sharing paused. Turn it on again to resume location updates.')
+        void stopLocationSharing().catch(() => {
+          setShareLocationMessage('Sharing will expire automatically if location updates stop.')
+        })
+      },
+      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 30_000 },
+    )
+  }
+
+  useEffect(() => {
+    if (!ownProfile?.locationSharingEnabled || sharingLocationRef.current) return
+    sharingLocationRef.current = true
+    setSharingLocation(true)
+    lastLocationPublishedAt.current = 0
+    watchSharedLocation()
+  }, [ownProfile?.locationSharingEnabled])
+
+  useEffect(() => {
+    return () => {
+      if (locationWatchId.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(locationWatchId.current)
+      }
+    }
+  }, [])
 
   function applyFilters(next: DiscoveryFilters) {
     setFilters(next)
@@ -176,6 +262,55 @@ export function DiscoverPage() {
       setLocationRequestMessage('We couldn’t get a location fix this time. Try again or choose an area on the map.')
     } finally {
       setLocating(false)
+    }
+  }
+
+  function toggleLocationSharing() {
+    if (sharingLocation) {
+      void disableLocationSharing()
+      return
+    }
+    setShareLocationMessage(null)
+    setShareDialogOpen(true)
+  }
+
+  async function enableLocationSharing() {
+    setShareLocationMessage(null)
+    setShareLocating(true)
+    try {
+      const location = await getCurrentLocation()
+      await publishCurrentLocation(location)
+      sharingLocationRef.current = true
+      lastLocationPublishedAt.current = Date.now()
+      setSharingLocation(true)
+      setShareDialogOpen(false)
+      watchSharedLocation()
+      await queryClient.invalidateQueries({ queryKey: ['discover'] })
+      await queryClient.invalidateQueries({ queryKey: ['own-profile'] })
+    } catch {
+      setShareLocationMessage('Could not start location sharing. Try again or keep exploring by chosen area.')
+    } finally {
+      setShareLocating(false)
+    }
+  }
+
+  async function disableLocationSharing() {
+    setShareLocating(true)
+    if (locationWatchId.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(locationWatchId.current)
+      locationWatchId.current = null
+    }
+    sharingLocationRef.current = false
+    setSharingLocation(false)
+    try {
+      await stopLocationSharing()
+      setShareLocationMessage('Your live location is no longer shared.')
+      await queryClient.invalidateQueries({ queryKey: ['discover'] })
+      await queryClient.invalidateQueries({ queryKey: ['own-profile'] })
+    } catch {
+      setShareLocationMessage('Sharing will expire automatically if location updates stop.')
+    } finally {
+      setShareLocating(false)
     }
   }
 
@@ -248,6 +383,20 @@ export function DiscoverPage() {
         >
           <MapPin className="size-4" aria-hidden="true" /> {locating ? 'Locating…' : 'Distance'}
         </button>
+        <button
+          type="button"
+          onClick={toggleLocationSharing}
+          disabled={shareLocating}
+          aria-pressed={sharingLocation}
+          className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+            sharingLocation
+              ? 'border-primary-600 bg-primary-600 text-white'
+              : 'border-ink-200 bg-white text-ink-700 hover:border-ink-300'
+          }`}
+        >
+          <MapPin className="size-4" aria-hidden="true" />
+          {shareLocating ? 'Updating…' : sharingLocation ? 'Sharing location' : 'Share location'}
+        </button>
         {CATEGORY_CHIPS.map(({ interest, label, icon: Icon }) => (
           <button
             key={interest}
@@ -264,6 +413,9 @@ export function DiscoverPage() {
           </button>
         ))}
       </div>
+      {shareLocationMessage && (
+        <p className="mt-2 text-sm text-ink-500" role="status">{shareLocationMessage}</p>
+      )}
       <div className="relative mt-4 h-[70vh] min-h-[520px] w-full overflow-hidden rounded-[28px] border border-white/80 bg-ink-100 shadow-[10px_10px_30px_rgba(21,18,15,0.12),-8px_-8px_24px_rgba(255,255,255,0.95)] ring-1 ring-ink-900/5">
         <div className="absolute left-1/2 top-4 z-[1200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2">
           <form
@@ -402,6 +554,21 @@ export function DiscoverPage() {
         onChooseManually={() => {
           setLocationDialogOpen(false)
           setLocationRequestMessage(null)
+        }}
+      />
+      <LocationAccessDialog
+        open={shareDialogOpen}
+        locating={shareLocating}
+        message={shareLocationMessage}
+        title="Share your current location?"
+        description="People who discover profiles around your area can find you while sharing is on."
+        privacyMessage="Your exact coordinates are never shown. Others see an approximate area and distance. Sharing stops when you turn it off or location updates expire after 5 minutes."
+        actionLabel="Start sharing"
+        onClose={() => setShareDialogOpen(false)}
+        onAllow={() => void enableLocationSharing()}
+        onChooseManually={() => {
+          setShareDialogOpen(false)
+          setShareLocationMessage(null)
         }}
       />
     </div>

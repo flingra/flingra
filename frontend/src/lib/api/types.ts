@@ -27,7 +27,7 @@ export interface MemberProfile {
   area: string
   latitude?: number | null
   longitude?: number | null
-  distanceKm: number
+  distanceKm: number | null
   interests: string[]
   discoverableBy: AudiencePreference
   wantsToDiscover: AudiencePreference
@@ -48,6 +48,7 @@ export type VerificationDocumentType = 'NIN' | 'BVN' | 'voters-card'
 
 export interface OwnProfile extends MemberProfile {
   moderationStatus: 'approved' | 'pending' | 'rejected'
+  locationSharingEnabled?: boolean
   twoFactorEnabled?: boolean
   twoFactorMethod?: 'email' | 'authenticator'
   onboardingComplete?: boolean

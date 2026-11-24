@@ -18,7 +18,7 @@ from app.middleware import ApiHardeningMiddleware, RedisRateLimitMiddleware
 from app.routes.auth import router as auth_router
 from app.routes.admin import router as admin_router
 from app.routes.media import router as media_router
-from app.routes.profiles import router as profiles_router
+from app.routes.profiles import discovery_router, router as profiles_router
 from app.routes.location import router as location_router
 
 logger = logging.getLogger("uvicorn.error")
@@ -91,6 +91,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(auth_router)
     application.include_router(admin_router)
     application.include_router(profiles_router)
+    application.include_router(discovery_router)
     application.include_router(location_router)
     application.include_router(media_router)
 

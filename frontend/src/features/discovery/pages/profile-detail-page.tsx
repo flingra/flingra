@@ -24,7 +24,7 @@ import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { PageSpinner } from '@/components/ui/spinner'
 import { ErrorState } from '@/components/ui/state-message'
-import { getOwnProfile, getProfile } from '@/lib/api/profiles'
+import { getDiscoverableProfile, getOwnProfile } from '@/lib/api/profiles'
 import { blockMember } from '@/lib/api/safety'
 import { getOrCreateThread } from '@/lib/api/chat'
 import { isVideoUnlocked, proposeMeetupPayment, simulateRecipientResponse, unlockVideo } from '@/lib/api/wallet'
@@ -61,7 +61,7 @@ export function ProfileDetailPage() {
 
   const { data: profile, isLoading, isError, refetch } = useQuery({
     queryKey: ['profile', profileId],
-    queryFn: () => getProfile(profileId),
+    queryFn: () => getDiscoverableProfile(profileId),
   })
   const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
   const locked = !!profile && !canInteract(ownProfile, profile)

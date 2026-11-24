@@ -23,7 +23,7 @@ export function CircleCard({ profile, showDistance }: { profile: MemberProfile; 
           {profile.displayName}, {profile.ageRange}
         </p>
         <p className="truncate text-xs text-ink-500">
-          {showDistance ? `${profile.distanceKm} km away` : profile.area}
+          {showDistance && profile.distanceKm != null ? `${profile.distanceKm} km away` : profile.area}
         </p>
       </div>
     </Link>

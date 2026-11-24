@@ -168,8 +168,8 @@ interface SafetyCheckIn { id: string; message: string; notifiedContacts: string[
 
 | Function | Endpoint | Notes |
 |---|---|---|
-| `getDiscoveryFeed(filters: DiscoveryFilters, cursor = 0)` → `PagedResult<MemberProfile>` | `GET /discovery?minAge&maxAge&maxDistanceKm&interests&liveOnly&lookingFor&cursor` | Page size is 6. Excludes self. Filtering rules in §6.1 (VIP distance waiver) and §6.2 (gender filter). `liveOnly` filters to members currently live-streaming (join against the livestream service). |
-| `getProfile(id)` → `MemberProfile` | `GET /profiles/:id` | 404 → `PROFILE_NOT_FOUND`. |
+| `getDiscoveryFeed(filters: DiscoveryFilters, cursor = 0)` → `PagedResult<MemberProfile>` | `GET /discovery?minAge&maxAge&maxDistanceKm&interests&liveOnly&lookingFor&cursor&latitude&longitude` | Implemented against verified, onboarded, approved profiles. Page size is 6. Excludes self and applies audience preferences and VIP distance waiver. Distance filtering is only applied when enabled. `liveOnly` is unavailable until livestream presence is backed by the API. |
+| `getDiscoverableProfile(id)` → `MemberProfile` | `GET /profiles/:id` | Returns only currently discoverable, email-verified, document-verified, approved profiles; otherwise 404 → `PROFILE_NOT_FOUND`. |
 | `getOwnProfile()` → `OwnProfile` | `GET /profiles/me` | No profile yet → `NO_PROFILE`. |
 | `saveOwnProfile(partial: Partial<OwnProfile>)` → `OwnProfile` | `PATCH /profiles/me` | Partial update/upsert; used throughout onboarding and edit-profile, one field or a batch at a time. |
 | `uploadPhoto(file)` → `string` (URL) | `POST /media/photos` (multipart) | Backend stores decoded/re-encoded JPEGs as authenticated Cloudinary assets and returns `{ mediaId, url, contentType, sizeBytes }`. Persist only the returned `/media/{mediaId}` URL; the database stores the Cloudinary public ID, and the backend enforces ownership and pending-review visibility before issuing a short-lived URL. The mock still returns a blob URL. |
@@ -203,7 +203,7 @@ These aren't obvious from any single file — they're invariants the frontend en
 VIP members match each other regardless of `maxDistanceKm` — this applies in both Discover (`profiles.ts: matchesFilters`) and the `/live` nearby list (`livestream.ts: listLiveStreamsNearby`, VIP hosts sort first for VIP viewers). A free viewer never gets to bypass distance, even against a VIP target. Rule: `distanceWaived = viewerIsVip && target.subscriptionTier === 'vip'`.
 
 ### 6.2 Gender/audience filtering
-`lookingFor` filter on Discover maps `'men'`/`'women'` → `identity === 'man'/'woman'`; `'everyone'` disables the filter. Each `MemberProfile` also carries its own `discoverableBy`/`wantsToDiscover` preference — the real backend discovery query should intersect the viewer's filter with each candidate's own visibility preference (the mock seed data doesn't fully exercise this intersection; don't assume the mock's current filtering is the complete spec, just the floor).
+`lookingFor` filter on Discover maps `'men'`/`'women'` → `identity === 'man'/'woman'`; `'everyone'` disables the filter. The backend feed also intersects the viewer's identity with each candidate's `discoverableBy` and `wantsToDiscover` preferences. `liveOnly` remains disabled until livestream presence is available from the backend.
 
 ### 6.3 VIP interaction gate (`lib/api/subscription.ts: canInteract`)
 A free viewer can always **see** a VIP member's profile, but cannot message, call, or propose a meetup payment to them — the frontend replaces those action buttons with an "Upgrade to VIP" banner. **Report and Block remain available regardless of VIP status** — safety actions are never paywalled. Rule: `canInteract = target.subscriptionTier !== 'vip' || viewer.subscriptionTier === 'vip'`. Enforce this server-side on every message-send/call-start/payment-propose endpoint, not just in the UI.

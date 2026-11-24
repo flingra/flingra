@@ -123,7 +123,10 @@ Implemented endpoints:
 - `GET /auth/oauth/google/config`, `POST /auth/oauth/google`
 - `POST /auth/password/forgot`, `/auth/password/reset`, `/auth/logout`
 - `GET /auth/session`, `POST /auth/onboarding/complete`
-- `GET /profiles/me`, `PATCH /profiles/me`
+- `GET /profiles/me`, `PATCH /profiles/me`, `GET /profiles/{profile_id}`
+- `GET /discovery` — verified, approved member feed with age, interest, audience,
+  distance and pagination filters; the live-only filter is unavailable until
+  livestream presence is backed by the API
 - `POST /media/photos`, `POST /media/documents`, `GET /media/{media_id}`
 - `POST /admin/auth/login`, `GET /admin/auth/session`, `POST /admin/auth/logout`
 - `GET /admin/reviews`, `GET /admin/reviews/{review_id}`
@@ -214,6 +217,7 @@ Current event names include `auth.signup`, `auth.login`,
 `admin.csrf.denied`, `admin.review.queue_viewed`,
 `admin.review.queue_item_viewed`, `admin.review.details_viewed`,
 `admin.review.document_viewed`, `admin.review.decided`, and
+`discovery.feed_viewed`, `profile.discoverable_viewed`,
 `admin.audit.user_history_viewed`, `admin.account.list_viewed`,
 `admin.account.updated`, `admin.account.update_denied`, and
 `admin.authorization.denied`. Outcomes are
@@ -233,8 +237,8 @@ verification is not used. Completed profiles enter pending moderation for manual
 backend now supports basic profile/document approval and rejection, but does
 not yet implement report queues, blocking controls, admin MFA, password
 rotation/recovery, or an admin frontend. The frontend
-still uses its mock API and will need an API-client integration before it
-calls these routes.
+uses the backend for Discover feeds and discoverable profile details; other
+feature areas still use mock APIs and need their own integrations.
 
 Media endpoints require verified, authenticated accounts and CSRF tokens.
 Uploaded JPEG/PNG/WebP images are decoded and re-encoded as JPEG to remove

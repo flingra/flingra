@@ -13,6 +13,7 @@ import { useToast } from '@/components/ui/toast'
 import { VideoThumbnail } from '@/components/ui/video-thumbnail'
 import { VideoPlayerDialog } from '@/components/ui/video-player-dialog'
 import { getOwnProfile, saveOwnProfile, uploadPhoto, uploadVideo } from '@/lib/api/profiles'
+import { resolveMediaUrl } from '@/lib/api/client'
 import { listMyPosts } from '@/lib/api/posts'
 import type { ProfileVideo } from '@/lib/api/types'
 
@@ -144,7 +145,7 @@ export function EditProfilePage() {
             <div className="flex flex-wrap gap-3">
               {photos.map((photo, index) => (
                 <div key={photo} className="relative size-20">
-                  <img src={photo} alt="" className="size-full rounded-2xl object-cover" />
+                  <img src={resolveMediaUrl(photo)} alt="" className="size-full rounded-2xl object-cover" />
                   <button
                     type="button"
                     onClick={() => removePhoto(index)}
@@ -294,7 +295,7 @@ export function EditProfilePage() {
                   </>
                 ) : (
                   <>
-                    <img src={post.photos[0]} alt="" className="size-full object-cover" />
+                    <img src={resolveMediaUrl(post.photos[0])} alt="" className="size-full object-cover" />
                     {post.photos.length > 1 && (
                       <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white">
                         <Images className="size-3" aria-hidden="true" /> {post.photos.length}

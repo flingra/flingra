@@ -84,9 +84,9 @@ export function FiltersDrawer({ open, onClose, filters, onApply, distanceEnabled
           </Select>
         </Field>
 
-        <label className="flex items-center gap-3 text-sm text-ink-700">
-          <Checkbox checked={draft.liveOnly} onChange={(event) => setDraft((d) => ({ ...d, liveOnly: event.target.checked }))} />
-          Live right now only
+        <label className="flex items-center gap-3 text-sm text-ink-500">
+          <Checkbox checked={false} disabled />
+          Live right now only (coming soon)
         </label>
 
         <Field id="interests" label="Interests" optional>
