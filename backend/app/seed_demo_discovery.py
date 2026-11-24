@@ -21,12 +21,28 @@ INTERESTS = (
     "Cooking",
     "Tech",
     "Fashion",
-    "Travel",
+    "Hiking",
     "Movies",
-    "Fitness",
-    "Art",
     "Books",
-    "Music",
+    "Travel",
+    "Fitness",
+    "Gaming",
+    "Comedy",
+    "Dancing",
+    "Art",
+    "Music festivals",
+    "Nightlife",
+    "Fine dining",
+    "Volunteering",
+    "Faith & spirituality",
+    "Entrepreneurship",
+    "Cars",
+    "Pets",
+    "Wine & cocktails",
+    "Yoga",
+    "Poetry",
+    "Anime",
+    "Politics & current affairs",
 )
 LOCATIONS = (
     ("Abia", "Umuahia", 5.532, 7.486, None),
@@ -212,6 +228,38 @@ def seed_demo_profiles(db: Session, settings: Settings, cohort_id: str) -> int:
     return len(profiles)
 
 
+def refresh_demo_profile_interests(db: Session, cohort_id: str) -> int:
+    profiles = build_demo_profiles(cohort_id)
+    expected_account_ids = {profile.account_id for profile in profiles}
+    existing_account_ids = set(
+        db.execute(
+            text("SELECT account_id FROM profiles WHERE demo_cohort_id = :cohort_id"),
+            {"cohort_id": cohort_id},
+        ).scalars()
+    )
+    if existing_account_ids != expected_account_ids:
+        raise RuntimeError(
+            f"Cohort {cohort_id!r} is missing or inconsistent; refusing to refresh interests."
+        )
+
+    for profile in profiles:
+        db.execute(
+            text(
+                """
+                UPDATE profiles
+                SET interests = :interests
+                WHERE account_id = :account_id AND demo_cohort_id = :cohort_id
+                """
+            ),
+            {
+                "interests": json.dumps(profile.interests),
+                "account_id": profile.account_id,
+                "cohort_id": cohort_id,
+            },
+        )
+    return len(profiles)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Preview or seed a clearly marked synthetic Discover cohort."
@@ -227,9 +275,16 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Confirm that the configured database is private and not serving real users.",
     )
+    parser.add_argument(
+        "--refresh-interests",
+        action="store_true",
+        help="Update interests on an existing complete demo cohort.",
+    )
     arguments = parser.parse_args(argv)
     profiles = build_demo_profiles(arguments.cohort)
     if not arguments.apply:
+        if arguments.refresh_interests:
+            raise SystemExit("--refresh-interests requires --apply.")
         print(
             f"Dry run: {len(profiles)} synthetic profiles across "
             f"{len({profile.state for profile in profiles})} Nigerian states/FCT. "
@@ -245,6 +300,15 @@ def main(argv: list[str] | None = None) -> None:
     engine = get_engine(settings)
     if engine.dialect.name != "mysql":
         raise SystemExit("Demo profiles can only be seeded into the configured MySQL database.")
+
+    if arguments.refresh_interests:
+        with Session(engine) as db, db.begin():
+            refreshed_count = refresh_demo_profile_interests(db, arguments.cohort)
+        print(
+            f"Refreshed interests for {refreshed_count} demo profiles "
+            f"in cohort {arguments.cohort!r}."
+        )
+        return
 
     with Session(engine) as db, db.begin():
         created_count = seed_demo_profiles(db, settings, arguments.cohort)

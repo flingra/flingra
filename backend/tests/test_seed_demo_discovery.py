@@ -1,3 +1,4 @@
+import json
 from collections import Counter
 from datetime import date
 
@@ -6,7 +7,12 @@ from sqlalchemy import text
 
 from app.dependencies import db_session
 from app import seed_demo_discovery
-from app.seed_demo_discovery import build_demo_profiles, seed_demo_profiles
+from app.seed_demo_discovery import (
+    INTERESTS,
+    build_demo_profiles,
+    refresh_demo_profile_interests,
+    seed_demo_profiles,
+)
 
 
 def test_demo_cohort_covers_all_nigerian_states_and_fct() -> None:
@@ -20,6 +26,8 @@ def test_demo_cohort_covers_all_nigerian_states_and_fct() -> None:
     assert all(profile.display_name.startswith("Demo Member ") for profile in profiles)
     assert all(profile.birth_date < date(2005, 1, 1) for profile in profiles)
     assert {profile.identity for profile in profiles} == {"man", "woman"}
+    assert {interest for profile in profiles for interest in profile.interests} == set(INTERESTS)
+    assert all(len(profile.interests) == 3 for profile in profiles)
 
 
 def test_demo_cohort_ids_are_validated_and_profiles_are_deterministic() -> None:
@@ -69,6 +77,35 @@ def test_seed_demo_profiles_creates_test_records_and_is_idempotent(api_client, m
             == 50
         )
         assert seed_demo_profiles(db, client.app.state.settings, "discover-test") == 0
+    finally:
+        db_generator.close()
+
+
+def test_refresh_interests_updates_only_a_complete_demo_cohort(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    monkeypatch.setattr("app.seed_demo_discovery.hash_password", lambda _: "test-password-hash")
+    monkeypatch.setattr("app.seed_demo_discovery.generate_token", lambda: "test-token")
+    db_generator = client.app.dependency_overrides[db_session]()
+    db = next(db_generator)
+    try:
+        seed_demo_profiles(db, client.app.state.settings, "discover-test")
+        db.execute(
+            text("UPDATE profiles SET interests = '[]' WHERE demo_cohort_id = 'discover-test'")
+        )
+
+        assert refresh_demo_profile_interests(db, "discover-test") == 50
+        rows = db.execute(
+            text("SELECT interests FROM profiles WHERE demo_cohort_id = 'discover-test'")
+        ).scalars()
+        stored_interests = [json.loads(value) for value in rows]
+        all_stored_interests = {
+            interest for profile_interests in stored_interests for interest in profile_interests
+        }
+        assert all_stored_interests == set(INTERESTS)
+        assert all(len(profile_interests) == 3 for profile_interests in stored_interests)
+
+        with pytest.raises(RuntimeError, match="missing or inconsistent"):
+            refresh_demo_profile_interests(db, "missing-cohort")
     finally:
         db_generator.close()
 

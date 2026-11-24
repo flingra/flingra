@@ -166,6 +166,15 @@ and use the app's initials fallback; add only media with appropriate usage
 rights and model releases. Do not enable this flag on an environment serving
 real users.
 
+The demo cohort covers every interest offered by Discover. To update interests
+on a cohort that was seeded by an earlier version, run this guarded command in
+the private backend environment:
+
+```sh
+FLINGRA_DEMO_PROFILES_ENABLED=true python -m app.seed_demo_discovery \
+  --apply --confirm-private-database --refresh-interests
+```
+
 Admin accounts are separate from user accounts and cannot self-register. After
 applying migrations, provision staff accounts from the backend environment
 with `python -m app.create_admin`; the first account is a super admin, and
