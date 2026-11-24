@@ -259,24 +259,6 @@ def upload_identity_document(
         db.commit()
         raise ApiException("CONTACT_NOT_VERIFIED", "Verify your contact before uploading media.", 403)
 
-    identity = db.execute(
-        text("SELECT identity FROM profiles WHERE account_id = :account_id"),
-        {"account_id": account.account_id},
-    ).scalar_one_or_none()
-    if identity != "woman":
-        record_audit_event(
-            db,
-            request,
-            event_type="media.identity_document.uploaded",
-            actor_type="user",
-            actor_id=account.account_id,
-            subject_account_id=account.account_id,
-            outcome="denied",
-            metadata={"reason": "document_not_required"},
-        )
-        db.commit()
-        raise ApiException("DOCUMENT_NOT_REQUIRED", "Identity documents are not required for this account.", 403)
-
     try:
         content = _normalize_image(
             _read_bounded_upload(file, settings.media_upload_max_bytes),

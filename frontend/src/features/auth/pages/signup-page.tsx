@@ -244,7 +244,7 @@ export function SignUpPage() {
               <Field
                 id="dateOfBirth"
                 label="Date of birth"
-                hint={sex === 'woman' ? 'Female accounts must be 21 or older.' : 'You must be 18 or older to use Flingra.'}
+                hint="You must be 21 or older to use Flingra."
                 error={errors.dateOfBirth?.message}
               >
                 <Input id="dateOfBirth" type="date" aria-invalid={!!errors.dateOfBirth} {...register('dateOfBirth')} />
@@ -281,7 +281,7 @@ export function SignUpPage() {
               <Field
                 id="dateOfBirth"
                 label="Date of birth"
-                hint={sex === 'woman' ? 'Female accounts must be 21 or older.' : 'You must be 18 or older to use Flingra.'}
+                hint="You must be 21 or older to use Flingra."
                 error={errors.dateOfBirth?.message}
               >
                 <Input id="dateOfBirth" type="date" aria-invalid={!!errors.dateOfBirth} {...register('dateOfBirth')} />

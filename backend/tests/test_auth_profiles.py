@@ -1,7 +1,9 @@
 import io
 
+import pytest
 from PIL import Image
 
+from app.errors import ApiException
 from app.routes import auth
 
 
@@ -112,6 +114,15 @@ def test_signup_rejects_terms_email_and_minimum_age(api_client, monkeypatch) -> 
     assert underage.status_code == 400
     assert underage.json()["error"]["code"] == "INELIGIBLE_AGE"
 
+    underage_man = signup(
+        client,
+        sex="man",
+        identifier="young-man@example.com",
+        dateOfBirth="2008-01-01",
+    )
+    assert underage_man.status_code == 400
+    assert underage_man.json()["error"]["code"] == "INELIGIBLE_AGE"
+
 
 def test_signup_rejects_duplicate_identifier(api_client, monkeypatch) -> None:
     client, _ = api_client
@@ -188,6 +199,59 @@ def test_login_locks_account_after_five_incorrect_passwords(api_client, monkeypa
         json={"identifier": "test@example.com", "password": "secure-password-123"},
     )
     assert correct_password.status_code == 423
+
+
+def test_login_rejects_existing_account_under_21(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    monkeypatch.setattr(auth, "send_verification_code", lambda *_: None)
+    assert signup(client, sex="man").status_code == 201
+
+    db_generator = client.app.dependency_overrides[auth.db_session]()
+    db = next(db_generator)
+    try:
+        db.execute(
+            auth.text(
+                "UPDATE accounts SET date_of_birth = :date_of_birth WHERE identifier = :identifier"
+            ),
+            {"date_of_birth": "2008-01-01", "identifier": "test@example.com"},
+        )
+        db.commit()
+    finally:
+        db_generator.close()
+
+    response = client.post(
+        "/auth/login",
+        json={"identifier": "test@example.com", "password": "secure-password-123"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "INELIGIBLE_AGE"
+
+
+def test_identity_verification_dependency_denies_unapproved_profiles(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    monkeypatch.setattr(auth, "send_verification_code", lambda *_: None)
+    assert signup(client, sex="man").status_code == 201
+    account = auth.AuthenticatedAccount({"id": "test-account"})
+
+    db_generator = client.app.dependency_overrides[auth.db_session]()
+    db = next(db_generator)
+    try:
+        with pytest.raises(ApiException) as error:
+            auth.require_identity_verified(account, db)
+        assert error.value.code == "IDENTITY_VERIFICATION_REQUIRED"
+
+        db.execute(
+            auth.text(
+                "UPDATE profiles SET document_verification = 'verified' WHERE account_id = :account_id"
+            ),
+            {"account_id": account.account_id},
+        )
+        db.commit()
+
+        assert auth.require_identity_verified(account, db) is account
+    finally:
+        db_generator.close()
 
 
 def test_onboarding_completes_without_facial_verification_and_stays_pending_review(api_client, monkeypatch) -> None:

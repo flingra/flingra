@@ -349,7 +349,6 @@ export function OnboardingPage() {
         distanceKm: 0,
         moderationStatus: 'pending',
         onboardingComplete: true,
-        ...(isWoman ? { documentVerification: 'unverified' as const } : {}),
         ...(twoFactorMethod ? { twoFactorEnabled: true, twoFactorMethod } : {}),
       })
       const updated = await completeOnboarding()
@@ -630,15 +629,14 @@ export function OnboardingPage() {
               {!draft.showIdentity && ' Your identity selection.'}
             </p>
           </div>
-          {isWoman && (
-            <div className="rounded-2xl bg-primary-50 p-4">
-              <p className="text-sm font-semibold text-primary-800">One more thing</p>
-              <p className="mt-1 text-sm text-primary-700">
-                After this, set up two-factor sign-in, then head to Settings → Verification to upload a NIN,
-                BVN or voter's card — required for female accounts to confirm your age.
-              </p>
-            </div>
-          )}
+          <div className="rounded-2xl bg-primary-50 p-4">
+            <p className="text-sm font-semibold text-primary-800">One more thing</p>
+            <p className="mt-1 text-sm text-primary-700">
+              After onboarding, go to Settings → Verification to upload a NIN, BVN or voter's card. ID approval is
+              required before messaging, livestreaming or making payments.
+              {isWoman && ' You will also set up two-factor sign-in next.'}
+            </p>
+          </div>
 
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => setStep(3)}>

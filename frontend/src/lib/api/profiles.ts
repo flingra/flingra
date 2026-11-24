@@ -136,8 +136,14 @@ export async function uploadIdentityDocument(
   file: File,
   documentType: VerificationDocumentType,
 ): Promise<void> {
-  await uploadPhoto(file)
-  await saveOwnProfile({ documentType, documentVerification: 'pending' })
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('documentType', documentType)
+  await apiRequest<void>('/media/documents', {
+    method: 'POST',
+    headers: await ensureCsrfHeaders(),
+    body: formData,
+  })
 }
 
 export async function uploadVideo(file: File): Promise<string> {

@@ -55,6 +55,7 @@ LOCKOUT_DURATION = timedelta(minutes=15)
 VERIFICATION_LIFETIME = timedelta(minutes=10)
 RESET_LIFETIME = timedelta(minutes=30)
 TWO_FACTOR_LIFETIME = timedelta(minutes=10)
+MINIMUM_ACCOUNT_AGE = 21
 
 
 class AuthenticatedAccount(dict[str, Any]):
@@ -233,6 +234,32 @@ def get_authenticated_account(
 CurrentAccount = Annotated[AuthenticatedAccount, Depends(get_authenticated_account)]
 
 
+def require_identity_verified(
+    account: CurrentAccount,
+    db: DbSession,
+) -> AuthenticatedAccount:
+    verification_status = db.execute(
+        text(
+            """
+            SELECT document_verification
+            FROM profiles
+            WHERE account_id = :account_id
+            """
+        ),
+        {"account_id": account.account_id},
+    ).scalar_one_or_none()
+    if verification_status != "verified":
+        raise ApiException(
+            "IDENTITY_VERIFICATION_REQUIRED",
+            "Identity verification must be approved before using this feature.",
+            403,
+        )
+    return account
+
+
+IdentityVerifiedAccount = Annotated[AuthenticatedAccount, Depends(require_identity_verified)]
+
+
 def _create_session(db: Session, account_id: str, request: Request, response: Response) -> None:
     settings = get_app_settings(request)
     raw_token = generate_token()
@@ -332,15 +359,9 @@ def sign_up(
         _record_rejected_signup(db, request, exc.code)
         raise
     age = _age_on(body.date_of_birth, date.today())
-    minimum_age = 21 if body.sex == "woman" else 18
-    if age < minimum_age:
-        message = (
-            "Flingra requires female accounts to be 21 or older."
-            if body.sex == "woman"
-            else "Flingra is only available to adults 18 and older."
-        )
+    if age < MINIMUM_ACCOUNT_AGE:
         _record_rejected_signup(db, request, "minimum_age_not_met")
-        raise ApiException("INELIGIBLE_AGE", message)
+        raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.")
 
     if identifier_type != "email":
         _record_rejected_signup(db, request, "sms_provider_unavailable", outcome="failure")
@@ -398,8 +419,10 @@ def sign_up(
         db.execute(
             text(
                 """
-                INSERT INTO profiles (account_id, bio, photos, age_range, interests, identity)
-                VALUES (:account_id, '', '[]', :age_range, '[]', :identity)
+                INSERT INTO profiles (
+                    account_id, bio, photos, age_range, interests, identity, document_verification
+                )
+                VALUES (:account_id, '', '[]', :age_range, '[]', :identity, 'unverified')
                 """
             ),
             {
@@ -458,7 +481,7 @@ def sign_in(
         text(
             """
             SELECT id, identifier, identifier_type, password_hash, email_verified,
-                   login_failed_attempts, locked_until
+                   date_of_birth, login_failed_attempts, locked_until
             FROM accounts
             WHERE identifier = :identifier
             """
@@ -521,6 +544,20 @@ def sign_in(
         if locked_until is not None:
             raise ApiException("ACCOUNT_LOCKED", "Too many attempts. Try again later or reset your password.", 423)
         raise ApiException("INVALID_CREDENTIALS", "Invalid email or password.", 401)
+
+    if _age_on(account["date_of_birth"], date.today()) < MINIMUM_ACCOUNT_AGE:
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=str(account["id"]),
+            outcome="denied",
+            metadata={"reason": "minimum_age_not_met"},
+        )
+        db.commit()
+        raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.", 403)
 
     db.execute(
         text("UPDATE accounts SET login_failed_attempts = 0, locked_until = NULL WHERE id = :account_id"),
@@ -796,7 +833,7 @@ def google_auth(
         text(
             """
             SELECT id, email, identifier, identifier_type, email_verified,
-                   google_sub, login_failed_attempts, locked_until
+                   google_sub, login_failed_attempts, locked_until, date_of_birth
             FROM accounts
             WHERE google_sub = :google_sub
             """
@@ -808,7 +845,7 @@ def google_auth(
             text(
                 """
                 SELECT id, email, identifier, identifier_type, email_verified,
-                       google_sub, login_failed_attempts, locked_until
+                       google_sub, login_failed_attempts, locked_until, date_of_birth
                 FROM accounts
                 WHERE email = :email
                 """
@@ -839,6 +876,24 @@ def google_auth(
                 "ACCOUNT_LOCKED",
                 "Too many attempts. Try again later or reset your password.",
                 423,
+            )
+
+        if _age_on(account["date_of_birth"], date.today()) < MINIMUM_ACCOUNT_AGE:
+            record_audit_event(
+                db,
+                request,
+                event_type="auth.google_login",
+                actor_type="anonymous",
+                actor_id=None,
+                subject_account_id=str(account["id"]),
+                outcome="denied",
+                metadata={"reason": "minimum_age_not_met"},
+            )
+            db.commit()
+            raise ApiException(
+                "INELIGIBLE_AGE",
+                "Flingra is only available to adults 21 and older.",
+                403,
             )
 
         if account["google_sub"] is None or not account["email_verified"]:
@@ -897,14 +952,8 @@ def google_auth(
         )
     if not body.accepted_terms:
         raise ApiException("TERMS_REQUIRED", "Accept the terms and privacy notice to continue.")
-    minimum_age = 21 if body.sex == "woman" else 18
-    if _age_on(body.date_of_birth, date.today()) < minimum_age:
-        message = (
-            "Flingra requires female accounts to be 21 or older."
-            if body.sex == "woman"
-            else "Flingra is only available to adults 18 and older."
-        )
-        raise ApiException("INELIGIBLE_AGE", message)
+    if _age_on(body.date_of_birth, date.today()) < MINIMUM_ACCOUNT_AGE:
+        raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.")
 
     account_id = uuid.uuid4().hex
     try:
@@ -943,8 +992,11 @@ def google_auth(
         db.execute(
             text(
                 """
-                INSERT INTO profiles (account_id, display_name, bio, photos, age_range, interests, identity)
-                VALUES (:account_id, :display_name, '', '[]', :age_range, '[]', :identity)
+                INSERT INTO profiles (
+                    account_id, display_name, bio, photos, age_range, interests, identity,
+                    document_verification
+                )
+                VALUES (:account_id, :display_name, '', '[]', :age_range, '[]', :identity, 'unverified')
                 """
             ),
             {

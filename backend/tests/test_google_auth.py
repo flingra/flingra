@@ -139,6 +139,7 @@ def test_google_login_links_verified_email_account_and_verifies_contact(api_clie
         ({}, {"nonce": "another-google-nonce-1234567"}, "INVALID_GOOGLE_CREDENTIAL"),
         ({}, {"acceptedTerms": False, "sex": "woman", "dateOfBirth": "1995-02-10"}, "TERMS_REQUIRED"),
         ({}, {"acceptedTerms": True, "sex": "woman", "dateOfBirth": "2008-02-10"}, "INELIGIBLE_AGE"),
+        ({}, {"acceptedTerms": True, "sex": "man", "dateOfBirth": "2008-02-10"}, "INELIGIBLE_AGE"),
     ],
 )
 def test_google_signup_rejects_invalid_claims_or_profile_data(
@@ -170,3 +171,36 @@ def test_google_signin_rejects_unverified_id_token(api_client, monkeypatch) -> N
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "INVALID_GOOGLE_CREDENTIAL"
+
+
+def test_google_signin_rejects_existing_account_under_21(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    monkeypatch.setattr(auth, "send_verification_code", lambda *_args: None)
+    assert client.post(
+        "/auth/signup",
+        json={
+            "sex": "man",
+            "identifier": "google@example.com",
+            "password": "secure-password-123",
+            "dateOfBirth": "1995-02-10",
+            "acceptedTerms": True,
+        },
+    ).status_code == 201
+    db_generator = client.app.dependency_overrides[auth.db_session]()
+    db = next(db_generator)
+    try:
+        db.execute(
+            auth.text(
+                "UPDATE accounts SET date_of_birth = :date_of_birth WHERE identifier = :identifier"
+            ),
+            {"date_of_birth": "2008-02-10", "identifier": "google@example.com"},
+        )
+        db.commit()
+    finally:
+        db_generator.close()
+    install_google_claims(monkeypatch)
+
+    response = google_auth(client)
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "INELIGIBLE_AGE"
