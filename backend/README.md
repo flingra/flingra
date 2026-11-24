@@ -132,6 +132,13 @@ Implemented endpoints:
 - `GET /admin/users/{account_id}/audit`
 - `GET /admin/admins`, `PATCH /admin/admins/{admin_id}` (super admin only)
 
+All signup and sign-in paths enforce a minimum age of 21; existing sessions
+belonging to underage accounts are revoked when used. Government ID review is
+required for every account; a document upload sets its status to `pending`.
+Use the `IdentityVerifiedAccount` dependency for messaging, livestream, and
+payment endpoints so only approved accounts can use those features. Those
+feature APIs are not implemented yet; the frontend currently simulates them.
+
 Admin accounts are separate from user accounts and cannot self-register. After
 applying migrations, provision staff accounts from the backend environment
 with `python -m app.create_admin`; the first account is a super admin, and
@@ -197,6 +204,7 @@ request bodies, OTPs, passwords, session/CSRF tokens, raw identifiers, or
 identity-document contents.
 
 Current event names include `auth.signup`, `auth.login`,
+`auth.session.age_denied`,
 `auth.contact_verification`, `auth.verification_code_resend`,
 `auth.password_reset_requested`, `auth.password_reset_completed`,
 `auth.logout`, `auth.csrf.denied`, `profile.own_viewed`, `profile.updated`,

@@ -1,9 +1,7 @@
 import io
 
-import pytest
 from PIL import Image
 
-from app.errors import ApiException
 from app.routes import auth
 
 
@@ -52,6 +50,7 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
     draft = client.get("/profiles/me")
     assert draft.status_code == 200
     assert draft.json()["identity"] == "woman"
+    assert draft.json()["documentVerification"] == "unverified"
 
     verified = client.post(
         "/auth/verify-contact",
@@ -219,6 +218,10 @@ def test_login_rejects_existing_account_under_21(api_client, monkeypatch) -> Non
     finally:
         db_generator.close()
 
+    existing_session = client.get("/profiles/me")
+    assert existing_session.status_code == 403
+    assert existing_session.json()["error"]["code"] == "INELIGIBLE_AGE"
+
     response = client.post(
         "/auth/login",
         json={"identifier": "test@example.com", "password": "secure-password-123"},
@@ -228,30 +231,47 @@ def test_login_rejects_existing_account_under_21(api_client, monkeypatch) -> Non
     assert response.json()["error"]["code"] == "INELIGIBLE_AGE"
 
 
-def test_identity_verification_dependency_denies_unapproved_profiles(api_client, monkeypatch) -> None:
+def test_identity_verification_dependency_blocks_unapproved_profiles(api_client, monkeypatch) -> None:
     client, _ = api_client
     monkeypatch.setattr(auth, "send_verification_code", lambda *_: None)
     assert signup(client, sex="man").status_code == 201
-    account = auth.AuthenticatedAccount({"id": "test-account"})
+    account_id = client.get("/auth/session").json()["accountId"]
+
+    @client.app.get("/test/identity-verified")
+    def protected_identity_route(account: auth.IdentityVerifiedAccount) -> dict[str, str]:
+        return {"accountId": account.account_id}
 
     db_generator = client.app.dependency_overrides[auth.db_session]()
     db = next(db_generator)
     try:
-        with pytest.raises(ApiException) as error:
-            auth.require_identity_verified(account, db)
-        assert error.value.code == "IDENTITY_VERIFICATION_REQUIRED"
-
+        for status in ("unverified", "pending", "rejected"):
+            db.execute(
+                auth.text(
+                    """
+                    UPDATE profiles
+                    SET document_verification = :status
+                    WHERE account_id = :account_id
+                    """
+                ),
+                {"status": status, "account_id": account_id},
+            )
+            db.commit()
+            blocked = client.get("/test/identity-verified")
+            assert blocked.status_code == 403
+            assert blocked.json()["error"]["code"] == "IDENTITY_VERIFICATION_REQUIRED"
         db.execute(
             auth.text(
                 "UPDATE profiles SET document_verification = 'verified' WHERE account_id = :account_id"
             ),
-            {"account_id": account.account_id},
+            {"account_id": account_id},
         )
         db.commit()
-
-        assert auth.require_identity_verified(account, db) is account
     finally:
         db_generator.close()
+
+    verified = client.get("/test/identity-verified")
+    assert verified.status_code == 200
+    assert verified.json() == {"accountId": account_id}
 
 
 def test_onboarding_completes_without_facial_verification_and_stays_pending_review(api_client, monkeypatch) -> None:

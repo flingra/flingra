@@ -31,6 +31,7 @@ import {
   type LocationSearchResult,
 } from '@/lib/location'
 import { OpenStreetMapView } from '@/features/discovery/components/google-map-view'
+import { LocationAccessDialog } from '@/features/discovery/components/location-access-dialog'
 
 interface Draft {
   displayName: string
@@ -88,6 +89,8 @@ export function OnboardingPage() {
   const [finishing, setFinishing] = useState(false)
   const [locating, setLocating] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
+  const [locationDialogOpen, setLocationDialogOpen] = useState(false)
+  const [locationRequestMessage, setLocationRequestMessage] = useState<string | null>(null)
   const [locationSearch, setLocationSearch] = useState('')
   const [locationResults, setLocationResults] = useState<LocationSearchResult[]>([])
   const [searchingLocation, setSearchingLocation] = useState(false)
@@ -114,10 +117,10 @@ export function OnboardingPage() {
           setLocationResults(results)
           if (results.length === 0) setLocationError('No locations found. Try a nearby landmark or street.')
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
           setLocationResults([])
-          setLocationError(error instanceof Error ? error.message : 'Location search is unavailable.')
+          setLocationError('Location search is temporarily unavailable. Choose an area on the map or enter it below.')
         }
       } finally {
         if (!cancelled) setSearchingLocation(false)
@@ -199,7 +202,7 @@ export function OnboardingPage() {
     }))
   }
 
-  async function toggleBrowserLocation(enabled: boolean) {
+  function toggleBrowserLocation(enabled: boolean) {
     setLocationError(null)
     if (!enabled) {
       setDraft((current) => ({
@@ -213,26 +216,16 @@ export function OnboardingPage() {
       return
     }
 
+    setLocationRequestMessage(null)
+    setLocationDialogOpen(true)
+  }
+
+  async function requestBrowserLocation() {
+    setLocationRequestMessage(null)
     setLocating(true)
     try {
       const location = await getCurrentLocation()
-      if (location.accuracyMeters > 5000) {
-        setLocationError(
-          `Your device only provided an approximate location (about ${Math.round(location.accuracyMeters)} metres). Enter your area manually or try again outdoors.`,
-        )
-        setDraft((current) => ({
-          ...current,
-          useBrowserLocation: false,
-          latitude: null,
-          longitude: null,
-        }))
-        setLocationAccuracyMeters(location.accuracyMeters)
-        return
-      }
-      const area = (await getApproximateArea(location)) ?? ''
-      if (!area) {
-        setLocationError('Check the name of your area or city below and adjust it if needed.')
-      }
+      const area = (await getApproximateArea(location)) ?? 'Nearby'
       setDraft((current) => ({
         ...current,
         useBrowserLocation: true,
@@ -241,9 +234,9 @@ export function OnboardingPage() {
         longitude: location.longitude,
       }))
       setLocationAccuracyMeters(location.accuracyMeters)
-    } catch (error) {
-      setLocationError(error instanceof Error ? error.message : 'Location access was unavailable.')
-      update('useBrowserLocation', false)
+      setLocationDialogOpen(false)
+    } catch {
+      setLocationRequestMessage('We couldn’t get a location fix this time. Try again or choose your area manually.')
     } finally {
       setLocating(false)
     }
@@ -256,8 +249,8 @@ export function OnboardingPage() {
     setLocationError(null)
     try {
       setLocationResults(await searchLocations(locationSearch))
-    } catch (error) {
-      setLocationError(error instanceof Error ? error.message : 'Location search is unavailable.')
+    } catch {
+      setLocationError('Location search is temporarily unavailable. Choose an area on the map or enter it below.')
       setLocationResults([])
     } finally {
       setSearchingLocation(false)
@@ -551,7 +544,7 @@ export function OnboardingPage() {
               </p>
             </div>
           )}
-          {locationError && <p className="text-sm text-danger">{locationError}</p>}
+          {locationError && <p className="text-sm text-ink-500" role="status">{locationError}</p>}
 
           <div>
             <p className="mb-2 text-xs font-medium text-ink-500">Or tap the map to choose an approximate area</p>
@@ -802,6 +795,17 @@ export function OnboardingPage() {
           </div>
         </div>
       )}
+      <LocationAccessDialog
+        open={locationDialogOpen}
+        locating={locating}
+        message={locationRequestMessage}
+        onClose={() => setLocationDialogOpen(false)}
+        onAllow={() => void requestBrowserLocation()}
+        onChooseManually={() => {
+          setLocationDialogOpen(false)
+          setLocationRequestMessage(null)
+        }}
+      />
     </Card>
   )
 }

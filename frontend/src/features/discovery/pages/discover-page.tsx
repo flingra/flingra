@@ -27,6 +27,7 @@ import { getCurrentLocation, searchLocations, type CurrentLocation, type Locatio
 import { CircleCard } from '../components/circle-card'
 import { FiltersDrawer } from '../components/filters-drawer'
 import { GoogleMapView, OpenStreetMapView, isGoogleMapsConfigured } from '../components/google-map-view'
+import { LocationAccessDialog } from '../components/location-access-dialog'
 
 const CATEGORY_CHIPS = [
   { interest: 'Afrobeats', label: 'Afrobeats', icon: Music },
@@ -55,7 +56,8 @@ export function DiscoverPage() {
   const [locationResults, setLocationResults] = useState<LocationSearchResult[]>([])
   const [searchingLocation, setSearchingLocation] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
-  const [distanceError, setDistanceError] = useState<string | null>(null)
+  const [locationDialogOpen, setLocationDialogOpen] = useState(false)
+  const [locationRequestMessage, setLocationRequestMessage] = useState<string | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number]>([6.4698, 3.5852])
   const [mapLocationLabel, setMapLocationLabel] = useState('Lekki, Lagos')
   const [locationSearchLocked, setLocationSearchLocked] = useState(false)
@@ -91,10 +93,10 @@ export function DiscoverPage() {
           setLocationResults(results)
           if (results.length === 0) setLocationError('No locations found. Try a nearby landmark or street.')
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
           setLocationResults([])
-          setLocationError(error instanceof Error ? error.message : 'Location search is unavailable.')
+          setLocationError('Location search is temporarily unavailable. Choose an area on the map instead.')
         }
       } finally {
         if (!cancelled) setSearchingLocation(false)
@@ -147,26 +149,31 @@ export function DiscoverPage() {
     applyFilters(DEFAULT_FILTERS)
   }
 
-  async function toggleDistanceFilter() {
+  function toggleDistanceFilter() {
     if (locationEnabled) {
       setLocationEnabled(false)
       setUserLocation(null)
       setCursor(0)
       setProfiles([])
-      setDistanceError(null)
       return
     }
 
+    setLocationRequestMessage(null)
+    setLocationDialogOpen(true)
+  }
+
+  async function requestNearbyLocation() {
+    setLocationRequestMessage(null)
     setLocating(true)
-    setDistanceError(null)
     try {
       const location = await getCurrentLocation()
       setUserLocation(location)
       setLocationEnabled(true)
       setCursor(0)
       setProfiles([])
-    } catch (error) {
-      setDistanceError(error instanceof Error ? error.message : 'We could not get your current location.')
+      setLocationDialogOpen(false)
+    } catch {
+      setLocationRequestMessage('We couldn’t get a location fix this time. Try again or choose an area on the map.')
     } finally {
       setLocating(false)
     }
@@ -181,9 +188,9 @@ export function DiscoverPage() {
       const results = await searchLocations(locationSearch)
       setLocationResults(results)
       if (results.length === 0) setLocationError('No locations found nearby.')
-    } catch (error) {
+    } catch {
       setLocationResults([])
-      setLocationError(error instanceof Error ? error.message : 'Location search is unavailable.')
+      setLocationError('Location search is temporarily unavailable. Choose an area on the map instead.')
     } finally {
       setSearchingLocation(false)
     }
@@ -192,7 +199,6 @@ export function DiscoverPage() {
   function selectLocation(result: LocationSearchResult) {
     setLocationEnabled(false)
     setUserLocation(null)
-    setDistanceError(null)
     setCursor(0)
     setProfiles([])
     setLocationSearchLocked(true)
@@ -258,8 +264,6 @@ export function DiscoverPage() {
           </button>
         ))}
       </div>
-      {distanceError && <p className="mt-2 text-sm text-danger" role="alert">{distanceError}</p>}
-
       <div className="relative mt-4 h-[70vh] min-h-[520px] w-full overflow-hidden rounded-[28px] border border-white/80 bg-ink-100 shadow-[10px_10px_30px_rgba(21,18,15,0.12),-8px_-8px_24px_rgba(255,255,255,0.95)] ring-1 ring-ink-900/5">
         <div className="absolute left-1/2 top-4 z-[1200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2">
           <form
@@ -308,7 +312,7 @@ export function DiscoverPage() {
           {(locationResults.length > 0 || locationError || searchingLocation) && (
             <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-ink-100 bg-white p-1 shadow-float">
               {searchingLocation && <p className="px-3 py-2 text-sm text-ink-500" role="status">Searching locations…</p>}
-              {locationError && <p className="px-3 py-2 text-sm text-danger" role="alert">{locationError}</p>}
+              {locationError && <p className="px-3 py-2 text-sm text-ink-500" role="status">{locationError}</p>}
               {locationResults.map((result) => (
                 <button
                   key={`${result.latitude}-${result.longitude}-${result.name}`}
@@ -388,6 +392,17 @@ export function DiscoverPage() {
         filters={filters}
         onApply={applyFilters}
         distanceEnabled={locationEnabled}
+      />
+      <LocationAccessDialog
+        open={locationDialogOpen}
+        locating={locating}
+        message={locationRequestMessage}
+        onClose={() => setLocationDialogOpen(false)}
+        onAllow={() => void requestNearbyLocation()}
+        onChooseManually={() => {
+          setLocationDialogOpen(false)
+          setLocationRequestMessage(null)
+        }}
       />
     </div>
   )

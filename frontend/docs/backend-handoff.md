@@ -60,7 +60,7 @@ interface OwnProfile extends MemberProfile {
   twoFactorEnabled?: boolean
   twoFactorMethod?: 'email' | 'authenticator'
   onboardingComplete?: boolean
-  documentVerification?: VerificationStatus // required for female accounts only (NIN/BVN/voter's card)
+  documentVerification?: VerificationStatus // required for all accounts (NIN/BVN/voter's card)
   documentType?: VerificationDocumentType
   vipExpiresAt?: string        // ISO date; past this, tier reverts to 'free'
 }
@@ -151,7 +151,7 @@ interface SafetyCheckIn { id: string; message: string; notifiedContacts: string[
 
 | Function | Real endpoint (suggested) | Behavior / rules |
 |---|---|---|
-| `signUp({ sex, identifier, password, dateOfBirth, acceptedTerms, referralCode? })` → `{ stage }` | `POST /auth/signup` | Reject if `!acceptedTerms` → `TERMS_REQUIRED`. **Women must sign up with a valid email** (regex `^[^\s@]+@[^\s@]+\.[^\s@]+$`) → `EMAIL_REQUIRED` if not. **Minimum age is 21 for women, 18 for men** — reject `INELIGIBLE_AGE` otherwise, with a tier-specific message. Reject duplicate identifier → `ACCOUNT_EXISTS`. On success: create account in `needs-verification` stage, create a draft profile with just `identity: sex` set (so gender-gated rules like the livestream restriction work before onboarding finishes), apply referral bonus if `referralCode` present (see §6.6). |
+| `signUp({ sex, identifier, password, dateOfBirth, acceptedTerms, referralCode? })` → `{ stage }` | `POST /auth/signup` | Reject if `!acceptedTerms` → `TERMS_REQUIRED`. **Women must sign up with a valid email** (regex `^[^\s@]+@[^\s@]+\.[^\s@]+$`) → `EMAIL_REQUIRED` if not. **Minimum age is 21 for everyone** — reject `INELIGIBLE_AGE` otherwise. Reject duplicate identifier → `ACCOUNT_EXISTS`. On success: create account in `needs-verification` stage, create a draft profile with just `identity: sex` set (so gender-gated rules like the livestream restriction work before onboarding finishes), apply referral bonus if `referralCode` present (see §6.6). |
 | `signIn({ identifier, password })` → `Session` | `POST /auth/login` | Wrong credentials → `INVALID_CREDENTIALS`. Too many attempts → `ACCOUNT_LOCKED`. Stage is `'active'` if `onboardingComplete`, else `'needs-onboarding'`. |
 | `verifyContact(code)` → `{ stage }` | `POST /auth/verify-contact` | Wrong code → `INVALID_CODE`. On success, advance stage same as sign-in logic. |
 | `resendCode()` | `POST /auth/resend-code` | Re-sends the OTP to email/phone. |
@@ -173,7 +173,7 @@ interface SafetyCheckIn { id: string; message: string; notifiedContacts: string[
 | `getOwnProfile()` → `OwnProfile` | `GET /profiles/me` | No profile yet → `NO_PROFILE`. |
 | `saveOwnProfile(partial: Partial<OwnProfile>)` → `OwnProfile` | `PATCH /profiles/me` | Partial update/upsert; used throughout onboarding and edit-profile, one field or a batch at a time. |
 | `uploadPhoto(file)` → `string` (URL) | `POST /media/photos` (multipart) | Backend stores decoded/re-encoded JPEGs as authenticated Cloudinary assets and returns `{ mediaId, url, contentType, sizeBytes }`. Persist only the returned `/media/{mediaId}` URL; the database stores the Cloudinary public ID, and the backend enforces ownership and pending-review visibility before issuing a short-lived URL. The mock still returns a blob URL. |
-| `uploadIdentityDocument(file, documentType)` | `POST /media/documents` (multipart `file`, `documentType`) | Female accounts only. Stored as an authenticated Cloudinary asset; status becomes `pending`. The user media endpoint is owner-only, and authorized review admins access documents through the admin review endpoint. |
+| `uploadIdentityDocument(file, documentType)` | `POST /media/documents` (multipart `file`, `documentType`) | Required for all accounts. Stored as an authenticated Cloudinary asset; status becomes `pending`. The user media endpoint is owner-only, and authorized review admins access documents through the admin review endpoint. Messaging, livestreaming, and payments stay blocked until approved. |
 | `uploadVideo(file)` → `string` (URL) | `POST /media/videos` (multipart) | Same. |
 | `listVipProfiles()` → `MemberProfile[]` | `GET /profiles?subscriptionTier=vip` | Powers the `/vip` showcase page — visible to everyone, **interaction** gated separately (§6.3). |
 | `listNearbyVideos()` → `{ authorId, authorName, authorPhoto, video }[]` | `GET /videos/nearby` | Only **unlocked (free)** videos — paywalled videos never appear in this teaser feed, only on the profile itself. |
@@ -211,7 +211,7 @@ A free viewer can always **see** a VIP member's profile, but cannot message, cal
 ### 6.4 Gender-gated features
 - **Livestreaming is female-only**: `startStream` throws `LIVESTREAM_RESTRICTED` if `profile.identity !== 'woman'`. Enforce server-side.
 - **Meetup payments only flow man → woman**: `proposeMeetupPayment` throws `PAYER_RESTRICTED` if the proposer isn't a man, `RECIPIENT_RESTRICTED` if the target isn't a woman. Enforce server-side.
-- **Document verification (NIN/BVN/voter's card) is required for women only.** Accounts are subject to manual admin review; no facial-recognition or selfie verification is used.
+- **Document verification (NIN/BVN/voter's card) is required for all accounts.** Pending or rejected accounts have limited access and cannot message, livestream, or make payments. Accounts are subject to manual admin review; no facial-recognition or selfie verification is used.
 
 ### 6.5 Meetup payment escrow — explicit propose/accept handshake
 This is the most stateful flow in the app and was deliberately redesigned mid-project from an instant-hold model into a two-step handshake (per product decision — do not regress to instant-hold):
@@ -277,7 +277,7 @@ Real payment: this currently debits the mock in-app wallet, which itself is only
 
 Not its own API file yet — reads/writes land on `OwnProfile` fields directly via `saveOwnProfile`. Model it as a first-class verification resource if useful, but preserve these semantics:
 
-- **Government ID (NIN / BVN / voter's card)**: required for **female accounts only**, uploaded from `/settings/verification`, stays `'pending'` after upload (not auto-approved — modeled as realistic: a human/automated review step happens after submission, out of scope of this frontend). `documentType` records which ID type was submitted.
+- **Government ID (NIN / BVN / voter's card)**: required for **all accounts**, uploaded from `/settings/verification`, stays `'pending'` after upload (not auto-approved — modeled as realistic: a human/automated review step happens after submission, out of scope of this frontend). `documentType` records which ID type was submitted. Messaging, livestreaming, and payments require an approved status.
 - Google OAuth sign-ups go through the same onboarding and manual admin-review flow; there is no OAuth shortcut around review.
 
 ## 10. Wallet, payments & payouts — what's real vs. what's a placeholder
@@ -348,9 +348,9 @@ From `app/router.tsx`. `ProtectedRoute allow={[...]}` gates by session stage; ev
 
 These are frontend-enforced today and may need backend-side policy decisions, not just implementation:
 
-1. **Age minimums differ by gender** (21 for women, 18 for men) — confirm this is an intended, defensible policy before hardcoding it server-side the same way.
-2. **Document verification (NIN/BVN/voter's card) required for women only, not men** — same: confirm this asymmetry is intended, not just a placeholder the frontend happened to implement first.
-3. **Meetup payments only flow man → woman** — confirm this is the intended product rule for v1, not an oversight.
+1. **Confirmed eligibility policy:** minimum age is 21 for everyone; government ID verification is required for all accounts.
+2. **Confirmed access gate:** unverified, pending, and rejected accounts may use limited features, but messaging, livestreaming, and payments require approved identity verification.
+3. **Meetup payments only flow man → woman** — confirmed as the current product rule.
 4. **Referral bonus credits the new signer-upper, not the referrer** — confirm this is the intended mechanic.
 5. **Raw lat/lng Google Maps link sent to emergency contacts** — confirm the precision tradeoff (see §11) is acceptable for the real safety feature, given `architecture.md`'s general location-minimization guidance.
 6. **Naira amounts have no defined minor-unit convention yet** — must be settled before integrating a real payment provider (see §10).

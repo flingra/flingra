@@ -69,6 +69,7 @@ def test_google_signup_creates_verified_account_and_session(api_client, monkeypa
     profile = client.get("/profiles/me")
     assert profile.status_code == 200
     assert profile.json()["identity"] == "woman"
+    assert profile.json()["documentVerification"] == "unverified"
 
     db_generator = client.app.dependency_overrides[auth.db_session]()
     db = next(db_generator)

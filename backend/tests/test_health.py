@@ -91,7 +91,8 @@ def test_mysql_migration_failure_keeps_readiness_unavailable(monkeypatch, caplog
     monkeypatch.setattr(main, "run_configured_migrations", fail_migrations)
     caplog.set_level(logging.ERROR, logger="uvicorn.error")
 
-    with TestClient(create_app(Settings(database_url="mysql+pymysql://test"))) as client:
+    settings = Settings(database_url="mysql+pymysql://test", rate_limiting_enabled=False)
+    with TestClient(create_app(settings)) as client:
         response = client.get("/health/ready")
 
     assert response.status_code == 503
@@ -112,7 +113,8 @@ def test_mysql_retries_schema_initialization_after_startup_database_failure(monk
     monkeypatch.setattr(main, "check_database", check_database)
     monkeypatch.setattr(main, "run_configured_migrations", lambda _: [])
 
-    with TestClient(create_app(Settings(database_url="mysql+pymysql://test"))) as client:
+    settings = Settings(database_url="mysql+pymysql://test", rate_limiting_enabled=False)
+    with TestClient(create_app(settings)) as client:
         response = client.get("/health/ready")
 
     assert response.status_code == 200

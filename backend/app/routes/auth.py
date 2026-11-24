@@ -90,7 +90,9 @@ def _normalize_identifier(value: str, sex: str) -> tuple[str, str, str | None]:
     raise ApiException("INVALID_IDENTIFIER", "Enter a valid email address or mobile number.")
 
 
-def _age_on(birth_date: date, today: date) -> int:
+def _age_on(birth_date: date | str, today: date) -> int:
+    if isinstance(birth_date, str):
+        birth_date = date.fromisoformat(birth_date)
     return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
 
 
@@ -214,8 +216,8 @@ def get_authenticated_account(
     result = db.execute(
         text(
             """
-            SELECT a.id, a.identifier, a.identifier_type, a.email_verified,
-                   p.onboarding_complete
+            SELECT s.id AS session_id, a.id, a.identifier, a.identifier_type,
+                   a.email_verified, a.date_of_birth, p.onboarding_complete
             FROM sessions s
             JOIN accounts a ON a.id = s.account_id
             LEFT JOIN profiles p ON p.account_id = a.id
@@ -228,6 +230,23 @@ def get_authenticated_account(
     ).mappings().first()
     if result is None:
         raise ApiException("UNAUTHENTICATED", "Sign in to continue.", 401)
+    if _age_on(result["date_of_birth"], date.today()) < MINIMUM_ACCOUNT_AGE:
+        db.execute(
+            text("UPDATE sessions SET revoked_at = :revoked_at WHERE id = :session_id"),
+            {"revoked_at": _now(), "session_id": result["session_id"]},
+        )
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.session.age_denied",
+            actor_type="user",
+            actor_id=str(result["id"]),
+            subject_account_id=str(result["id"]),
+            outcome="denied",
+            metadata={"reason": "minimum_age_not_met"},
+        )
+        db.commit()
+        raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.", 403)
     return AuthenticatedAccount(result)
 
 
@@ -235,6 +254,7 @@ CurrentAccount = Annotated[AuthenticatedAccount, Depends(get_authenticated_accou
 
 
 def require_identity_verified(
+    request: Request,
     account: CurrentAccount,
     db: DbSession,
 ) -> AuthenticatedAccount:
@@ -249,6 +269,17 @@ def require_identity_verified(
         {"account_id": account.account_id},
     ).scalar_one_or_none()
     if verification_status != "verified":
+        record_audit_event(
+            db,
+            request,
+            event_type="identity.verification.access_denied",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="denied",
+            metadata={"verificationStatus": verification_status or "unverified"},
+        )
+        db.commit()
         raise ApiException(
             "IDENTITY_VERIFICATION_REQUIRED",
             "Identity verification must be approved before using this feature.",

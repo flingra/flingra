@@ -51,7 +51,7 @@ export interface OwnProfile extends MemberProfile {
   twoFactorEnabled?: boolean
   twoFactorMethod?: 'email' | 'authenticator'
   onboardingComplete?: boolean
-  /** Government ID check, required for female accounts to vet claimed age/identity. */
+  /** Government ID check, required for all accounts. */
   documentVerification?: VerificationStatus
   documentType?: VerificationDocumentType
   /** Set only while `subscriptionTier` is 'vip'; past this date the account reverts to free. */
