@@ -12,10 +12,12 @@ From this directory, install the package and test dependencies:
 python -m pip install -e ".[test]"
 ```
 
-Configure local values in `backend/.env`. Its commented payment, payout, SMS,
-and livestream variables are provisional placeholders only; the current
-backend ignores them until those providers are selected and their integrations
-are implemented. Keep the populated `.env` local and uncommitted.
+Configure local values in `backend/.env`. Paystack is the selected payment
+provider; set `FLINGRA_PAYMENT_PROVIDER=paystack` and
+`FLINGRA_PAYSTACK_SECRET_KEY` there. The backend reads these settings, but
+wallet top-ups remain disabled until Paystack initialization and signed
+webhook settlement are implemented. Keep the populated `.env` local and
+uncommitted.
 
 Configure MySQL either with `FLINGRA_DATABASE_URL` (SQLAlchemy URL) or with
 these separate fields in `backend/.env`:
@@ -54,6 +56,9 @@ Optional settings include:
   client's Authorized JavaScript origins in Google Cloud Console.
 - `FLINGRA_OPENCAGE_API_KEY` — server-side OpenCage reverse-geocoding key used
   to turn private browser coordinates into an approximate display area.
+- `FLINGRA_PAYMENT_PROVIDER` — currently `paystack`.
+- `FLINGRA_PAYSTACK_SECRET_KEY` — Paystack secret key. Keep it server-side;
+  Paystack webhook signatures are verified using this key.
 - `FLINGRA_BREVO_API_KEY` — secret API key for Brevo transactional email.
 - `FLINGRA_BREVO_SENDER_EMAIL` — a verified sender address in Brevo.
 - `FLINGRA_BREVO_SENDER_NAME` — optional sender display name.

@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     max_request_bytes: int = Field(default=1_048_576, ge=1)
     google_client_id: str | None = None
     opencage_api_key: SecretStr | None = None
+    payment_provider: str | None = None
+    paystack_secret_key: SecretStr | None = None
     cloudinary_cloud_name: str | None = None
     cloudinary_api_key: str | None = None
     cloudinary_api_secret: SecretStr | None = None
