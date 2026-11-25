@@ -48,6 +48,18 @@ const CATEGORY_CHIPS = [
 ]
 const FALLBACK_MAP_CENTER: [number, number] = [9.076, 7.398]
 
+function DiscoveryCardSkeleton() {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-2xl border border-ink-100 bg-white px-3 py-5 shadow-soft" aria-hidden="true">
+      <Skeleton className="size-16 rounded-full" />
+      <div className="flex w-full flex-col items-center gap-2">
+        <Skeleton className="h-4 w-24 max-w-full" />
+        <Skeleton className="h-3 w-16" />
+      </div>
+    </div>
+  )
+}
+
 export function DiscoverPage() {
   const queryClient = useQueryClient()
   const [filters, setFilters] = useState<DiscoveryFilters>(DEFAULT_FILTERS)
@@ -561,8 +573,15 @@ export function DiscoverPage() {
         )}
 
         {isLoading && cursor === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/60">
-            <Skeleton className="size-16 rounded-full" />
+          <div
+            className="absolute inset-0 z-[1100] bg-white/70"
+            role="status"
+            aria-label="Loading nearby profiles"
+          >
+            <span className="sr-only">Loading nearby profiles</span>
+            <Skeleton className="absolute left-[18%] top-[32%] size-11 rounded-full" />
+            <Skeleton className="absolute left-[62%] top-[44%] size-11 rounded-full" />
+            <Skeleton className="absolute left-[38%] top-[68%] size-11 rounded-full" />
           </div>
         )}
 
@@ -592,10 +611,13 @@ export function DiscoverPage() {
 
       </div>
 
-      {items.length > 0 && (
+      {(items.length > 0 || isLoading) && (
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {items.map((profile) => (
             <CircleCard key={profile.id} profile={profile} showDistance={locationEnabled} />
+          ))}
+          {isLoading && Array.from({ length: 6 }, (_, index) => (
+            <DiscoveryCardSkeleton key={`loading-${index}`} />
           ))}
         </div>
       )}
