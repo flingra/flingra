@@ -18,9 +18,13 @@ from app.feature_schemas import (
     ChatThreadCreateRequest,
     ChatThreadResponse,
     DirectMessageResponse,
+    MeetupPaymentCreateRequest,
+    MeetupPaymentDisputeRequest,
+    MeetupPaymentResponse,
 )
 from app.routes.auth import IdentityVerifiedAccount, get_app_settings, require_csrf
 from app.routes.profiles import _effective_subscription_tier, _member_profile, _visible_profile_rows
+from app.wallet import credit_wallet, debit_wallet
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 DbSession = Annotated[Session, Depends(db_session)]
@@ -82,7 +86,7 @@ def _discoverable_target(
     viewer = db.execute(
         text(
             """
-            SELECT p.identity, p.subscription_tier, p.vip_expires_at
+            SELECT p.identity, p.subscription_tier, p.vip_expires_at, p.display_name
             FROM profiles p
             WHERE p.account_id = :account_id
             """
@@ -271,7 +275,7 @@ def list_messages(
     rows = db.execute(
         text(
             """
-            SELECT id, thread_id, author_id, message_text, attachment_json, created_at
+            SELECT id, thread_id, author_id, message_text, attachment_json, payment_id, created_at
             FROM chat_messages
             WHERE thread_id = :thread_id
             ORDER BY created_at, id
@@ -302,6 +306,7 @@ def list_messages(
             )
             if row["attachment_json"]
             else None,
+            payment_id=str(row["payment_id"]) if row["payment_id"] else None,
             created_at=row["created_at"],
         )
         for row in rows
@@ -339,9 +344,9 @@ def send_message(
         text(
             """
             INSERT INTO chat_messages (
-                id, thread_id, author_id, message_text, created_at
+                id, thread_id, author_id, message_text, payment_id, created_at
             )
-            VALUES (:id, :thread_id, :author_id, :message_text, :created_at)
+            VALUES (:id, :thread_id, :author_id, :message_text, NULL, :created_at)
             """
         ),
         {
@@ -395,15 +400,381 @@ def upload_chat_attachment(
 
 @router.post(
     "/threads/{thread_id}/payment-proposals",
-    status_code=503,
+    response_model=MeetupPaymentResponse,
+    status_code=201,
     dependencies=[Depends(require_csrf)],
 )
-def payment_proposals_not_enabled(
+def propose_meetup_payment(
     thread_id: str,
+    body: MeetupPaymentCreateRequest,
+    request: Request,
     account: IdentityVerifiedAccount,
     db: DbSession,
-) -> None:
-    _get_thread(db, thread_id, account.account_id)
-    raise ServiceUnavailable(
-        "Meetup payments are unavailable until a regulated payment and escrow provider is configured."
+    settings: SettingsDependency,
+) -> MeetupPaymentResponse:
+    _require_ready(account)
+    thread = _get_thread(db, thread_id, account.account_id)
+    _ensure_not_blocked(db, account.account_id, thread["other_id"])
+    viewer, target = _discoverable_target(db, account.account_id, settings, thread["other_id"])
+    if viewer["identity"] != "man":
+        raise ApiException("PAYER_RESTRICTED", "Only male accounts can propose a meetup payment.", 403)
+    if target["identity"] != "woman":
+        raise ApiException("RECIPIENT_RESTRICTED", "Meetup payments can only be sent to female accounts.", 403)
+
+    payment_id = uuid.uuid4().hex
+    now = _now()
+    amount_kobo = body.amount_naira * 100
+    db.execute(
+        text(
+            """
+            INSERT INTO meetup_payments (
+                id, thread_id, payer_id, recipient_id, payer_name, recipient_name,
+                amount_kobo, status, created_at, updated_at
+            )
+            VALUES (
+                :id, :thread_id, :payer_id, :recipient_id, :payer_name, :recipient_name,
+                :amount_kobo, 'proposed', :created_at, :created_at
+            )
+            """
+        ),
+        {
+            "id": payment_id,
+            "thread_id": thread_id,
+            "payer_id": account.account_id,
+            "recipient_id": thread["other_id"],
+            "payer_name": str(viewer.get("display_name") or "Member")[:100],
+            "recipient_name": str(target.get("display_name") or "Member")[:100],
+            "amount_kobo": amount_kobo,
+            "created_at": now,
+        },
     )
+    db.execute(
+        text(
+            """
+            INSERT INTO chat_messages (
+                id, thread_id, author_id, message_text, payment_id, created_at
+            )
+            VALUES (
+                :id, :thread_id, :author_id, :message_text, :payment_id, :created_at
+            )
+            """
+        ),
+        {
+            "id": uuid.uuid4().hex,
+            "thread_id": thread_id,
+            "author_id": account.account_id,
+            "message_text": f"Proposed ₦{body.amount_naira:,} for a meetup.",
+            "payment_id": payment_id,
+            "created_at": now,
+        },
+    )
+    db.execute(
+        text("UPDATE chat_threads SET last_message_at = :created_at WHERE id = :thread_id"),
+        {"created_at": now, "thread_id": thread_id},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="meetup_payment.proposed",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=thread["other_id"],
+        outcome="success",
+        metadata={"paymentId": payment_id, "amountKobo": amount_kobo},
+    )
+    db.commit()
+    return MeetupPaymentResponse(
+        id=payment_id,
+        from_id=account.account_id,
+        from_name=str(viewer.get("display_name") or "Member"),
+        to_id=thread["other_id"],
+        to_name=str(target.get("display_name") or "Member"),
+        amount_naira=body.amount_naira,
+        status="proposed",
+        created_at=now,
+    )
+
+
+def _meetup_payment(
+    db: Session,
+    payment_id: str,
+    account_id: str | None = None,
+    *,
+    lock: bool = False,
+) -> dict[str, Any]:
+    suffix = " FOR UPDATE" if lock and db.get_bind().dialect.name != "sqlite" else ""
+    row = db.execute(
+        text(
+            """
+            SELECT id, thread_id, payer_id, recipient_id, payer_name, recipient_name,
+                   amount_kobo, status, created_at, resolved_at
+            FROM meetup_payments
+            WHERE id = :payment_id
+              AND (:account_id IS NULL OR payer_id = :account_id OR recipient_id = :account_id)
+            """
+            + suffix
+        ),
+        {"payment_id": payment_id, "account_id": account_id},
+    ).mappings().first()
+    if row is None:
+        raise ApiException("PAYMENT_NOT_FOUND", "This meetup payment is unavailable.", 404)
+    return dict(row)
+
+
+def _meetup_response(row: dict[str, Any]) -> MeetupPaymentResponse:
+    return MeetupPaymentResponse(
+        id=str(row["id"]),
+        from_id=str(row["payer_id"]),
+        from_name=str(row["payer_name"]),
+        to_id=str(row["recipient_id"]),
+        to_name=str(row["recipient_name"]),
+        amount_naira=int(row["amount_kobo"]) // 100,
+        status=row["status"],
+        created_at=row["created_at"],
+        resolved_at=row["resolved_at"],
+    )
+
+
+@router.get(
+    "/meetup-payments/{payment_id}",
+    response_model=MeetupPaymentResponse,
+)
+def get_meetup_payment(
+    payment_id: str,
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> MeetupPaymentResponse:
+    return _meetup_response(_meetup_payment(db, payment_id, account.account_id))
+
+
+@router.post(
+    "/meetup-payments/{payment_id}/accept",
+    response_model=MeetupPaymentResponse,
+    dependencies=[Depends(require_csrf)],
+)
+def accept_meetup_payment(
+    payment_id: str,
+    request: Request,
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> MeetupPaymentResponse:
+    _require_ready(account)
+    payment = _meetup_payment(db, payment_id, account.account_id, lock=True)
+    if payment["recipient_id"] != account.account_id:
+        raise ApiException("PAYMENT_ACTION_FORBIDDEN", "Only the recipient can accept this proposal.", 403)
+    if payment["status"] != "proposed":
+        raise ApiException("PAYMENT_NOT_PROPOSED", "This proposal is no longer awaiting acceptance.", 409)
+    debit_wallet(
+        db,
+        str(payment["payer_id"]),
+        int(payment["amount_kobo"]),
+        transaction_type="meetup-payment-held",
+        description=f"Meetup payment held for {payment['recipient_name']}",
+    )
+    now = _now()
+    db.execute(
+        text(
+            """
+            UPDATE meetup_payments
+            SET status = 'held', updated_at = :now
+            WHERE id = :id AND status = 'proposed'
+            """
+        ),
+        {"id": payment_id, "now": now},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="meetup_payment.accepted",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=str(payment["payer_id"]),
+        outcome="success",
+        metadata={"paymentId": payment_id, "amountKobo": int(payment["amount_kobo"])},
+    )
+    db.commit()
+    payment["status"] = "held"
+    return _meetup_response(payment)
+
+
+@router.post(
+    "/meetup-payments/{payment_id}/decline",
+    response_model=MeetupPaymentResponse,
+    dependencies=[Depends(require_csrf)],
+)
+def decline_meetup_payment(
+    payment_id: str,
+    request: Request,
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> MeetupPaymentResponse:
+    payment = _meetup_payment(db, payment_id, account.account_id, lock=True)
+    if payment["recipient_id"] != account.account_id:
+        raise ApiException("PAYMENT_ACTION_FORBIDDEN", "Only the recipient can decline this proposal.", 403)
+    if payment["status"] != "proposed":
+        raise ApiException("PAYMENT_NOT_PROPOSED", "This proposal is no longer awaiting acceptance.", 409)
+    now = _now()
+    db.execute(
+        text(
+            """
+            UPDATE meetup_payments
+            SET status = 'declined', resolved_at = :now, updated_at = :now
+            WHERE id = :id AND status = 'proposed'
+            """
+        ),
+        {"id": payment_id, "now": now},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="meetup_payment.declined",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=str(payment["payer_id"]),
+        outcome="success",
+        metadata={"paymentId": payment_id},
+    )
+    db.commit()
+    payment.update(status="declined", resolved_at=now)
+    return _meetup_response(payment)
+
+
+@router.post(
+    "/meetup-payments/{payment_id}/release",
+    response_model=MeetupPaymentResponse,
+    dependencies=[Depends(require_csrf)],
+)
+def release_meetup_payment(
+    payment_id: str,
+    request: Request,
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> MeetupPaymentResponse:
+    payment = _meetup_payment(db, payment_id, account.account_id, lock=True)
+    if payment["status"] != "held":
+        raise ApiException("PAYMENT_NOT_HELD", "Only held funds can be released.", 409)
+    credit_wallet(
+        db,
+        str(payment["recipient_id"]),
+        int(payment["amount_kobo"]),
+        transaction_type="meetup-payment-released",
+        description=f"Meetup payment released by {payment['payer_name']}",
+    )
+    now = _now()
+    db.execute(
+        text(
+            """
+            UPDATE meetup_payments
+            SET status = 'released', resolved_at = :now, updated_at = :now
+            WHERE id = :id AND status = 'held'
+            """
+        ),
+        {"id": payment_id, "now": now},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="meetup_payment.released",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=str(payment["recipient_id"]),
+        outcome="success",
+        metadata={"paymentId": payment_id, "amountKobo": int(payment["amount_kobo"])},
+    )
+    db.commit()
+    payment.update(status="released", resolved_at=now)
+    return _meetup_response(payment)
+
+
+@router.post(
+    "/meetup-payments/{payment_id}/refund",
+    response_model=MeetupPaymentResponse,
+    dependencies=[Depends(require_csrf)],
+)
+def refund_meetup_payment(
+    payment_id: str,
+    request: Request,
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> MeetupPaymentResponse:
+    payment = _meetup_payment(db, payment_id, account.account_id, lock=True)
+    if payment["payer_id"] != account.account_id:
+        raise ApiException("PAYMENT_ACTION_FORBIDDEN", "Only the payer can request a refund.", 403)
+    if payment["status"] != "held":
+        raise ApiException("PAYMENT_NOT_HELD", "Only held funds can be refunded.", 409)
+    credit_wallet(
+        db,
+        str(payment["payer_id"]),
+        int(payment["amount_kobo"]),
+        transaction_type="meetup-payment-refunded",
+        description="Meetup payment refunded to payer",
+    )
+    now = _now()
+    db.execute(
+        text(
+            """
+            UPDATE meetup_payments
+            SET status = 'refunded', resolved_at = :now, updated_at = :now
+            WHERE id = :id AND status = 'held'
+            """
+        ),
+        {"id": payment_id, "now": now},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="meetup_payment.refunded",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=str(payment["payer_id"]),
+        outcome="success",
+        metadata={"paymentId": payment_id, "amountKobo": int(payment["amount_kobo"])},
+    )
+    db.commit()
+    payment.update(status="refunded", resolved_at=now)
+    return _meetup_response(payment)
+
+
+@router.post(
+    "/meetup-payments/{payment_id}/disputes",
+    response_model=MeetupPaymentResponse,
+    dependencies=[Depends(require_csrf)],
+)
+def dispute_meetup_payment(
+    payment_id: str,
+    body: MeetupPaymentDisputeRequest,
+    request: Request,
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> MeetupPaymentResponse:
+    payment = _meetup_payment(db, payment_id, account.account_id, lock=True)
+    if payment["status"] != "held":
+        raise ApiException("PAYMENT_NOT_HELD", "Only held funds can be disputed.", 409)
+    now = _now()
+    reason = body.reason.strip()
+    if not reason:
+        raise ApiException("INVALID_DISPUTE_REASON", "Explain why you are disputing this payment.", 400)
+    db.execute(
+        text(
+            """
+            UPDATE meetup_payments
+            SET status = 'disputed', dispute_reason = :reason, dispute_opened_by = :account_id,
+                updated_at = :now
+            WHERE id = :id AND status = 'held'
+            """
+        ),
+        {"id": payment_id, "account_id": account.account_id, "reason": reason, "now": now},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="meetup_payment.disputed",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=str(payment["recipient_id"]),
+        outcome="success",
+        metadata={"paymentId": payment_id},
+    )
+    db.commit()
+    payment["status"] = "disputed"
+    return _meetup_response(payment)

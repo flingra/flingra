@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -9,8 +10,17 @@ from sqlalchemy.orm import Session
 from app.audit import record_audit_event
 from app.dependencies import db_session
 from app.errors import ApiException
-from app.feature_schemas import DeviceSessionResponse, PasswordChangeRequest, PrivacyRequestResponse
-from app.routes.auth import CurrentAccount, _clear_session_cookies, require_csrf
+from app.feature_schemas import (
+    DeviceSessionResponse,
+    PasswordChangeRequest,
+    PrivacyRequestResponse,
+    PrivacyRequestStatusResponse,
+)
+from app.routes.auth import (
+    CurrentAccount,
+    _clear_session_cookies,
+    require_csrf,
+)
 from app.security import hash_password, verify_password
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -173,7 +183,7 @@ def _queue_privacy_request(
             SELECT id
             FROM privacy_requests
             WHERE account_id = :account_id AND request_type = :request_type
-              AND status = 'queued' AND created_at >= :since
+              AND status IN ('queued', 'processing') AND created_at >= :since
             ORDER BY created_at DESC
             LIMIT 1
             """
@@ -228,6 +238,35 @@ def request_data_export(
     result = _queue_privacy_request(request, account, db, "data_export")
     db.commit()
     return result
+
+
+@router.get(
+    "/data-export/{request_id}",
+    response_model=PrivacyRequestStatusResponse,
+)
+def get_data_export(
+    request_id: str,
+    account: CurrentAccount,
+    db: DbSession,
+) -> PrivacyRequestStatusResponse:
+    row = db.execute(
+        text(
+            """
+            SELECT id, status, result_json
+            FROM privacy_requests
+            WHERE id = :request_id AND account_id = :account_id AND request_type = 'data_export'
+            """
+        ),
+        {"request_id": request_id, "account_id": account.account_id},
+    ).mappings().first()
+    if row is None:
+        raise ApiException("PRIVACY_REQUEST_NOT_FOUND", "This privacy request is unavailable.", 404)
+    result = json.loads(row["result_json"]) if row["result_json"] else None
+    return PrivacyRequestStatusResponse(
+        request_id=str(row["id"]),
+        status=row["status"],
+        result=result,
+    )
 
 
 @router.post(

@@ -24,6 +24,7 @@ from app.config import Settings
 from app.dependencies import db_session
 from app.errors import ApiException, ServiceUnavailable
 from app.notifications import send_password_reset, send_two_factor_code, send_verification_code
+from app.referrals import ensure_referral_code, normalize_referral_code
 from app.schemas import (
     PasswordResetConfirmRequest,
     PasswordResetRequest,
@@ -408,6 +409,8 @@ def sign_up(
         _record_rejected_signup(db, request, "minimum_age_not_met")
         raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.")
 
+    referral_code = normalize_referral_code(body.referral_code)
+
     if identifier_type != "email":
         _record_rejected_signup(db, request, "sms_provider_unavailable", outcome="failure")
         raise ServiceUnavailable("SMS verification is not configured for phone accounts.")
@@ -456,7 +459,7 @@ def sign_up(
                 "password_hash": hash_password(body.password),
                 "date_of_birth": body.date_of_birth,
                 "gender": body.sex,
-                "referred_by_code": body.referral_code,
+                "referred_by_code": referral_code,
                 "terms_version": settings.terms_version,
                 "privacy_version": settings.privacy_version,
             },
@@ -476,6 +479,7 @@ def sign_up(
                 "identity": body.sex,
             },
         )
+        ensure_referral_code(db, account_id)
         db.execute(
             text(
                 """
@@ -1014,6 +1018,7 @@ def google_auth(
     if _age_on(body.date_of_birth, date.today()) < MINIMUM_ACCOUNT_AGE:
         raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.")
 
+    referral_code = normalize_referral_code(body.referral_code)
     account_id = uuid.uuid4().hex
     try:
         db.execute(
@@ -1038,7 +1043,7 @@ def google_auth(
                 "password_hash": hash_password(generate_token()),
                 "date_of_birth": body.date_of_birth,
                 "gender": body.sex,
-                "referred_by_code": body.referral_code,
+                "referred_by_code": referral_code,
                 "terms_version": settings.terms_version,
                 "privacy_version": settings.privacy_version,
                 "google_sub": google_sub,
@@ -1065,6 +1070,7 @@ def google_auth(
                 "identity": body.sex,
             },
         )
+        ensure_referral_code(db, account_id)
         authenticated = AuthenticatedAccount(
             {
                 "id": account_id,
@@ -1161,6 +1167,7 @@ def verify_contact(
         ),
         {"account_id": account.account_id},
     )
+    ensure_referral_code(db, account.account_id)
     db.execute(
         text("DELETE FROM email_verification_tokens WHERE account_id = :account_id"),
         {"account_id": account.account_id},

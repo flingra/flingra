@@ -28,6 +28,10 @@ from app.routes.content import router as content_router
 from app.routes.profile_extras import router as profile_extras_router
 from app.routes.subscriptions import router as subscriptions_router
 from app.routes.commerce import router as commerce_router
+from app.routes.payouts import router as payouts_router
+from app.routes.meetup_admin import router as meetup_admin_router
+from app.routes.referrals import router as referrals_router
+from app.routes.livestreams import router as livestreams_router
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -108,6 +112,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(profile_extras_router)
     application.include_router(subscriptions_router)
     application.include_router(commerce_router)
+    application.include_router(payouts_router)
+    application.include_router(meetup_admin_router)
+    application.include_router(referrals_router)
+    application.include_router(livestreams_router)
     application.include_router(safety_router)
     application.include_router(chat_router)
     application.include_router(settings_router)

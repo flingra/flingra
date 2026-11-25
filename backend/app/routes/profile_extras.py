@@ -106,4 +106,18 @@ def get_member_presence(
             "now": datetime.now(UTC).replace(tzinfo=None),
         },
     ).first() is not None
-    return {"hasStatus": has_status, "isLive": False, "streamId": None}
+    live_stream_id = db.execute(
+        text(
+            """
+            SELECT id FROM live_streams
+            WHERE host_account_id = :author_id AND status = 'live'
+            ORDER BY started_at DESC LIMIT 1
+            """
+        ),
+        {"author_id": author_id},
+    ).scalar_one_or_none()
+    return {
+        "hasStatus": has_status,
+        "isLive": live_stream_id is not None,
+        "streamId": str(live_stream_id) if live_stream_id is not None else None,
+    }

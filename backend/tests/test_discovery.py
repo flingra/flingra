@@ -174,9 +174,9 @@ def test_discovery_requires_document_verification_and_rejects_live_filter(api_cl
     finally:
         generator.close()
 
-    unavailable = client.get("/discovery?liveOnly=true")
-    assert unavailable.status_code == 501
-    assert unavailable.json()["error"]["code"] == "LIVE_FILTER_UNAVAILABLE"
+    live_only = client.get("/discovery?liveOnly=true")
+    assert live_only.status_code == 200
+    assert live_only.json()["items"] == []
 
 
 def test_profile_detail_only_returns_discoverable_verified_profiles(api_client, monkeypatch) -> None:

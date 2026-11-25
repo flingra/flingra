@@ -1,10 +1,19 @@
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.errors import ApiException
+
+
+def require_wallet_ready(account: Mapping[str, Any]) -> None:
+    if not account["email_verified"]:
+        raise ApiException("CONTACT_NOT_VERIFIED", "Verify your contact before using the wallet.", 403)
+    if not account["onboarding_complete"]:
+        raise ApiException("ONBOARDING_REQUIRED", "Complete onboarding before using the wallet.", 403)
 
 
 def _now() -> datetime:
@@ -53,6 +62,7 @@ def debit_wallet(
     transaction_type: str,
     description: str,
     status: str = "completed",
+    transaction_id: str | None = None,
 ) -> int:
     if amount_kobo <= 0:
         raise ValueError("Wallet debits must be positive kobo amounts.")
@@ -76,6 +86,7 @@ def debit_wallet(
         amount_kobo=-amount_kobo,
         description=description,
         status=status,
+        transaction_id=transaction_id,
     )
     return get_wallet_balance_kobo(db, account_id)
 
@@ -120,8 +131,9 @@ def add_wallet_transaction(
     amount_kobo: int,
     description: str,
     status: str = "completed",
+    transaction_id: str | None = None,
 ) -> str:
-    transaction_id = uuid.uuid4().hex
+    transaction_id = transaction_id or uuid.uuid4().hex
     db.execute(
         text(
             """

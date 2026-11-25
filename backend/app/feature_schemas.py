@@ -47,6 +47,7 @@ class SafetyCheckInResponse(BaseModel):
     id: str
     message: str
     notified_contacts: list[str] = Field(serialization_alias="notifiedContacts")
+    status: Literal["sending", "sent", "partially_sent", "failed"]
     location_link: str | None = Field(serialization_alias="locationLink")
     created_at: datetime = Field(serialization_alias="createdAt")
 
@@ -94,6 +95,51 @@ class DirectMessageResponse(BaseModel):
     attachment: ChatAttachment | None = None
     payment_id: str | None = Field(default=None, serialization_alias="paymentId")
     created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class MeetupPaymentCreateRequest(BaseModel):
+    amount_naira: int = Field(alias="amountNaira", gt=0, le=10_000_000)
+
+
+class MeetupPaymentDisputeRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class MeetupPaymentResolutionRequest(BaseModel):
+    resolution: Literal["release", "refund"]
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class MeetupPaymentResponse(BaseModel):
+    id: str
+    from_id: str = Field(serialization_alias="fromId")
+    from_name: str = Field(serialization_alias="fromName")
+    to_id: str = Field(serialization_alias="toId")
+    to_name: str = Field(serialization_alias="toName")
+    amount_naira: int = Field(serialization_alias="amountNaira")
+    status: Literal["proposed", "held", "released", "refunded", "declined", "disputed"]
+    created_at: datetime = Field(serialization_alias="createdAt")
+    resolved_at: datetime | None = Field(default=None, serialization_alias="resolvedAt")
+
+
+class LiveStreamStartRequest(BaseModel):
+    title: str = Field(default="", max_length=80)
+
+
+class LiveStreamResponse(BaseModel):
+    id: str
+    host_id: str = Field(serialization_alias="hostId")
+    host_name: str = Field(serialization_alias="hostName")
+    host_photo: str = Field(serialization_alias="hostPhoto")
+    host_video: str | None = Field(default=None, serialization_alias="hostVideo")
+    title: str
+    started_at: datetime = Field(serialization_alias="startedAt")
+    participant_ids: list[str] = Field(serialization_alias="participantIds")
+
+
+class LiveKitConnectionResponse(BaseModel):
+    url: str
+    token: str
 
 
 class PostCreateRequest(BaseModel):
@@ -154,6 +200,12 @@ class PrivacyRequestResponse(BaseModel):
     status: Literal["queued"] = "queued"
 
 
+class PrivacyRequestStatusResponse(BaseModel):
+    request_id: str = Field(serialization_alias="requestId")
+    status: Literal["queued", "processing", "completed", "failed"]
+    result: dict[str, object] | None = None
+
+
 class VipPlanResponse(BaseModel):
     id: str
     name: str
@@ -211,6 +263,21 @@ class WalletTransactionResponse(BaseModel):
 
 
 class WalletTopUpRequest(BaseModel):
+    amount_naira: int = Field(alias="amountNaira", gt=0, le=10_000_000)
+
+
+class WalletTopUpVerificationRequest(BaseModel):
+    reference: str = Field(min_length=1, max_length=100)
+
+
+class PayoutBankAccountRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    account_number: str = Field(alias="accountNumber", pattern=r"^[0-9]{10}$")
+    bank_code: str = Field(alias="bankCode", min_length=1, max_length=16)
+
+
+class PayoutRequestBody(BaseModel):
     amount_naira: int = Field(alias="amountNaira", gt=0, le=10_000_000)
 
 

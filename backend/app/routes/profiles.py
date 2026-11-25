@@ -457,12 +457,6 @@ def get_discovery_feed(
     _require_discovery_ready(account)
     if max_age < min_age:
         raise ApiException("INVALID_DISCOVERY_FILTERS", "Maximum age must be at least the minimum age.", 422)
-    if live_only:
-        raise ApiException(
-            "LIVE_FILTER_UNAVAILABLE",
-            "Live-only discovery is not available yet.",
-            501,
-        )
     if (latitude is None) != (longitude is None):
         raise ApiException("INVALID_LOCATION", "Provide both latitude and longitude.", 422)
 
@@ -481,10 +475,22 @@ def get_discovery_feed(
         viewer["identity"],
         settings.demo_profiles_enabled,
     )
+    live_host_ids = (
+        {
+            str(row[0])
+            for row in db.execute(
+                text("SELECT host_account_id FROM live_streams WHERE status = 'live'")
+            ).all()
+        }
+        if live_only
+        else None
+    )
     target_identity = {"men": "man", "women": "woman"}.get(looking_for)
     requested_interests = set(interests)
     candidates: list[DiscoveryProfileResponse] = []
     for row in visible_rows:
+        if live_host_ids is not None and str(row["id"]) not in live_host_ids:
+            continue
         age = _current_age(row["date_of_birth"])
         if age < max(min_age, 21) or age > max_age:
             continue

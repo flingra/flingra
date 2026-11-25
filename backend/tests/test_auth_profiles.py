@@ -1,6 +1,7 @@
 import io
 
 from PIL import Image
+from sqlalchemy import text
 
 from app.routes import auth
 
@@ -132,6 +133,65 @@ def test_signup_rejects_duplicate_identifier(api_client, monkeypatch) -> None:
     duplicate = signup(client)
     assert duplicate.status_code == 409
     assert duplicate.json()["error"]["code"] == "ACCOUNT_EXISTS"
+
+
+def test_referral_signup_does_not_credit_bonus_until_policy_is_decided(
+    api_client, monkeypatch
+) -> None:
+    client, delivered_codes = api_client
+    monkeypatch.setattr(
+        auth,
+        "send_verification_code",
+        lambda _settings, _recipient, code: delivered_codes.append(code),
+    )
+
+    referrer = signup(client, identifier="referrer@example.test")
+    assert referrer.status_code == 201
+    assert client.post(
+        "/auth/verify-contact",
+        headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
+        json={"code": delivered_codes[0]},
+    ).status_code == 200
+    referral_code = client.get("/referrals/code").json()["code"]
+
+    referred = signup(
+        client,
+        identifier="referred@example.test",
+        referralCode=referral_code.lower(),
+    )
+    assert referred.status_code == 201
+    assert client.post(
+        "/auth/verify-contact",
+        headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
+        json={"code": delivered_codes[1]},
+    ).status_code == 200
+
+    account_id = client.get("/auth/session").json()["accountId"]
+    db_generator = client.app.dependency_overrides[auth.db_session]()
+    db = next(db_generator)
+    try:
+        assert db.execute(
+            text(
+                "SELECT COALESCE((SELECT balance_kobo FROM wallet_accounts "
+                "WHERE account_id = :account_id), 0)"
+            ),
+            {"account_id": account_id},
+        ).scalar_one() == 0
+        assert db.execute(
+            text("SELECT COUNT(*) FROM referral_rewards WHERE referred_account_id = :account_id"),
+            {"account_id": account_id},
+        ).scalar_one() == 0
+        assert db.execute(
+            text(
+                "SELECT COUNT(*) FROM wallet_transactions "
+                "WHERE account_id = :account_id AND transaction_type = 'referral-bonus'"
+            ),
+            {"account_id": account_id},
+        ).scalar_one() == 0
+    finally:
+        db_generator.close()
+
+    assert client.get("/referrals").json() == []
 
 
 def test_profile_patch_requires_csrf(api_client, monkeypatch) -> None:

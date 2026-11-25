@@ -21,10 +21,16 @@ from app.feature_schemas import (
     SafetyCheckInResponse,
 )
 from app.routes.auth import CurrentAccount, require_csrf
+from app.routes.auth import get_app_settings
+from app.config import Settings
+from app.termii import send_sms
 
 router = APIRouter(prefix="/safety", tags=["safety"])
 DbSession = Annotated[Session, Depends(db_session)]
+SettingsDependency = Annotated[Settings, Depends(get_app_settings)]
 PHONE_PATTERN = re.compile(r"^[+]?[0-9][0-9 ()-]{5,30}$")
+
+
 def _now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
@@ -384,7 +390,7 @@ def list_safety_check_ins(
     rows = db.execute(
         text(
             """
-            SELECT id, message, location_link, created_at
+            SELECT id, message, notified_contacts_json, status, location_link, created_at
             FROM safety_check_ins
             WHERE account_id = :account_id
             ORDER BY created_at DESC, id
@@ -396,7 +402,12 @@ def list_safety_check_ins(
         SafetyCheckInResponse(
             id=str(row["id"]),
             message=row["message"],
-            notified_contacts=[],
+            notified_contacts=(
+                json.loads(row["notified_contacts_json"])
+                if row["notified_contacts_json"]
+                else []
+            ),
+            status=row["status"],
             location_link=row["location_link"],
             created_at=row["created_at"],
         )
@@ -423,15 +434,116 @@ def list_safety_check_ins(
 )
 def create_safety_check_in(
     body: SafetyCheckInCreateRequest,
+    request: Request,
     account: CurrentAccount,
     db: DbSession,
+    settings: SettingsDependency,
 ) -> SafetyCheckInResponse:
     contacts = db.execute(
-        text("SELECT COUNT(*) FROM emergency_contacts WHERE account_id = :account_id"),
+        text(
+            """
+            SELECT name, phone
+            FROM emergency_contacts
+            WHERE account_id = :account_id
+            ORDER BY created_at, id
+            """
+        ),
         {"account_id": account.account_id},
-    ).scalar_one()
-    if contacts == 0:
+    ).mappings().all()
+    if not contacts:
         raise ApiException("NO_CONTACTS", "Add at least one emergency contact first.")
-    raise ServiceUnavailable(
-        "Emergency contact notifications are not configured; no check-in was sent."
+
+    check_in_id = uuid.uuid4().hex
+    created_at = _now()
+    message = body.message.strip()
+    db.execute(
+        text(
+            """
+            INSERT INTO safety_check_ins (
+                id, account_id, message, location_link, status, notified_contacts_json, created_at
+            )
+            VALUES (
+                :id, :account_id, :message, :location_link, 'sending', '[]', :created_at
+            )
+            """
+        ),
+        {
+            "id": check_in_id,
+            "account_id": account.account_id,
+            "message": message,
+            "location_link": body.location_link,
+            "created_at": created_at,
+        },
+    )
+    db.commit()
+
+    profile_name = db.execute(
+        text("SELECT display_name FROM profiles WHERE account_id = :account_id"),
+        {"account_id": account.account_id},
+    ).scalar_one_or_none()
+    sms_parts = [f"Flingra safety check-in from {profile_name or 'a Flingra member'}."]
+    if message:
+        sms_parts.append(f"Message: {message}")
+    if body.location_link:
+        sms_parts.append(f"Location: {body.location_link}")
+    sms_message = "\n".join(sms_parts)
+
+    notified_contacts: list[str] = []
+    failed_count = 0
+    for contact in contacts:
+        try:
+            send_sms(settings, str(contact["phone"]), sms_message)
+        except ServiceUnavailable:
+            failed_count += 1
+        else:
+            notified_contacts.append(str(contact["name"]))
+
+    status = (
+        "sent"
+        if notified_contacts and not failed_count
+        else "partially_sent"
+        if notified_contacts
+        else "failed"
+    )
+    db.execute(
+        text(
+            """
+            UPDATE safety_check_ins
+            SET status = :status, notified_contacts_json = :notified_contacts_json
+            WHERE id = :id AND account_id = :account_id
+            """
+        ),
+        {
+            "id": check_in_id,
+            "account_id": account.account_id,
+            "status": status,
+            "notified_contacts_json": json.dumps(notified_contacts, separators=(",", ":")),
+        },
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="safety.check_in_sent",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=account.account_id,
+        outcome="success" if notified_contacts else "failure",
+        metadata={
+            "checkInId": check_in_id,
+            "notifiedCount": len(notified_contacts),
+            "failedCount": failed_count,
+        },
+    )
+    db.commit()
+    if not notified_contacts:
+        raise ServiceUnavailable(
+            "Emergency contact notifications could not be delivered; no contact was notified."
+        )
+    return SafetyCheckInResponse(
+        id=check_in_id,
+        message=message,
+        notified_contacts=notified_contacts,
+        status=status,
+        location_link=body.location_link,
+        created_at=created_at,
     )

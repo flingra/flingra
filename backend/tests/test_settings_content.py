@@ -5,7 +5,9 @@ from datetime import UTC, datetime, timedelta
 from PIL import Image
 from sqlalchemy import text
 
+from app.config import Settings
 from app.dependencies import db_session
+from app.privacy_worker import process_privacy_requests
 from test_discovery import _create_candidate, _create_viewer
 
 
@@ -54,6 +56,103 @@ def test_settings_sessions_password_and_privacy_requests(api_client, monkeypatch
         ).scalar_one() == 2
     finally:
         generator.close()
+
+
+def test_privacy_export_worker_completes_and_exposes_only_owner_data(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    account_id = _create_viewer(client, monkeypatch)
+    thread_id = uuid.uuid4().hex
+    message_id = uuid.uuid4().hex
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO chat_threads (id, participant_a_id, participant_b_id)
+                VALUES (:id, :account_id, 'another-account')
+                """
+            ),
+            {"id": thread_id, "account_id": account_id},
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO chat_messages (id, thread_id, author_id, message_text)
+                VALUES (:id, :thread_id, :account_id, 'export this message')
+                """
+            ),
+            {"id": message_id, "thread_id": thread_id, "account_id": account_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    response = client.post(
+        "/settings/data-export",
+        headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
+    )
+    request_id = response.json()["requestId"]
+    db, generator = _session(client)
+    try:
+        assert process_privacy_requests(db, Settings(database_url="sqlite://")) == 1
+        assert process_privacy_requests(db, Settings(database_url="sqlite://")) == 0
+    finally:
+        generator.close()
+
+    export = client.get(f"/settings/data-export/{request_id}")
+    assert export.status_code == 200
+    payload = export.json()
+    assert payload["status"] == "completed"
+    assert payload["result"]["account"]["id"] == account_id
+    assert "password_hash" not in payload["result"]["account"]
+    assert payload["result"]["data"]["chat_messages"][0]["id"] == message_id
+
+
+def test_privacy_deletion_worker_removes_account_and_media(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    account_id = _create_viewer(client, monkeypatch)
+    csrf = client.cookies["flingra_csrf"]
+    storage = client.app.state.media_storage
+    media_id = uuid.uuid4().hex
+    object_key = f"accounts/{account_id}/{media_id}"
+    storage.put(object_key, b"private media", "image/jpeg")
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO media_objects
+                    (id, account_id, purpose, object_key, content_type, size_bytes, sha256)
+                VALUES (:id, :account_id, 'profile-photo', :object_key, 'image/jpeg', 13, 'hash')
+                """
+            ),
+            {"id": media_id, "account_id": account_id, "object_key": object_key},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    response = client.post("/settings/account/delete", headers={"X-CSRF-Token": csrf})
+    assert response.status_code == 202
+    db, generator = _session(client)
+    try:
+        assert process_privacy_requests(
+            db,
+            Settings(database_url="sqlite://"),
+            storage=storage,
+        ) == 1
+        assert process_privacy_requests(
+            db,
+            Settings(database_url="sqlite://"),
+            storage=storage,
+        ) == 0
+        assert db.execute(
+            text("SELECT COUNT(*) FROM accounts WHERE id = :account_id"),
+            {"account_id": account_id},
+        ).scalar_one() == 0
+    finally:
+        generator.close()
+    assert object_key not in storage.objects
 
 
 def test_posts_require_owned_media_and_status_expires(api_client, monkeypatch) -> None:

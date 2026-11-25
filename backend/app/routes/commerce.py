@@ -17,15 +17,18 @@ from app.feature_schemas import (
     OwnedGiftResponse,
     ReceivedGiftResponse,
     WalletTopUpRequest,
+    WalletTopUpVerificationRequest,
     WalletTransactionResponse,
 )
+from app.paystack import initialize_transaction, verify_transaction, verify_webhook_signature
 from app.routes.auth import IdentityVerifiedAccount, get_app_settings, require_csrf
 from app.routes.profiles import (
     _effective_subscription_tier,
     _require_discovery_ready,
     _visible_profile_rows,
 )
-from app.wallet import credit_wallet, debit_wallet, get_wallet_balance_kobo
+from app.routes.payouts import settle_paystack_transfer
+from app.wallet import credit_wallet, debit_wallet, get_wallet_balance_kobo, require_wallet_ready
 
 router = APIRouter(tags=["wallet"])
 DbSession = Annotated[Session, Depends(db_session)]
@@ -38,10 +41,7 @@ def _now() -> datetime:
 
 
 def _require_ready(account: dict[str, Any]) -> None:
-    if not account["email_verified"]:
-        raise ApiException("CONTACT_NOT_VERIFIED", "Verify your contact before using the wallet.", 403)
-    if not account["onboarding_complete"]:
-        raise ApiException("ONBOARDING_REQUIRED", "Complete onboarding before using the wallet.", 403)
+    require_wallet_ready(account)
 
 
 @router.get("/wallet/balance")
@@ -110,17 +110,251 @@ def list_wallet_transactions(
 
 @router.post(
     "/wallet/top-ups",
-    status_code=503,
+    status_code=201,
     dependencies=[Depends(require_csrf)],
 )
 def create_wallet_top_up(
     body: WalletTopUpRequest,
+    request: Request,
     account: IdentityVerifiedAccount,
-) -> None:
+    db: DbSession,
+    settings: SettingsDependency,
+) -> dict[str, str | int]:
     _require_ready(account)
-    raise ServiceUnavailable(
-        "Wallet funding is disabled until a payment provider and verified settlement webhook are configured."
+    contact = db.execute(
+        text("SELECT email FROM accounts WHERE id = :account_id"),
+        {"account_id": account.account_id},
+    ).scalar_one_or_none()
+    if not contact:
+        raise ApiException(
+            "PAYMENT_CONTACT_REQUIRED",
+            "Add a verified email address before funding your wallet.",
+            400,
+        )
+
+    amount_kobo = body.amount_naira * KoboPerNaira
+    reference = f"flingra_{uuid.uuid4().hex}"
+    intent_id = uuid.uuid4().hex
+    db.execute(
+        text(
+            """
+            INSERT INTO wallet_payment_intents (
+                id, account_id, reference, amount_kobo, currency, status, created_at, updated_at
+            )
+            VALUES (
+                :id, :account_id, :reference, :amount_kobo, 'NGN', 'initializing', :now, :now
+            )
+            """
+        ),
+        {
+            "id": intent_id,
+            "account_id": account.account_id,
+            "reference": reference,
+            "amount_kobo": amount_kobo,
+            "now": _now(),
+        },
     )
+    db.commit()
+    try:
+        authorization_url = initialize_transaction(
+            settings,
+            email=str(contact),
+            amount_kobo=amount_kobo,
+            reference=reference,
+            callback_url=f"{settings.frontend_url.rstrip('/')}/wallet",
+        )
+    except ServiceUnavailable:
+        db.execute(
+            text(
+                """
+                UPDATE wallet_payment_intents
+                SET status = 'failed', updated_at = :now
+                WHERE id = :id AND status = 'initializing'
+                """
+            ),
+            {"id": intent_id, "now": _now()},
+        )
+        db.commit()
+        raise
+
+    db.execute(
+        text(
+            """
+            UPDATE wallet_payment_intents
+            SET status = 'pending', authorization_url = :authorization_url,
+                updated_at = :now
+            WHERE id = :id AND status = 'initializing'
+            """
+        ),
+        {
+            "id": intent_id,
+            "authorization_url": authorization_url,
+            "now": _now(),
+        },
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="wallet.top_up_initialized",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=account.account_id,
+        outcome="success",
+        metadata={"reference": reference, "amount_kobo": amount_kobo},
+    )
+    db.commit()
+    return {
+        "reference": reference,
+        "authorizationUrl": authorization_url,
+        "amountNaira": body.amount_naira,
+    }
+
+
+def _settle_wallet_payment(
+    db: Session,
+    request: Request | None,
+    *,
+    reference: str,
+    verified_payment: dict[str, Any],
+) -> bool:
+    suffix = " FOR UPDATE" if db.get_bind().dialect.name != "sqlite" else ""
+    intent = db.execute(
+        text(
+            """
+            SELECT id, account_id, amount_kobo, currency, status
+            FROM wallet_payment_intents
+            WHERE reference = :reference
+            """
+            + suffix
+        ),
+        {"reference": reference},
+    ).mappings().first()
+    if intent is None or intent["status"] == "settled":
+        return False
+    if intent["status"] not in {"pending", "initializing"}:
+        return False
+    if (
+        verified_payment.get("status") != "success"
+        or verified_payment.get("reference") != reference
+        or verified_payment.get("currency") != intent["currency"]
+        or verified_payment.get("amount") != int(intent["amount_kobo"])
+    ):
+        raise ApiException(
+            "PAYMENT_VERIFICATION_FAILED",
+            "The payment could not be verified against this wallet top-up.",
+            409,
+        )
+
+    credit_wallet(
+        db,
+        str(intent["account_id"]),
+        int(intent["amount_kobo"]),
+        transaction_type="wallet-top-up",
+        description="Wallet funded via Paystack",
+    )
+    now = _now()
+    db.execute(
+        text(
+            """
+            UPDATE wallet_payment_intents
+            SET status = 'settled', settled_at = :now, updated_at = :now
+            WHERE id = :id AND status IN ('pending', 'initializing')
+            """
+        ),
+        {"id": intent["id"], "now": now},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="wallet.top_up_settled",
+        actor_type="system",
+        actor_id=None,
+        subject_account_id=str(intent["account_id"]),
+        outcome="success",
+        metadata={"reference": reference, "amount_kobo": int(intent["amount_kobo"])},
+    )
+    db.commit()
+    return True
+
+
+@router.post("/wallet/top-ups/verify", dependencies=[Depends(require_csrf)])
+def verify_wallet_top_up(
+    body: WalletTopUpVerificationRequest,
+    request: Request,
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+    settings: SettingsDependency,
+) -> dict[str, str | int]:
+    _require_ready(account)
+    intent = db.execute(
+        text(
+            """
+            SELECT amount_kobo, status
+            FROM wallet_payment_intents
+            WHERE reference = :reference AND account_id = :account_id
+            """
+        ),
+        {"reference": body.reference, "account_id": account.account_id},
+    ).mappings().first()
+    if intent is None:
+        raise ApiException("PAYMENT_NOT_FOUND", "That wallet payment was not found.", 404)
+    if intent["status"] == "settled":
+        return {
+            "status": "success",
+            "balanceNaira": get_wallet_balance_kobo(db, account.account_id) // KoboPerNaira,
+        }
+    if intent["status"] not in {"pending", "initializing"}:
+        raise ApiException("PAYMENT_NOT_PENDING", "This wallet payment is no longer pending.", 409)
+
+    verified = verify_transaction(settings, body.reference)
+    if verified.get("status") != "success":
+        return {"status": "pending", "reference": body.reference}
+    _settle_wallet_payment(db, request, reference=body.reference, verified_payment=verified)
+    return {
+        "status": "success",
+        "balanceNaira": get_wallet_balance_kobo(db, account.account_id) // KoboPerNaira,
+    }
+
+
+@router.post("/webhooks/paystack")
+async def paystack_webhook(request: Request, db: DbSession, settings: SettingsDependency) -> dict[str, str]:
+    raw_body = await request.body()
+    signature = request.headers.get("x-paystack-signature")
+    if not verify_webhook_signature(settings, raw_body, signature):
+        raise ApiException("INVALID_WEBHOOK_SIGNATURE", "Webhook signature is invalid.", 401)
+    try:
+        event = await request.json()
+    except ValueError as exc:
+        raise ApiException("INVALID_WEBHOOK", "Webhook payload is invalid.", 400) from exc
+    if not isinstance(event, dict):
+        return {"status": "ignored"}
+    event_type = event.get("event")
+    data = event.get("data")
+    if not isinstance(data, dict) or not isinstance(data.get("reference"), str):
+        return {"status": "ignored"}
+    reference = data["reference"]
+    if event_type in {"transfer.success", "transfer.failed", "transfer.reversed"}:
+        settled = settle_paystack_transfer(db, request, str(event_type), data)
+        return {"status": "processed" if settled else "ignored"}
+    if event_type != "charge.success":
+        return {"status": "ignored"}
+    intent = db.execute(
+        text("SELECT status FROM wallet_payment_intents WHERE reference = :reference"),
+        {"reference": reference},
+    ).scalar_one_or_none()
+    if intent is None or intent == "settled":
+        return {"status": "ignored"}
+
+    verified = verify_transaction(settings, reference)
+    if verified.get("status") != "success":
+        return {"status": "ignored"}
+    settled = _settle_wallet_payment(
+        db,
+        request,
+        reference=reference,
+        verified_payment=verified,
+    )
+    return {"status": "processed" if settled else "ignored"}
 
 
 @router.get("/wallet/gifts/catalog", response_model=list[GiftTypeResponse])

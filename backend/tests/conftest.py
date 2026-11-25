@@ -42,7 +42,8 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 terms_version TEXT NOT NULL, privacy_version TEXT NOT NULL,
                 email_verified BOOLEAN NOT NULL, account_state TEXT NOT NULL,
                 google_sub TEXT UNIQUE,
-                login_failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until DATETIME
+                login_failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
@@ -176,7 +177,8 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
             """
             CREATE TABLE safety_check_ins (
                 id TEXT PRIMARY KEY, account_id TEXT NOT NULL, message TEXT NOT NULL,
-                location_link TEXT, status TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                location_link TEXT, status TEXT NOT NULL, notified_contacts_json TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
@@ -194,7 +196,28 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
             CREATE TABLE chat_messages (
                 id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, author_id TEXT NOT NULL,
                 message_text TEXT NOT NULL DEFAULT '', attachment_json TEXT, attachment_media_id TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                payment_id TEXT UNIQUE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE meetup_payments (
+                id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, payer_id TEXT NOT NULL,
+                recipient_id TEXT NOT NULL, payer_name TEXT NOT NULL, recipient_name TEXT NOT NULL,
+                amount_kobo INTEGER NOT NULL, status TEXT NOT NULL, dispute_reason TEXT,
+                dispute_opened_by TEXT, resolution_reason TEXT, resolved_by_admin_id TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, resolved_at DATETIME
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE live_streams (
+                id TEXT PRIMARY KEY, host_account_id TEXT NOT NULL, room_name TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL, status TEXT NOT NULL,
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP, ended_at DATETIME
             )
             """
         )
@@ -219,7 +242,9 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
             """
             CREATE TABLE privacy_requests (
                 id TEXT PRIMARY KEY, account_id TEXT NOT NULL, request_type TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'queued', created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                status TEXT NOT NULL DEFAULT 'queued', result_json TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
@@ -243,7 +268,8 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
         connection.exec_driver_sql(
             """
             CREATE TABLE wallet_accounts (
-                account_id TEXT PRIMARY KEY, balance_kobo INTEGER NOT NULL DEFAULT 0
+                account_id TEXT PRIMARY KEY, balance_kobo INTEGER NOT NULL DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
@@ -253,6 +279,55 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 id TEXT PRIMARY KEY, account_id TEXT NOT NULL, transaction_type TEXT NOT NULL,
                 amount_kobo INTEGER NOT NULL, description TEXT NOT NULL, status TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE referral_codes (
+                account_id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE referral_rewards (
+                referred_account_id TEXT PRIMARY KEY, referrer_account_id TEXT,
+                referral_code TEXT NOT NULL, bonus_kobo INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE wallet_payment_intents (
+                id TEXT PRIMARY KEY, account_id TEXT NOT NULL, reference TEXT NOT NULL UNIQUE,
+                amount_kobo INTEGER NOT NULL, currency TEXT NOT NULL, status TEXT NOT NULL,
+                authorization_url TEXT, settled_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE payout_bank_accounts (
+                account_id TEXT PRIMARY KEY, recipient_code TEXT NOT NULL UNIQUE,
+                bank_code TEXT NOT NULL, bank_name TEXT NOT NULL, account_name TEXT NOT NULL,
+                account_last4 TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE payout_requests (
+                id TEXT PRIMARY KEY, account_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+                reference TEXT NOT NULL UNIQUE, recipient_code TEXT NOT NULL, amount_kobo INTEGER NOT NULL,
+                wallet_transaction_id TEXT NOT NULL, transfer_code TEXT, status TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(account_id, idempotency_key)
             )
             """
         )

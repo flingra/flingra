@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     opencage_api_key: SecretStr | None = None
     payment_provider: str | None = None
     paystack_secret_key: SecretStr | None = None
+    termii_api_key: SecretStr | None = None
+    termii_sender_id: str | None = None
+    livekit_url: str | None = None
+    livekit_api_key: str | None = None
+    livekit_api_secret: SecretStr | None = None
     cloudinary_cloud_name: str | None = None
     cloudinary_api_key: str | None = None
     cloudinary_api_secret: SecretStr | None = None

@@ -24,6 +24,12 @@ SENSITIVE_ROUTE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     ("POST", "/admin/auth/login"): (5, 15 * 60),
     ("POST", "/media/photos"): (30, 60 * 60),
     ("POST", "/media/documents"): (5, 24 * 60 * 60),
+    ("POST", "/wallet/top-ups"): (10, 60 * 60),
+    ("POST", "/wallet/top-ups/verify"): (30, 15 * 60),
+    ("POST", "/safety/check-ins"): (5, 60 * 60),
+    ("PUT", "/payout/bank-account"): (10, 60 * 60),
+    ("POST", "/payouts"): (5, 60 * 60),
+    ("POST", "/live-streams"): (5, 60 * 60),
 }
 
 _FIXED_WINDOW_SCRIPT = """
@@ -160,6 +166,13 @@ class RedisRateLimitMiddleware:
 
         route = (scope.get("method", ""), scope.get("path", ""))
         limits = SENSITIVE_ROUTE_LIMITS.get(route)
+        route_key = route[1]
+        if limits is None and route[0] == "POST" and route[1].startswith("/live-streams/") and route[1].endswith("/token"):
+            limits = (30, 60 * 60)
+            route_key = "/live-streams/{stream_id}/token"
+        if limits is None and route[0] == "POST" and route[1].startswith("/chat/meetup-payments/"):
+            limits = (20, 60 * 60)
+            route_key = "/chat/meetup-payments/{payment_id}"
         if limits is None:
             await self.app(scope, receive, send)
             return
@@ -173,7 +186,7 @@ class RedisRateLimitMiddleware:
         client = scope.get("client")
         remote_address = client[0] if client else "unknown"
         address_digest = hashlib.sha256(remote_address.encode("utf-8")).hexdigest()
-        key = f"flingra:rate-limit:v1:{route[1]}:{address_digest}"
+        key = f"flingra:rate-limit:v1:{route_key}:{address_digest}"
         try:
             allowed = await redis_client.eval(_FIXED_WINDOW_SCRIPT, 1, key, limit, window_seconds)
         except RedisError:

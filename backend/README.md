@@ -14,10 +14,9 @@ python -m pip install -e ".[test]"
 
 Configure local values in `backend/.env`. Paystack is the selected payment
 provider; set `FLINGRA_PAYMENT_PROVIDER=paystack` and
-`FLINGRA_PAYSTACK_SECRET_KEY` there. The backend reads these settings, but
-wallet top-ups remain disabled until Paystack initialization and signed
-webhook settlement are implemented. Keep the populated `.env` local and
-uncommitted.
+`FLINGRA_PAYSTACK_SECRET_KEY` there. Wallet top-ups use Paystack-hosted
+checkout, server-side transaction verification, and signed webhooks with
+idempotent settlement. Keep the populated `.env` local and uncommitted.
 
 Configure MySQL either with `FLINGRA_DATABASE_URL` (SQLAlchemy URL) or with
 these separate fields in `backend/.env`:
@@ -59,6 +58,10 @@ Optional settings include:
 - `FLINGRA_PAYMENT_PROVIDER` — currently `paystack`.
 - `FLINGRA_PAYSTACK_SECRET_KEY` — Paystack secret key. Keep it server-side;
   Paystack webhook signatures are verified using this key.
+- `FLINGRA_TERMII_API_KEY` and `FLINGRA_TERMII_SENDER_ID` — Termii SMS
+  credentials used to deliver safety check-ins to emergency contacts.
+- `FLINGRA_LIVEKIT_URL`, `FLINGRA_LIVEKIT_API_KEY`, and
+  `FLINGRA_LIVEKIT_API_SECRET` — LiveKit server URL and server-side credentials.
 - `FLINGRA_BREVO_API_KEY` — secret API key for Brevo transactional email.
 - `FLINGRA_BREVO_SENDER_EMAIL` — a verified sender address in Brevo.
 - `FLINGRA_BREVO_SENDER_NAME` — optional sender display name.
@@ -109,8 +112,10 @@ The migration runner applies the existing account/session migrations, the
 forward migration aligning account identifiers, genders, and profiles with the
 frontend contract, the migration removing facial-verification data, the media
 metadata, admin/audit, and Google-account-link migrations, and the newer
-safety, chat, content, session-device, subscription-catalog, and wallet-ledger
-migrations. It records applied migration filenames in `schema_migrations`.
+safety, chat, content, session-device, subscription-catalog, wallet-ledger,
+Paystack wallet-payment, safety-check-in delivery, payout, meetup-payment, and
+referral migrations. It records applied migration filenames in
+`schema_migrations`.
 For a database containing the legacy tables but no migration history, it marks
 the four existing migrations as the baseline, then applies the remaining
 migrations in order.
@@ -139,8 +144,7 @@ Implemented endpoints:
 - `GET /profiles/me`, `PATCH /profiles/me`, `GET /profiles/{profile_id}`
 - `GET /profiles` (VIP showcase), `GET /videos/nearby`, `GET /presence/{author_id}`
 - `GET /discovery` — verified, approved member feed with age, interest, audience,
-  distance and pagination filters; the live-only filter is unavailable until
-  livestream presence is backed by the API
+  distance and pagination filters, including the live-only filter
 - `POST /media/photos`, `POST /media/documents`, `POST /media/videos`,
   `POST /statuses`, `GET /media/{media_id}`
 - `GET /posts/me`, `POST /posts`, `DELETE /posts/{post_id}`
@@ -149,20 +153,33 @@ Implemented endpoints:
 - `POST /safety/reports`
 - `GET/POST /safety/emergency-contacts`, `DELETE /safety/emergency-contacts/{contact_id}`
 - `GET /safety/check-ins`
-- `POST /safety/check-ins` — returns `503` until an SMS provider is configured; it never
-  reports a contact as notified when no message was sent
+- `POST /safety/check-ins` — sends a Termii SMS to each saved emergency contact
+  and reports only successful deliveries
 - `POST /chat/threads`, `GET /chat/threads`
 - `GET/POST /chat/threads/{thread_id}/messages`
 - `POST /chat/attachments` — returns `503` until private storage and recipient
   authorization are configured
 - `GET /settings/sessions`, `DELETE /settings/sessions/{session_id}`
 - `POST /settings/password`
-- `POST /settings/data-export`, `POST /settings/account/delete` — return `202` with a
-  queued request; a background processor is still required to produce exports and
-  complete deletion
+- `POST /settings/data-export`, `GET /settings/data-export/{request_id}`,
+  `POST /settings/account/delete` — requests are queued and processed by
+  `python -m app.privacy_worker`; export results are available only to the owner
 - `GET /subscriptions/plans`, `GET /subscriptions/me`
 - `POST /subscriptions` — purchases VIP using an already-settled internal wallet balance
 - `GET /wallet/balance`, `GET /wallet/transactions`, `POST /wallet/top-ups`
+- `POST /wallet/top-ups/verify`, `POST /webhooks/paystack`
+- `GET /payout/banks`, `GET/PUT /payout/bank-account`, `GET/POST /payouts`
+- `GET /referrals/code`, `GET /referrals`
+- `GET /live-streams`, `GET /live-streams/nearby`, `GET /live-streams/{stream_id}`
+- `POST /live-streams`, `POST /live-streams/{stream_id}/token`,
+  `DELETE /live-streams/{stream_id}` — LiveKit room control and server-issued
+  host/viewer tokens
+- `POST /chat/threads/{thread_id}/payment-proposals`
+- `GET /chat/meetup-payments/{payment_id}`
+- `POST /chat/meetup-payments/{payment_id}/accept`, `/decline`, `/release`,
+  `/refund`, `/disputes`
+- `GET /admin/meetup-payments/disputes`,
+  `POST /admin/meetup-payments/{payment_id}/resolve` (super admin only)
 - `GET /wallet/gifts/catalog`, `/wallet/gifts/owned`, `/wallet/gifts/received`
 - `POST /wallet/gifts/buy`, `/wallet/gifts/{gift_type_id}/spend`,
   `/wallet/gifts/{gift_id}/redeem`, `/wallet/gifts/redeem-all`
@@ -180,18 +197,33 @@ required for every account; a document upload sets its status to `pending`.
 Safety reports and blocks are persisted; blocking immediately hides either
 member from discovery, chat, and member interactions. Safety reviewers can
 process the resulting queue through the admin API. Chat currently supports
-database-backed text messages only. Chat attachments, realtime delivery, and
-meetup-payment cards are disabled rather than simulated.
+database-backed text messages and meetup-payment proposal cards. Chat
+attachments and realtime delivery are disabled rather than simulated.
 
-Image posts and 24-hour image statuses are persisted. Video uploads/statuses,
-livestream transport, wallet top-ups, payouts, call-credit billing, and SMS
-notifications remain unavailable until their required media, realtime,
-payment, or messaging providers are configured. VIP purchases and gifts can
-use funds already present in the internal ledger; there is no supported way to
-fund that balance yet, so new accounts cannot buy these items with real money.
-Ledger amounts are stored in kobo and displayed in whole naira. External
-payments require a provider, verified signed webhooks, idempotent settlement,
-and a complete payout workflow before they can be enabled.
+Image posts and 24-hour image statuses are persisted. Live-stream listing,
+host start/end, and LiveKit host/viewer tokens are implemented; participant
+join-request workflows, stream chat/gifts, and presence accounting are not.
+Video uploads/statuses and video unlock purchases, call-credit billing, private
+chat attachments, and realtime chat delivery are also not implemented and must
+not be represented as successful client-side flows.
+Wallet top-ups and Paystack Transfers require valid Paystack credentials and a
+publicly reachable `/webhooks/paystack` endpoint configured in the Paystack
+dashboard. Bank account numbers are sent to Paystack for
+verification/recipient creation and are not stored by Flingra; only the bank,
+account name, last four digits, and provider recipient code are retained.
+Payouts debit the wallet idempotently and are completed or refunded only after
+a signed transfer webhook. If a network failure leaves a payout in
+`initiating`, reconcile it with Paystack before retrying; do not submit a
+second transfer. Safety check-ins require Termii credentials and an approved
+sender ID. VIP purchases and gifts can use funds already present in the
+internal ledger. Meetup proposals hold no funds until the recipient accepts;
+the payer is debited on acceptance, either party can release held funds, and
+only the payer can request a refund. Either party can dispute held funds; only
+a super admin can resolve a dispute by releasing to the recipient or refunding
+the payer. No automatic release/timeout is enabled. These are internal ledger
+holds, not regulated escrow. Referral codes are available, but bonus credits
+remain disabled until the reward policy is approved. Ledger amounts are stored
+in kobo and displayed in whole naira.
 
 The backend endpoints added for these flows are not yet wired into every
 frontend API adapter. The frontend remains mock-backed in chat, safety,
