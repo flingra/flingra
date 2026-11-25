@@ -25,8 +25,7 @@ export function ProtectedRoute({ allow, children }: { allow: AccountStage[]; chi
 
 export function PublicOnlyRoute({ children }: { children: ReactNode }) {
   const { session, hydrated } = useSessionStore()
-  if (!hydrated) return null
-  if (session?.stage === 'active') {
+  if (hydrated && session?.stage === 'active') {
     return <Navigate to="/discover" replace />
   }
   return <>{children}</>
