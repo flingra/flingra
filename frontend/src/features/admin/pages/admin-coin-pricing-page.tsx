@@ -42,7 +42,7 @@ export function AdminCoinPricingPage() {
   return (
     <section>
       <h1 className="mb-2 text-3xl font-bold">Call credit coin pricing</h1>
-      <p className="mb-6 text-sm text-ink-500">Sets the ₦ price of one call credit coin for every buyer, store-wide.</p>
+      <p className="mb-6 text-sm text-ink-500">Sets the ₦ price of one call-credit coin (one started call minute), store-wide.</p>
 
       <Card className="mb-6 flex items-center gap-3">
         <Coins className="size-6 text-primary-500" aria-hidden="true" />
@@ -64,10 +64,10 @@ export function AdminCoinPricingPage() {
         <div className="mt-8">
           <h2 className="mb-1 text-lg font-bold text-ink-900">Store preview</h2>
           <p className="mb-3 text-sm text-ink-500">What buyers will see in the call credit store at this price.</p>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {packages.map((pkg) => (
               <Card key={pkg.coins} className="text-center">
-                <p className="font-semibold text-ink-900">{pkg.coins} coins</p>
+                <p className="font-semibold text-ink-900">{pkg.coins} minutes</p>
                 <p className="text-sm text-ink-500">{formatNaira(pkg.priceNaira)}</p>
               </Card>
             ))}

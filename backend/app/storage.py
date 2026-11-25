@@ -15,9 +15,9 @@ from app.errors import ServiceUnavailable
 class ObjectStorage(Protocol):
     def put(self, key: str, body: bytes, content_type: str) -> None: ...
 
-    def delete(self, key: str) -> None: ...
+    def delete(self, key: str, content_type: str = "image/jpeg") -> None: ...
 
-    def get_url(self, key: str) -> str: ...
+    def get_url(self, key: str, content_type: str = "image/jpeg") -> str: ...
 
 
 class CloudinaryObjectStorage:
@@ -37,13 +37,19 @@ class CloudinaryObjectStorage:
         )
 
     def put(self, key: str, body: bytes, content_type: str) -> None:
-        if content_type != "image/jpeg":
-            raise ValueError("Cloudinary media uploads must be JPEG images.")
+        if content_type.startswith("image/"):
+            resource_type = "image"
+        elif content_type.startswith("video/"):
+            resource_type = "video"
+        elif content_type == "application/pdf":
+            resource_type = "raw"
+        else:
+            raise ValueError("Unsupported Cloudinary media type.")
         try:
             uploader.upload(
                 BytesIO(body),
                 public_id=key,
-                resource_type="image",
+                resource_type=resource_type,
                 type="authenticated",
                 overwrite=False,
                 use_filename=False,
@@ -52,11 +58,12 @@ class CloudinaryObjectStorage:
         except (CloudinaryError, HTTPError, OSError) as exc:
             raise ServiceUnavailable("Media storage is temporarily unavailable.") from exc
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str, content_type: str = "image/jpeg") -> None:
+        resource_type = self._resource_type(content_type)
         try:
             result = uploader.destroy(
                 key,
-                resource_type="image",
+                resource_type=resource_type,
                 type="authenticated",
                 invalidate=True,
             )
@@ -65,17 +72,34 @@ class CloudinaryObjectStorage:
         if result.get("result") not in {"ok", "not found"}:
             raise ServiceUnavailable("Media cleanup failed.")
 
-    def get_url(self, key: str) -> str:
+    def get_url(self, key: str, content_type: str = "image/jpeg") -> str:
+        resource_type = self._resource_type(content_type)
+        extension = {
+            "image/jpeg": "jpg",
+            "video/mp4": "mp4",
+            "video/webm": "webm",
+            "application/pdf": None,
+        }.get(content_type)
         try:
             return utils.private_download_url(
                 key,
-                "jpg",
-                resource_type="image",
+                extension,
+                resource_type=resource_type,
                 type="authenticated",
                 expires_at=int(time.time()) + 120,
             )
         except (CloudinaryError, HTTPError, OSError) as exc:
             raise ServiceUnavailable("Media storage is temporarily unavailable.") from exc
+
+    @staticmethod
+    def _resource_type(content_type: str) -> str:
+        if content_type.startswith("image/"):
+            return "image"
+        if content_type.startswith("video/"):
+            return "video"
+        if content_type == "application/pdf":
+            return "raw"
+        raise ValueError("Unsupported Cloudinary media type.")
 
 
 def get_object_storage(request: Request) -> ObjectStorage:

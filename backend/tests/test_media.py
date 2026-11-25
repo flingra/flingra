@@ -12,10 +12,10 @@ class FakeObjectStorage:
     def put(self, key: str, body: bytes, content_type: str) -> None:
         self.objects[key] = (body, content_type)
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str, content_type: str = "image/jpeg") -> None:
         self.objects.pop(key, None)
 
-    def get_url(self, key: str) -> str:
+    def get_url(self, key: str, content_type: str = "image/jpeg") -> str:
         assert key in self.objects
         return f"https://private-storage.example.test/{key}?temporary=signature"
 
@@ -107,7 +107,7 @@ def test_upload_requires_csrf(api_client, monkeypatch) -> None:
     assert response.json()["error"]["code"] == "CSRF_FAILED"
 
 
-def test_document_upload_rejects_male_account(api_client, monkeypatch) -> None:
+def test_document_upload_accepts_male_account_and_requires_review(api_client, monkeypatch) -> None:
     client, _ = api_client
     codes: list[str] = []
     monkeypatch.setattr(auth, "send_verification_code", lambda _settings, _recipient, code: codes.append(code))
@@ -137,9 +137,11 @@ def test_document_upload_rejects_male_account(api_client, monkeypatch) -> None:
         files={"file": ("identity.png", image_bytes(), "image/png")},
     )
 
-    assert response.status_code == 403
-    assert response.json()["error"]["code"] == "DOCUMENT_NOT_REQUIRED"
-    assert storage.objects == {}
+    assert response.status_code == 201
+    assert len(storage.objects) == 1
+    profile = client.get("/profiles/me").json()
+    assert profile["documentType"] == "NIN"
+    assert profile["documentVerification"] == "pending"
 
 
 def test_invalid_image_is_rejected_without_storage_write(api_client, monkeypatch) -> None:

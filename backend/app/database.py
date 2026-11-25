@@ -1,7 +1,9 @@
 from collections.abc import Iterator
 from functools import lru_cache
+from pathlib import Path
 
 from sqlalchemy import Engine, URL, create_engine, make_url, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -120,16 +122,39 @@ def get_db(settings: Settings) -> Iterator[Session]:
 
 
 def run_migrations(engine: Engine, migrations_dir: str) -> list[str]:
-    from pathlib import Path
-
-    from sqlalchemy import inspect
-
     migration_path = Path(migrations_dir)
     files = sorted(migration_path.glob("[0-9][0-9][0-9][0-9][0-9][0-9]_*.sql"))
     if not files:
         raise RuntimeError(f"No migrations found in {migration_path}")
 
-    with engine.begin() as connection:
+    with engine.connect() as connection:
+        if engine.dialect.name == "mysql":
+            lock_name = "flingra_schema_migrations"
+            acquired = connection.execute(
+                text("SELECT GET_LOCK(:lock_name, 60)"),
+                {"lock_name": lock_name},
+            ).scalar_one_or_none()
+            connection.commit()
+            if acquired != 1:
+                raise RuntimeError("Could not acquire the database migration lock.")
+            try:
+                return _apply_migrations(connection, files)
+            finally:
+                released = connection.execute(
+                    text("SELECT RELEASE_LOCK(:lock_name)"),
+                    {"lock_name": lock_name},
+                ).scalar_one_or_none()
+                connection.commit()
+                if released != 1:
+                    raise RuntimeError("Could not release the database migration lock.")
+
+        return _apply_migrations(connection, files)
+
+
+def _apply_migrations(connection: Connection, files: list[Path]) -> list[str]:
+    from sqlalchemy import inspect
+
+    with connection.begin():
         connection.exec_driver_sql(
             """
             CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -139,11 +164,12 @@ def run_migrations(engine: Engine, migrations_dir: str) -> list[str]:
             """
         )
 
-    with engine.connect() as connection:
+    with connection.begin():
         applied = set(
             connection.execute(text("SELECT version FROM schema_migrations")).scalars().all()
         )
-    existing_tables = set(inspect(engine).get_table_names())
+    existing_tables = set(inspect(connection).get_table_names())
+    connection.commit()
 
     if not applied and "accounts" in existing_tables:
         legacy_tables = {
@@ -164,7 +190,7 @@ def run_migrations(engine: Engine, migrations_dir: str) -> list[str]:
             for path in files
             if path.name[:6] in {"000001", "000002", "000003", "000004"}
         ]
-        with engine.begin() as connection:
+        with connection.begin():
             for path in baseline:
                 connection.execute(
                     text("INSERT INTO schema_migrations (version) VALUES (:version)"),
@@ -181,7 +207,7 @@ def run_migrations(engine: Engine, migrations_dir: str) -> list[str]:
             for statement in path.read_text().split(";")
             if statement.strip()
         ]
-        with engine.begin() as connection:
+        with connection.begin():
             for statement in statements:
                 connection.exec_driver_sql(statement)
             connection.execute(

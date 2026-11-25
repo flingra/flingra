@@ -1,19 +1,17 @@
-import { apiRequest, delay, ensureCsrfHeaders, uploadFile } from './client'
-import { ownProfileStore, PROFILES } from './mock-db'
-import { getPresence } from './presence'
+import { apiRequest, delay, ensureCsrfHeaders, resolveMediaUrl, uploadFile } from './client'
+import { PROFILES } from './mock-db'
 import {
   ApiError,
   type DiscoveryFilters,
   type MemberProfile,
   type OwnProfile,
   type PagedResult,
+  type ProfileVideo,
   type VerificationDocumentType,
 } from './types'
 
-const PAGE_SIZE = 6
-
 export const DEFAULT_FILTERS: DiscoveryFilters = {
-  minAge: 20,
+  minAge: 21,
   maxAge: 45,
   maxDistanceKm: 25,
   interests: [],
@@ -21,37 +19,44 @@ export const DEFAULT_FILTERS: DiscoveryFilters = {
   lookingFor: 'everyone',
 }
 
-/**
- * VIP members match each other regardless of distance — a mutual soft spot that
- * waives the normal `maxDistanceKm` filter when both the viewer and the candidate
- * are subscribed.
- */
-function matchesFilters(profile: MemberProfile, filters: DiscoveryFilters, viewerIsVip: boolean) {
-  const [minAge] = profile.ageRange.split('–').map(Number)
-  if (minAge < filters.minAge || minAge > filters.maxAge) return false
-  const distanceWaived = viewerIsVip && profile.subscriptionTier === 'vip'
-  if (!distanceWaived && profile.distanceKm > filters.maxDistanceKm) return false
-  if (filters.lookingFor !== 'everyone') {
-    const wanted = filters.lookingFor === 'men' ? 'man' : 'woman'
-    if (profile.identity !== wanted) return false
+function resolveProfileMedia(profile: MemberProfile): MemberProfile {
+  return {
+    ...profile,
+    photos: profile.photos.map(resolveMediaUrl),
+    videos: profile.videos?.map((video: ProfileVideo) => ({
+      ...video,
+      url: resolveMediaUrl(video.url),
+    })),
   }
-  if (filters.interests.length > 0 && !profile.interests.some((interest) => filters.interests.includes(interest))) {
-    return false
-  }
-  if (filters.liveOnly && !getPresence(profile.id).isLive) return false
-  return true
 }
 
 export async function getDiscoveryFeed(
   filters: DiscoveryFilters,
   cursor = 0,
+  origin?: { latitude: number; longitude: number },
+  distanceEnabled = false,
 ): Promise<PagedResult<MemberProfile>> {
-  await delay(null, 650)
-  const viewerIsVip = ownProfileStore.profile?.subscriptionTier === 'vip'
-  const eligible = PROFILES.filter((profile) => profile.id !== 'me' && matchesFilters(profile, filters, viewerIsVip))
-  const items = eligible.slice(cursor, cursor + PAGE_SIZE)
-  const nextCursor = cursor + PAGE_SIZE < eligible.length ? cursor + PAGE_SIZE : null
-  return { items, nextCursor }
+  const params = new URLSearchParams({
+    minAge: String(filters.minAge),
+    maxAge: String(filters.maxAge),
+    lookingFor: filters.lookingFor,
+    liveOnly: String(filters.liveOnly),
+    cursor: String(cursor),
+  })
+  if (distanceEnabled) params.set('maxDistanceKm', String(filters.maxDistanceKm))
+  if (origin) {
+    params.set('latitude', String(origin.latitude))
+    params.set('longitude', String(origin.longitude))
+  }
+  filters.interests.forEach((interest) => params.append('interests', interest))
+
+  const result = await apiRequest<PagedResult<MemberProfile>>(`/discovery?${params.toString()}`)
+  return { ...result, items: result.items.map(resolveProfileMedia) }
+}
+
+export async function getDiscoverableProfile(id: string): Promise<MemberProfile> {
+  const profile = await apiRequest<MemberProfile>(`/profiles/${encodeURIComponent(id)}`)
+  return resolveProfileMedia(profile)
 }
 
 export async function getProfile(id: string): Promise<MemberProfile> {
@@ -65,6 +70,21 @@ export async function getProfile(id: string): Promise<MemberProfile> {
 
 export async function getOwnProfile(): Promise<OwnProfile> {
   return apiRequest<OwnProfile>('/profiles/me')
+}
+
+export async function publishCurrentLocation(location: { latitude: number; longitude: number }): Promise<void> {
+  await apiRequest('/profiles/me/location-sharing', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
+    body: JSON.stringify(location),
+  })
+}
+
+export async function stopLocationSharing(): Promise<void> {
+  await apiRequest('/profiles/me/location-sharing', {
+    method: 'DELETE',
+    headers: await ensureCsrfHeaders(),
+  })
 }
 
 export async function saveOwnProfile(partial: Partial<OwnProfile>): Promise<OwnProfile> {
@@ -100,8 +120,14 @@ export async function uploadIdentityDocument(
   file: File,
   documentType: VerificationDocumentType,
 ): Promise<void> {
-  await uploadPhoto(file)
-  await saveOwnProfile({ documentType, documentVerification: 'pending' })
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('documentType', documentType)
+  await apiRequest<void>('/media/documents', {
+    method: 'POST',
+    headers: await ensureCsrfHeaders(),
+    body: formData,
+  })
 }
 
 export async function uploadVideo(file: File): Promise<string> {

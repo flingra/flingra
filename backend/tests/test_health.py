@@ -61,6 +61,7 @@ def test_readiness_reports_missing_database_configuration() -> None:
 
 def test_startup_logs_database_connection_success(monkeypatch, caplog) -> None:
     monkeypatch.setattr(main, "check_database", lambda _: True)
+    monkeypatch.setattr(main, "run_configured_migrations", lambda _: [])
     caplog.set_level(logging.INFO, logger="uvicorn.error")
 
     with TestClient(create_app(Settings(database_url="mysql+pymysql://test"))) as client:
@@ -68,6 +69,7 @@ def test_startup_logs_database_connection_success(monkeypatch, caplog) -> None:
 
     assert response.status_code == 200
     assert "Database connection check succeeded." in caplog.text
+    assert "Database schema is up to date." in caplog.text
 
 
 def test_startup_logs_database_connection_failure_and_still_starts(caplog) -> None:
@@ -78,6 +80,45 @@ def test_startup_logs_database_connection_failure_and_still_starts(caplog) -> No
 
     assert response.status_code == 200
     assert "Database connection check failed: Database is not configured." in caplog.text
+
+
+def test_mysql_migration_failure_keeps_readiness_unavailable(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(main, "check_database", lambda _: True)
+
+    def fail_migrations(_):
+        raise RuntimeError("migration failed")
+
+    monkeypatch.setattr(main, "run_configured_migrations", fail_migrations)
+    caplog.set_level(logging.ERROR, logger="uvicorn.error")
+
+    settings = Settings(database_url="mysql+pymysql://test", rate_limiting_enabled=False)
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["message"] == "Database schema is not ready."
+    assert "Database schema migration failed." in caplog.text
+
+
+def test_mysql_retries_schema_initialization_after_startup_database_failure(monkeypatch) -> None:
+    checks = 0
+
+    def check_database(_):
+        nonlocal checks
+        checks += 1
+        if checks == 1:
+            raise main.ServiceUnavailable("Database is unavailable.")
+        return True
+
+    monkeypatch.setattr(main, "check_database", check_database)
+    monkeypatch.setattr(main, "run_configured_migrations", lambda _: [])
+
+    settings = Settings(database_url="mysql+pymysql://test", rate_limiting_enabled=False)
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
 
 
 def test_mysql_url_uses_pymysql_driver() -> None:

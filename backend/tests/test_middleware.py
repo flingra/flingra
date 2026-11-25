@@ -90,6 +90,31 @@ def test_api_responses_have_security_headers() -> None:
     assert response.headers["referrer-policy"] == "no-referrer"
 
 
+def test_cors_preflight_allows_location_sharing_put() -> None:
+    client = TestClient(
+        create_app(
+            Settings(
+                database_url="sqlite://",
+                rate_limiting_enabled=False,
+                allowed_origins=["https://dev.flingra.com"],
+            )
+        )
+    )
+
+    response = client.options(
+        "/profiles/me/location-sharing",
+        headers={
+            "Origin": "https://dev.flingra.com",
+            "Access-Control-Request-Method": "PUT",
+            "Access-Control-Request-Headers": "content-type,x-csrf-token",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://dev.flingra.com"
+    assert "PUT" in response.headers["access-control-allow-methods"]
+
+
 def test_oversized_request_body_is_rejected() -> None:
     client = TestClient(
         create_app(

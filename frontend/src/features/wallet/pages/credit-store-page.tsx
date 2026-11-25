@@ -49,7 +49,7 @@ export function CreditStorePage() {
       </div>
       <p className="mt-1 text-sm text-ink-500">
         <PhoneCall className="mr-1 inline size-3.5" aria-hidden="true" />
-        Voice and video calls spend call credit coins while connected. Buy coins here using your wallet balance
+        Each coin covers one started minute of voice or video calls. Choose a 10, 15, or 30-minute pack and pay using your wallet balance
         ({formatNaira(walletBalance ?? 0)} available).
       </p>
 
@@ -59,11 +59,11 @@ export function CreditStorePage() {
         </div>
       )}
 
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
         {packages?.map((pkg) => (
           <div key={pkg.coins} className="flex flex-col items-center gap-2 rounded-3xl border border-ink-100 bg-white p-5 text-center shadow-soft">
             <Coins className="size-7 text-primary-500" aria-hidden="true" />
-            <p className="font-semibold text-ink-900">{pkg.coins} coins</p>
+            <p className="font-semibold text-ink-900">{pkg.coins} minutes</p>
             <p className="text-sm text-ink-500">{formatNaira(pkg.priceNaira)}</p>
             <Button size="sm" className="mt-1 w-full" disabled={!canBuy} onClick={() => handleBuy(pkg.coins)}>
               Buy

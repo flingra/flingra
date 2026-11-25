@@ -30,7 +30,8 @@ import {
   searchLocations,
   type LocationSearchResult,
 } from '@/lib/location'
-import { OpenStreetMapView } from '@/features/discovery/components/google-map-view'
+import { OpenStreetMapView } from '@/features/discovery/components/open-street-map-view'
+import { LocationAccessDialog } from '@/features/discovery/components/location-access-dialog'
 
 interface Draft {
   displayName: string
@@ -88,6 +89,8 @@ export function OnboardingPage() {
   const [finishing, setFinishing] = useState(false)
   const [locating, setLocating] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
+  const [locationDialogOpen, setLocationDialogOpen] = useState(false)
+  const [locationRequestMessage, setLocationRequestMessage] = useState<string | null>(null)
   const [locationSearch, setLocationSearch] = useState('')
   const [locationResults, setLocationResults] = useState<LocationSearchResult[]>([])
   const [searchingLocation, setSearchingLocation] = useState(false)
@@ -114,10 +117,10 @@ export function OnboardingPage() {
           setLocationResults(results)
           if (results.length === 0) setLocationError('No locations found. Try a nearby landmark or street.')
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
           setLocationResults([])
-          setLocationError(error instanceof Error ? error.message : 'Location search is unavailable.')
+          setLocationError('Location search is temporarily unavailable. Enter an area manually.')
         }
       } finally {
         if (!cancelled) setSearchingLocation(false)
@@ -199,7 +202,7 @@ export function OnboardingPage() {
     }))
   }
 
-  async function toggleBrowserLocation(enabled: boolean) {
+  function toggleBrowserLocation(enabled: boolean) {
     setLocationError(null)
     if (!enabled) {
       setDraft((current) => ({
@@ -213,26 +216,16 @@ export function OnboardingPage() {
       return
     }
 
+    setLocationRequestMessage(null)
+    setLocationDialogOpen(true)
+  }
+
+  async function requestBrowserLocation() {
+    setLocationRequestMessage(null)
     setLocating(true)
     try {
       const location = await getCurrentLocation()
-      if (location.accuracyMeters > 5000) {
-        setLocationError(
-          `Your device only provided an approximate location (about ${Math.round(location.accuracyMeters)} metres). Enter your area manually or try again outdoors.`,
-        )
-        setDraft((current) => ({
-          ...current,
-          useBrowserLocation: false,
-          latitude: null,
-          longitude: null,
-        }))
-        setLocationAccuracyMeters(location.accuracyMeters)
-        return
-      }
-      const area = (await getApproximateArea(location)) ?? ''
-      if (!area) {
-        setLocationError('Check the name of your area or city below and adjust it if needed.')
-      }
+      const area = (await getApproximateArea(location)) ?? 'Nearby'
       setDraft((current) => ({
         ...current,
         useBrowserLocation: true,
@@ -241,9 +234,9 @@ export function OnboardingPage() {
         longitude: location.longitude,
       }))
       setLocationAccuracyMeters(location.accuracyMeters)
-    } catch (error) {
-      setLocationError(error instanceof Error ? error.message : 'Location access was unavailable.')
-      update('useBrowserLocation', false)
+      setLocationDialogOpen(false)
+    } catch {
+      setLocationRequestMessage('We couldn’t get a location fix this time. Try again or choose your area manually.')
     } finally {
       setLocating(false)
     }
@@ -256,8 +249,8 @@ export function OnboardingPage() {
     setLocationError(null)
     try {
       setLocationResults(await searchLocations(locationSearch))
-    } catch (error) {
-      setLocationError(error instanceof Error ? error.message : 'Location search is unavailable.')
+    } catch {
+      setLocationError('Location search is temporarily unavailable. Enter an area manually.')
       setLocationResults([])
     } finally {
       setSearchingLocation(false)
@@ -278,31 +271,6 @@ export function OnboardingPage() {
       longitude: result.longitude,
     }))
     setLocationAccuracyMeters(null)
-  }
-
-  async function handleMapLocation(latitude: number, longitude: number) {
-    setLocationSearchLocked(true)
-    setLocationResults([])
-    setSearchingLocation(false)
-    setDraft((current) => ({
-      ...current,
-      useBrowserLocation: false,
-      latitude,
-      longitude,
-    }))
-    setLocationAccuracyMeters(null)
-    try {
-      const area = await getApproximateArea({ latitude, longitude, accuracyMeters: 0 })
-      if (area) {
-        setLocationSearch(area)
-        setDraft((current) => ({ ...current, area }))
-        setLocationError(null)
-      } else {
-        setLocationError('Check the area or city name below and adjust it if needed.')
-      }
-    } catch {
-      setLocationError('Check the area or city name below and adjust it if needed.')
-    }
   }
 
   function handleAreaChange(area: string) {
@@ -349,7 +317,6 @@ export function OnboardingPage() {
         distanceKm: 0,
         moderationStatus: 'pending',
         onboardingComplete: true,
-        ...(isWoman ? { documentVerification: 'unverified' as const } : {}),
         ...(twoFactorMethod ? { twoFactorEnabled: true, twoFactorMethod } : {}),
       })
       const updated = await completeOnboarding()
@@ -552,17 +519,16 @@ export function OnboardingPage() {
               </p>
             </div>
           )}
-          {locationError && <p className="text-sm text-danger">{locationError}</p>}
+          {locationError && <p className="text-sm text-ink-500" role="status">{locationError}</p>}
 
           <div>
-            <p className="mb-2 text-xs font-medium text-ink-500">Or tap the map to choose an approximate area</p>
+            <p className="mb-2 text-xs font-medium text-ink-500"></p>
             <div className="h-52 overflow-hidden rounded-2xl border border-ink-100">
               <OpenStreetMapView
                 center={draft.latitude !== null && draft.longitude !== null
                   ? [draft.latitude, draft.longitude]
                   : [6.4698, 3.5852]}
                 zoom={draft.latitude !== null && draft.longitude !== null ? 13 : 11}
-                onLocationSelect={handleMapLocation}
               />
             </div>
           </div>
@@ -630,15 +596,14 @@ export function OnboardingPage() {
               {!draft.showIdentity && ' Your identity selection.'}
             </p>
           </div>
-          {isWoman && (
-            <div className="rounded-2xl bg-primary-50 p-4">
-              <p className="text-sm font-semibold text-primary-800">One more thing</p>
-              <p className="mt-1 text-sm text-primary-700">
-                After this, set up two-factor sign-in, then head to Settings → Verification to upload a NIN,
-                BVN or voter's card — required for female accounts to confirm your age.
-              </p>
-            </div>
-          )}
+          <div className="rounded-2xl bg-primary-50 p-4">
+            <p className="text-sm font-semibold text-primary-800">One more thing</p>
+            <p className="mt-1 text-sm text-primary-700">
+              After onboarding, go to Settings → Verification to upload a NIN, BVN or voter's card. ID approval is
+              required before messaging, livestreaming or making payments.
+              {isWoman && ' You will also set up two-factor sign-in next.'}
+            </p>
+          </div>
 
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={() => setStep(3)}>
@@ -804,6 +769,17 @@ export function OnboardingPage() {
           </div>
         </div>
       )}
+      <LocationAccessDialog
+        open={locationDialogOpen}
+        locating={locating}
+        message={locationRequestMessage}
+        onClose={() => setLocationDialogOpen(false)}
+        onAllow={() => void requestBrowserLocation()}
+        onChooseManually={() => {
+          setLocationDialogOpen(false)
+          setLocationRequestMessage(null)
+        }}
+      />
     </Card>
   )
 }

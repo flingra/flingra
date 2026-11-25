@@ -24,6 +24,7 @@ from app.config import Settings
 from app.dependencies import db_session
 from app.errors import ApiException, ServiceUnavailable
 from app.notifications import send_password_reset, send_two_factor_code, send_verification_code
+from app.referrals import ensure_referral_code, normalize_referral_code
 from app.schemas import (
     PasswordResetConfirmRequest,
     PasswordResetRequest,
@@ -55,6 +56,7 @@ LOCKOUT_DURATION = timedelta(minutes=15)
 VERIFICATION_LIFETIME = timedelta(minutes=10)
 RESET_LIFETIME = timedelta(minutes=30)
 TWO_FACTOR_LIFETIME = timedelta(minutes=10)
+MINIMUM_ACCOUNT_AGE = 21
 
 
 class AuthenticatedAccount(dict[str, Any]):
@@ -89,7 +91,9 @@ def _normalize_identifier(value: str, sex: str) -> tuple[str, str, str | None]:
     raise ApiException("INVALID_IDENTIFIER", "Enter a valid email address or mobile number.")
 
 
-def _age_on(birth_date: date, today: date) -> int:
+def _age_on(birth_date: date | str, today: date) -> int:
+    if isinstance(birth_date, str):
+        birth_date = date.fromisoformat(birth_date)
     return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
 
 
@@ -213,8 +217,8 @@ def get_authenticated_account(
     result = db.execute(
         text(
             """
-            SELECT a.id, a.identifier, a.identifier_type, a.email_verified,
-                   p.onboarding_complete
+            SELECT s.id AS session_id, s.last_active_at, a.id, a.identifier, a.identifier_type,
+                   a.email_verified, a.date_of_birth, a.account_state, p.onboarding_complete
             FROM sessions s
             JOIN accounts a ON a.id = s.account_id
             LEFT JOIN profiles p ON p.account_id = a.id
@@ -227,10 +231,73 @@ def get_authenticated_account(
     ).mappings().first()
     if result is None:
         raise ApiException("UNAUTHENTICATED", "Sign in to continue.", 401)
+    if result["account_state"] in {"deletion_requested", "deleted"}:
+        raise ApiException("ACCOUNT_DELETION_PENDING", "This account is scheduled for deletion.", 403)
+    if result["last_active_at"] is None or _as_datetime(result["last_active_at"]) < _now() - timedelta(minutes=1):
+        db.execute(
+            text("UPDATE sessions SET last_active_at = :now WHERE id = :session_id"),
+            {"now": _now(), "session_id": result["session_id"]},
+        )
+        db.commit()
+    if _age_on(result["date_of_birth"], date.today()) < MINIMUM_ACCOUNT_AGE:
+        db.execute(
+            text("UPDATE sessions SET revoked_at = :revoked_at WHERE id = :session_id"),
+            {"revoked_at": _now(), "session_id": result["session_id"]},
+        )
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.session.age_denied",
+            actor_type="user",
+            actor_id=str(result["id"]),
+            subject_account_id=str(result["id"]),
+            outcome="denied",
+            metadata={"reason": "minimum_age_not_met"},
+        )
+        db.commit()
+        raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.", 403)
     return AuthenticatedAccount(result)
 
 
 CurrentAccount = Annotated[AuthenticatedAccount, Depends(get_authenticated_account)]
+
+
+def require_identity_verified(
+    request: Request,
+    account: CurrentAccount,
+    db: DbSession,
+) -> AuthenticatedAccount:
+    verification_status = db.execute(
+        text(
+            """
+            SELECT document_verification
+            FROM profiles
+            WHERE account_id = :account_id
+            """
+        ),
+        {"account_id": account.account_id},
+    ).scalar_one_or_none()
+    if verification_status != "verified":
+        record_audit_event(
+            db,
+            request,
+            event_type="identity.verification.access_denied",
+            actor_type="user",
+            actor_id=account.account_id,
+            subject_account_id=account.account_id,
+            outcome="denied",
+            metadata={"verificationStatus": verification_status or "unverified"},
+        )
+        db.commit()
+        raise ApiException(
+            "IDENTITY_VERIFICATION_REQUIRED",
+            "Identity verification must be approved before using this feature.",
+            403,
+        )
+    return account
+
+
+IdentityVerifiedAccount = Annotated[AuthenticatedAccount, Depends(require_identity_verified)]
 
 
 def _create_session(db: Session, account_id: str, request: Request, response: Response) -> None:
@@ -239,8 +306,12 @@ def _create_session(db: Session, account_id: str, request: Request, response: Re
     db.execute(
         text(
             """
-            INSERT INTO sessions (id, account_id, session_token_hash, expires_at)
-            VALUES (:id, :account_id, :token_hash, :expires_at)
+            INSERT INTO sessions (
+                id, account_id, session_token_hash, expires_at, device_label, last_active_at
+            )
+            VALUES (
+                :id, :account_id, :token_hash, :expires_at, :device_label, :last_active_at
+            )
             """
         ),
         {
@@ -248,6 +319,8 @@ def _create_session(db: Session, account_id: str, request: Request, response: Re
             "account_id": account_id,
             "token_hash": hash_token(raw_token),
             "expires_at": _now() + timedelta(hours=settings.session_ttl_hours),
+            "device_label": request.headers.get("user-agent", "Unknown device")[:255],
+            "last_active_at": _now(),
         },
     )
     _set_session_cookies(response, request, raw_token)
@@ -332,15 +405,11 @@ def sign_up(
         _record_rejected_signup(db, request, exc.code)
         raise
     age = _age_on(body.date_of_birth, date.today())
-    minimum_age = 21 if body.sex == "woman" else 18
-    if age < minimum_age:
-        message = (
-            "Flingra requires female accounts to be 21 or older."
-            if body.sex == "woman"
-            else "Flingra is only available to adults 18 and older."
-        )
+    if age < MINIMUM_ACCOUNT_AGE:
         _record_rejected_signup(db, request, "minimum_age_not_met")
-        raise ApiException("INELIGIBLE_AGE", message)
+        raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.")
+
+    referral_code = normalize_referral_code(body.referral_code)
 
     if identifier_type != "email":
         _record_rejected_signup(db, request, "sms_provider_unavailable", outcome="failure")
@@ -390,7 +459,7 @@ def sign_up(
                 "password_hash": hash_password(body.password),
                 "date_of_birth": body.date_of_birth,
                 "gender": body.sex,
-                "referred_by_code": body.referral_code,
+                "referred_by_code": referral_code,
                 "terms_version": settings.terms_version,
                 "privacy_version": settings.privacy_version,
             },
@@ -398,8 +467,10 @@ def sign_up(
         db.execute(
             text(
                 """
-                INSERT INTO profiles (account_id, bio, photos, age_range, interests, identity)
-                VALUES (:account_id, '', '[]', :age_range, '[]', :identity)
+                INSERT INTO profiles (
+                    account_id, bio, photos, age_range, interests, identity, document_verification
+                )
+                VALUES (:account_id, '', '[]', :age_range, '[]', :identity, 'unverified')
                 """
             ),
             {
@@ -408,6 +479,7 @@ def sign_up(
                 "identity": body.sex,
             },
         )
+        ensure_referral_code(db, account_id)
         db.execute(
             text(
                 """
@@ -457,8 +529,8 @@ def sign_in(
     account = db.execute(
         text(
             """
-            SELECT id, identifier, identifier_type, password_hash, email_verified,
-                   login_failed_attempts, locked_until
+            SELECT id, identifier, identifier_type, password_hash, email_verified, account_state,
+                   date_of_birth, login_failed_attempts, locked_until
             FROM accounts
             WHERE identifier = :identifier
             """
@@ -521,6 +593,34 @@ def sign_in(
         if locked_until is not None:
             raise ApiException("ACCOUNT_LOCKED", "Too many attempts. Try again later or reset your password.", 423)
         raise ApiException("INVALID_CREDENTIALS", "Invalid email or password.", 401)
+
+    if _age_on(account["date_of_birth"], date.today()) < MINIMUM_ACCOUNT_AGE:
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=str(account["id"]),
+            outcome="denied",
+            metadata={"reason": "minimum_age_not_met"},
+        )
+        db.commit()
+        raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.", 403)
+
+    if account["account_state"] in {"deletion_requested", "deleted"}:
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=str(account["id"]),
+            outcome="denied",
+            metadata={"reason": "account_deletion_pending"},
+        )
+        db.commit()
+        raise ApiException("ACCOUNT_DELETION_PENDING", "This account is scheduled for deletion.", 403)
 
     db.execute(
         text("UPDATE accounts SET login_failed_attempts = 0, locked_until = NULL WHERE id = :account_id"),
@@ -795,8 +895,8 @@ def google_auth(
     account = db.execute(
         text(
             """
-            SELECT id, email, identifier, identifier_type, email_verified,
-                   google_sub, login_failed_attempts, locked_until
+            SELECT id, email, identifier, identifier_type, email_verified, account_state,
+                   google_sub, login_failed_attempts, locked_until, date_of_birth
             FROM accounts
             WHERE google_sub = :google_sub
             """
@@ -807,8 +907,8 @@ def google_auth(
         account = db.execute(
             text(
                 """
-                SELECT id, email, identifier, identifier_type, email_verified,
-                       google_sub, login_failed_attempts, locked_until
+                SELECT id, email, identifier, identifier_type, email_verified, account_state,
+                       google_sub, login_failed_attempts, locked_until, date_of_birth
                 FROM accounts
                 WHERE email = :email
                 """
@@ -817,6 +917,8 @@ def google_auth(
         ).mappings().first()
 
     if account is not None:
+        if account["account_state"] in {"deletion_requested", "deleted"}:
+            raise ApiException("ACCOUNT_DELETION_PENDING", "This account is scheduled for deletion.", 403)
         if account["google_sub"] not in (None, google_sub):
             raise ApiException(
                 "GOOGLE_ACCOUNT_LINKED_ELSEWHERE",
@@ -839,6 +941,24 @@ def google_auth(
                 "ACCOUNT_LOCKED",
                 "Too many attempts. Try again later or reset your password.",
                 423,
+            )
+
+        if _age_on(account["date_of_birth"], date.today()) < MINIMUM_ACCOUNT_AGE:
+            record_audit_event(
+                db,
+                request,
+                event_type="auth.google_login",
+                actor_type="anonymous",
+                actor_id=None,
+                subject_account_id=str(account["id"]),
+                outcome="denied",
+                metadata={"reason": "minimum_age_not_met"},
+            )
+            db.commit()
+            raise ApiException(
+                "INELIGIBLE_AGE",
+                "Flingra is only available to adults 21 and older.",
+                403,
             )
 
         if account["google_sub"] is None or not account["email_verified"]:
@@ -897,15 +1017,10 @@ def google_auth(
         )
     if not body.accepted_terms:
         raise ApiException("TERMS_REQUIRED", "Accept the terms and privacy notice to continue.")
-    minimum_age = 21 if body.sex == "woman" else 18
-    if _age_on(body.date_of_birth, date.today()) < minimum_age:
-        message = (
-            "Flingra requires female accounts to be 21 or older."
-            if body.sex == "woman"
-            else "Flingra is only available to adults 18 and older."
-        )
-        raise ApiException("INELIGIBLE_AGE", message)
+    if _age_on(body.date_of_birth, date.today()) < MINIMUM_ACCOUNT_AGE:
+        raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.")
 
+    referral_code = normalize_referral_code(body.referral_code)
     account_id = uuid.uuid4().hex
     try:
         db.execute(
@@ -930,7 +1045,7 @@ def google_auth(
                 "password_hash": hash_password(generate_token()),
                 "date_of_birth": body.date_of_birth,
                 "gender": body.sex,
-                "referred_by_code": body.referral_code,
+                "referred_by_code": referral_code,
                 "terms_version": settings.terms_version,
                 "privacy_version": settings.privacy_version,
                 "google_sub": google_sub,
@@ -943,8 +1058,11 @@ def google_auth(
         db.execute(
             text(
                 """
-                INSERT INTO profiles (account_id, display_name, bio, photos, age_range, interests, identity)
-                VALUES (:account_id, :display_name, '', '[]', :age_range, '[]', :identity)
+                INSERT INTO profiles (
+                    account_id, display_name, bio, photos, age_range, interests, identity,
+                    document_verification
+                )
+                VALUES (:account_id, :display_name, '', '[]', :age_range, '[]', :identity, 'unverified')
                 """
             ),
             {
@@ -954,6 +1072,7 @@ def google_auth(
                 "identity": body.sex,
             },
         )
+        ensure_referral_code(db, account_id)
         authenticated = AuthenticatedAccount(
             {
                 "id": account_id,
@@ -1050,6 +1169,7 @@ def verify_contact(
         ),
         {"account_id": account.account_id},
     )
+    ensure_referral_code(db, account.account_id)
     db.execute(
         text("DELETE FROM email_verification_tokens WHERE account_id = :account_id"),
         {"account_id": account.account_id},

@@ -185,7 +185,7 @@ export const VIP_PLANS: VipPlan[] = [
 ]
 
 /** Coin bundle sizes the store offers. Each bundle's price is `coins * coinPriceStore.priceNaira`, computed live. */
-export const COIN_PACKAGE_SIZES = [50, 150, 400, 1000]
+export const COIN_PACKAGE_SIZES = [10, 15, 30]
 
 /** Default price before an admin ever sets one, in ₦ per call-credit coin. */
 export const DEFAULT_COIN_PRICE_NAIRA = 50

@@ -12,6 +12,12 @@ From this directory, install the package and test dependencies:
 python -m pip install -e ".[test]"
 ```
 
+Configure local values in `backend/.env`. Paystack is the selected payment
+provider; set `FLINGRA_PAYMENT_PROVIDER=paystack` and
+`FLINGRA_PAYSTACK_SECRET_KEY` there. Wallet top-ups use Paystack-hosted
+checkout, server-side transaction verification, and signed webhooks with
+idempotent settlement. Keep the populated `.env` local and uncommitted.
+
 Configure MySQL either with `FLINGRA_DATABASE_URL` (SQLAlchemy URL) or with
 these separate fields in `backend/.env`:
 
@@ -41,12 +47,21 @@ Optional settings include:
 - `FLINGRA_SESSION_TTL_HOURS` — session lifetime.
 - `FLINGRA_RATE_LIMIT_REDIS_URL` — Redis URL used by shared auth-abuse limits.
 - `FLINGRA_RATE_LIMITING_ENABLED` — leave enabled outside isolated tests.
+- `FLINGRA_DEMO_PROFILES_ENABLED` — default `false`; enable only on a private
+  environment to make explicitly tagged synthetic Discover profiles visible.
 - `FLINGRA_MAX_REQUEST_BYTES` — maximum API request body (defaults to 1 MiB).
 - `FLINGRA_GOOGLE_CLIENT_ID` — Google OAuth Web client ID used to verify
-  Google Identity Services ID tokens. Add the same client ID to the authorized
+  Google Identity Services ID tokens. Add the frontend origin to this OAuth
+  client's Authorized JavaScript origins in Google Cloud Console.
 - `FLINGRA_OPENCAGE_API_KEY` — server-side OpenCage reverse-geocoding key used
-  to turn private browser coordinates into an approximate display area. Add the same client ID to the authorized
-  JavaScript origins in Google Cloud Console.
+  to turn private browser coordinates into an approximate display area.
+- `FLINGRA_PAYMENT_PROVIDER` — currently `paystack`.
+- `FLINGRA_PAYSTACK_SECRET_KEY` — Paystack secret key. Keep it server-side;
+  Paystack webhook signatures are verified using this key.
+- `FLINGRA_TERMII_API_KEY` and `FLINGRA_TERMII_SENDER_ID` — Termii SMS
+  credentials used to deliver safety check-ins to emergency contacts.
+- `FLINGRA_LIVEKIT_URL`, `FLINGRA_LIVEKIT_API_KEY`, and
+  `FLINGRA_LIVEKIT_API_SECRET` — LiveKit server URL and server-side credentials.
 - `FLINGRA_BREVO_API_KEY` — secret API key for Brevo transactional email.
 - `FLINGRA_BREVO_SENDER_EMAIL` — a verified sender address in Brevo.
 - `FLINGRA_BREVO_SENDER_NAME` — optional sender display name.
@@ -66,7 +81,20 @@ deployed environment. When running behind a reverse proxy, configure Uvicorn's
 `--proxy-headers` and `--forwarded-allow-ips` only for the actual proxy addresses
 so clients cannot spoof the IP used by rate limits.
 
-Apply the SQL migrations once after configuring the database:
+The API automatically applies pending SQL migrations during startup when the
+MySQL database is reachable. Applied filenames are recorded in
+`schema_migrations`, and a MySQL advisory lock prevents app workers from
+applying the same migration concurrently. If migration setup fails, the API
+still starts for liveness checks, but `/health/ready` returns `503`.
+
+For production, configure `FLINGRA_MIGRATION_DATABASE_URL` with a dedicated
+database account that has the required DDL permissions. The app uses that
+connection only while applying migrations; regular requests continue using
+`FLINGRA_DATABASE_URL` or the `FLINGRA_DB_*` settings. Without a separate
+migration URL, startup uses the runtime database account, which must then have
+DDL permissions.
+
+You can also apply migrations explicitly after configuring the database:
 
 ```sh
 python -m app.migrate
@@ -80,11 +108,15 @@ database provider does not grant these privileges to the application user, set
 have the database administrator apply the SQL migrations. Do not grant the
 runtime account broad DDL privileges just to make the application start.
 
-The migration command applies the existing account/session migrations, the
+The migration runner applies the existing account/session migrations, the
 forward migration aligning account identifiers, genders, and profiles with the
-frontend contract, the migration removing facial-verification data, and the
-media metadata, admin/audit, and Google-account-link migrations. It records applied migration
-filenames in `schema_migrations`.
+frontend contract, the migration removing facial-verification data, the media
+metadata, admin/audit, and Google-account-link migrations, and the newer
+safety, chat, content, session-device, subscription-catalog, wallet-ledger,
+Paystack wallet-payment, safety-check-in delivery, payout, meetup-payment, and
+referral migrations, plus call billing, video unlock, livestream interactions,
+realtime event storage, and the per-minute call-credit/video-expiry update. It
+records applied migration filenames in `schema_migrations`.
 For a database containing the legacy tables but no migration history, it marks
 the four existing migrations as the baseline, then applies the remaining
 migrations in order.
@@ -97,10 +129,28 @@ python -m uvicorn app.main:app --reload
 ```
 
 `GET /health/live` checks that the process is running. `GET /health/ready`
-checks that the database is configured and reachable. Database migrations must be
-applied before feature endpoints are enabled. On startup, the Uvicorn terminal
-logs whether the database connection check succeeded or failed; the API still
-starts if the database is unavailable so the process liveness endpoint remains usable.
+checks that the database is configured, reachable, and its migrations have
+completed. On startup, the Uvicorn terminal logs database connection and
+migration results; the API still starts if the database is unavailable so the
+process liveness endpoint remains usable.
+
+Run one background-worker cycle to process queued privacy jobs and lifecycle
+cleanup:
+
+```sh
+python -m app.privacy_worker
+```
+
+In deployed environments, run it as a separate supervised service so call
+billing and stale-call/stream cleanup run continuously:
+
+```sh
+python -m app.privacy_worker --watch --interval 5
+```
+
+The worker needs the same database configuration as the API and LiveKit
+credentials to close rooms. Keep it running after frontend integration; do not
+run it inside each API process.
 
 ## Current scope
 
@@ -110,14 +160,154 @@ Implemented endpoints:
 - `GET /auth/oauth/google/config`, `POST /auth/oauth/google`
 - `POST /auth/password/forgot`, `/auth/password/reset`, `/auth/logout`
 - `GET /auth/session`, `POST /auth/onboarding/complete`
-- `GET /profiles/me`, `PATCH /profiles/me`
-- `POST /media/photos`, `POST /media/documents`, `GET /media/{media_id}`
+- `GET /profiles/me`, `PATCH /profiles/me`, `GET /profiles/{profile_id}`
+- `GET /profiles` (VIP showcase), `GET /videos/nearby`, `GET /presence/{author_id}`
+- `GET /discovery` — verified, approved member feed with age, interest, audience,
+  distance and pagination filters, including the live-only filter
+- `POST /media/photos`, `POST /media/documents`, `POST /media/videos`,
+  `POST /statuses`, `GET /media/{media_id}`
+- `POST /media/videos?purpose=post` stores an owned private video for a post;
+  the default purpose remains profile video
+- `GET /posts/me`, `POST /posts`, `DELETE /posts/{post_id}`
+- `GET /statuses/nearby`
+- `GET/POST /safety/blocks`, `DELETE /safety/blocks/{target_id}`
+- `POST /safety/reports`
+- `GET/POST /safety/emergency-contacts`, `DELETE /safety/emergency-contacts/{contact_id}`
+- `GET /safety/check-ins`
+- `POST /safety/check-ins` — sends a Termii SMS to each saved emergency contact
+  and reports only successful deliveries
+- `POST /chat/threads`, `GET /chat/threads`
+- `GET/POST /chat/threads/{thread_id}/messages`
+- `POST /chat/attachments` — uploads private media; downloads require thread
+  membership and pass block checks
+- `GET /settings/sessions`, `DELETE /settings/sessions/{session_id}`
+- `POST /settings/password`
+- `POST /settings/data-export`, `GET /settings/data-export/{request_id}`,
+  `POST /settings/account/delete` — requests are queued and processed by
+  `python -m app.privacy_worker`; export results are available only to the owner
+- `GET /subscriptions/plans`, `GET /subscriptions/me`
+- `POST /subscriptions` — purchases VIP using an already-settled internal wallet balance
+- `GET /wallet/balance`, `GET /wallet/transactions`, `POST /wallet/top-ups`
+- `POST /wallet/top-ups/verify`, `POST /webhooks/paystack`
+- `GET /payout/banks`, `GET/PUT /payout/bank-account`, `GET/POST /payouts`
+- `GET /referrals/code`, `GET /referrals`
+- `GET /live-streams`, `GET /live-streams/nearby`, `GET /live-streams/{stream_id}`
+- `POST /live-streams`, `POST /live-streams/{stream_id}/token`,
+  `POST /live-streams/{stream_id}/heartbeat`, `DELETE /live-streams/{stream_id}`
+- `POST /live-streams/{stream_id}/join-requests`,
+  `GET /live-streams/{stream_id}/join-requests`,
+  `PATCH /live-streams/{stream_id}/join-requests/{request_id}`
+- `GET /live-streams/{stream_id}/participants`,
+  `GET /live-streams/{stream_id}/viewers`,
+  `GET/POST /live-streams/{stream_id}/messages`
+- `POST /videos/unlock` — unlocks a creator-priced profile video using the
+  internal wallet ledger
+- `GET /calls/coin-price`, `/calls/coin-packages`, `/calls/credits`,
+  `POST /calls/credits/purchase`, `POST /calls`
+- `GET /calls/incoming`, `POST /calls/{call_id}/accept`, `/decline`,
+  `/connected`, `/heartbeat`, `/token`, `GET /calls/{call_id}`,
+  `DELETE /calls/{call_id}`
+- `GET/PUT /admin/call-credits/price` (super admin only)
+- `/realtime/ws` — authenticated WebSocket; event cursor uses `?after=<id>`
+- `POST /chat/threads/{thread_id}/payment-proposals`
+- `GET /chat/meetup-payments/{payment_id}`
+- `POST /chat/meetup-payments/{payment_id}/accept`, `/decline`, `/release`,
+  `/refund`, `/disputes`
+- `GET /admin/meetup-payments/disputes`,
+  `POST /admin/meetup-payments/{payment_id}/resolve` (super admin only)
+- `GET /wallet/gifts/catalog`, `/wallet/gifts/owned`, `/wallet/gifts/received`
+- `POST /wallet/gifts/buy`, `/wallet/gifts/{gift_type_id}/spend`,
+  `/wallet/gifts/{gift_id}/redeem`, `/wallet/gifts/redeem-all`
 - `POST /admin/auth/login`, `GET /admin/auth/session`, `POST /admin/auth/logout`
 - `GET /admin/reviews`, `GET /admin/reviews/{review_id}`
 - `GET /admin/reviews/{review_id}/document`
 - `POST /admin/reviews/{review_id}/decision`
+- `GET /admin/safety/reviews`, `POST /admin/safety/reviews/{review_id}/decision`
 - `GET /admin/users/{account_id}/audit`
 - `GET /admin/admins`, `PATCH /admin/admins/{admin_id}` (super admin only)
+
+All signup and sign-in paths enforce a minimum age of 21; existing sessions
+belonging to underage accounts are revoked when used. Government ID review is
+required for every account; a document upload sets its status to `pending`.
+Safety reports and blocks are persisted; blocking immediately hides either
+member from discovery, chat, and member interactions. Safety reviewers can
+process the resulting queue through the admin API. Chat messages, meetup
+payment proposals, call updates, livestream interactions, and gifts are
+persisted and delivered through the authenticated WebSocket event stream.
+Private chat attachments use authenticated media storage and thread/block
+authorization.
+
+Image/video uploads and statuses are persisted. Live-stream join requests,
+presence, chat and gifts are server-backed; streams are ended and their LiveKit
+rooms cleaned up by the worker when the host heartbeat is absent for 60
+seconds. LiveKit tokens are issued only by the API. Profile-video unlocks use
+the creator's stored price (capped at ₦3,000); each unlock lasts 30 days,
+debits the viewer, and credits the creator. Video unlocks are non-refundable.
+Calls use server-side credit billing: one credit on connection covers the
+first started minute, then one credit per additional started minute. The
+10-, 15-, and 30-minute packages are priced at the current per-credit rate
+(default ₦50). Only men pay; calls without a male payer are free. A super admin
+can change the per-minute credit price. The background worker is
+required to settle missed call ticks, expire unanswered/idle calls, close
+rooms, end stale streams, and process privacy jobs.
+Posts may contain at least three owned photos or one owned `post-video`.
+Uploads validate the MP4/WebM signature and size; server-side video-duration
+transcoding/limits are not currently provided.
+Wallet top-ups and Paystack Transfers require valid Paystack credentials and a
+publicly reachable `/webhooks/paystack` endpoint configured in the Paystack
+dashboard. Bank account numbers are sent to Paystack for
+verification/recipient creation and are not stored by Flingra; only the bank,
+account name, last four digits, and provider recipient code are retained.
+Payouts debit the wallet idempotently and are completed or refunded only after
+a signed transfer webhook. If a network failure leaves a payout in
+`initiating`, reconcile it with Paystack before retrying; do not submit a
+second transfer. Safety check-ins require Termii credentials and an approved
+sender ID. VIP purchases and gifts can use funds already present in the
+internal ledger. Meetup proposals hold no funds until the recipient accepts;
+the payer is debited on acceptance, either party can release held funds, and
+only the payer can request a refund. Either party can dispute held funds; only
+a super admin can resolve a dispute by releasing to the recipient or refunding
+the payer. No automatic release/timeout is enabled. These are internal ledger
+holds, not regulated escrow. Referral codes are available, but bonus credits
+remain disabled until the reward policy is approved. Ledger amounts are stored
+in kobo and displayed in whole naira.
+
+The backend endpoints added for these flows are not yet wired into every
+frontend API adapter. The frontend remains mock-backed in chat, safety,
+posts/status, settings, presence, livestream, wallet, payout, calls, and
+subscriptions. Do not treat those UI flows as production-backed just because
+a corresponding read or core endpoint exists.
+
+## Synthetic Discover cohort
+
+The optional seed command creates 50 clearly named synthetic profiles across
+all 36 states and the FCT. They use reserved `example.test` emails, test-only
+email/document verification states, and no real identity documents. The command
+is dry-run by default and does not connect to a database unless both `--apply`
+and `--confirm-private-database` are passed:
+
+```sh
+python -m app.seed_demo_discovery
+FLINGRA_DEMO_PROFILES_ENABLED=true python -m app.seed_demo_discovery \
+  --apply --confirm-private-database
+```
+
+Apply migrations before seeding. To display the cohort, set
+`FLINGRA_DEMO_PROFILES_ENABLED=true` on the private API environment as well.
+The default is off, so demo profiles are hidden from Discover and profile
+details when the flag is disabled. Demo profiles have no photos or videos yet
+and use the app's initials fallback; add only media with appropriate usage
+rights and model releases. Do not enable this flag on an environment serving
+real users.
+
+The demo cohort covers every interest offered by Discover. To update interests
+on a cohort that was seeded by an earlier version, run this guarded command in
+the private backend environment:
+
+```sh
+FLINGRA_DEMO_PROFILES_ENABLED=true python -m app.seed_demo_discovery \
+  --apply --confirm-private-database --refresh-interests
+```
 
 Admin accounts are separate from user accounts and cannot self-register. After
 applying migrations, provision staff accounts from the backend environment
@@ -184,6 +374,7 @@ request bodies, OTPs, passwords, session/CSRF tokens, raw identifiers, or
 identity-document contents.
 
 Current event names include `auth.signup`, `auth.login`,
+`auth.session.age_denied`,
 `auth.contact_verification`, `auth.verification_code_resend`,
 `auth.password_reset_requested`, `auth.password_reset_completed`,
 `auth.logout`, `auth.csrf.denied`, `profile.own_viewed`, `profile.updated`,
@@ -193,9 +384,24 @@ Current event names include `auth.signup`, `auth.login`,
 `admin.csrf.denied`, `admin.review.queue_viewed`,
 `admin.review.queue_item_viewed`, `admin.review.details_viewed`,
 `admin.review.document_viewed`, `admin.review.decided`, and
+`discovery.feed_viewed`, `profile.discoverable_viewed`,
 `admin.audit.user_history_viewed`, `admin.account.list_viewed`,
-`admin.account.updated`, `admin.account.update_denied`, and
-`admin.authorization.denied`. Outcomes are
+`admin.account.updated`, `admin.account.update_denied`,
+`admin.authorization.denied`, `safety.member_blocked`,
+`safety.member_unblocked`, `safety.member_reported`,
+`safety.emergency_contact_added`, `safety.emergency_contact_removed`,
+`safety.blocks_viewed`, `safety.emergency_contacts_viewed`,
+`safety.check_ins_viewed`, `chat.thread_created`, `chat.threads_viewed`,
+`chat.messages_viewed`, `chat.message_sent`, `content.post_created`,
+`content.post_deleted`, `content.own_posts_viewed`,
+`content.nearby_statuses_viewed`, `settings.password_changed`,
+`settings.sessions_viewed`, `settings.session_revoked`,
+`privacy.data_export_requested`, `privacy.account_deletion_requested`,
+`privacy.account_deletion_queued`, `wallet.balance_viewed`,
+`wallet.transactions_viewed`, `wallet.gift_inventory_viewed`,
+`wallet.received_gifts_viewed`, `wallet.gift_purchased`,
+`wallet.gift_sent`, `wallet.gifts_redeemed`, `subscription.status_viewed`,
+and `subscription.vip_purchased`. Outcomes are
 `success`, `failure`, or `denied`. User audit history is chronological (oldest first), with stable
 event IDs and request IDs for correlation.
 
@@ -210,10 +416,11 @@ never included in logs or API error responses. Phone-based signup is
 currently unavailable until an SMS provider is configured. Facial/selfie
 verification is not used. Completed profiles enter pending moderation for manual admin review. The
 backend now supports basic profile/document approval and rejection, but does
-not yet implement report queues, blocking controls, admin MFA, password
-rotation/recovery, or an admin frontend. The frontend
-still uses its mock API and will need an API-client integration before it
-calls these routes.
+implement safety reports, blocking, and a safety-review queue. Admin MFA,
+password rotation/recovery, privacy-request processing, and an admin frontend
+remain unimplemented. The frontend uses the backend for Discover feeds and
+discoverable profile details; other feature areas still use mock APIs and need
+their own integrations.
 
 Media endpoints require verified, authenticated accounts and CSRF tokens.
 Uploaded JPEG/PNG/WebP images are decoded and re-encoded as JPEG to remove

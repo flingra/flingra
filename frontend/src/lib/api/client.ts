@@ -41,6 +41,24 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   return (await response.json()) as T
 }
 
+export function apiUrl(path: string): string {
+  if (!API_BASE_URL) {
+    throw new ApiError('API_NOT_CONFIGURED', 'The frontend API URL is not configured.')
+  }
+  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+export function apiWebSocketUrl(path: string): string | null {
+  if (!API_BASE_URL) return null
+  const url = new URL(apiUrl(path))
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
+
+export function resolveMediaUrl(url: string): string {
+  return url.startsWith('/media/') ? apiUrl(url) : url
+}
+
 export async function uploadFile<T>(path: string, file: File): Promise<T> {
   const formData = new FormData()
   formData.append('file', file)

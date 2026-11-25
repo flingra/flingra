@@ -33,13 +33,22 @@ class Settings(BaseSettings):
     admin_allowed_origins: list[str] = Field(default_factory=list)
     rate_limit_redis_url: SecretStr | None = None
     rate_limiting_enabled: bool = True
+    demo_profiles_enabled: bool = False
     max_request_bytes: int = Field(default=1_048_576, ge=1)
     google_client_id: str | None = None
     opencage_api_key: SecretStr | None = None
+    payment_provider: str | None = None
+    paystack_secret_key: SecretStr | None = None
+    termii_api_key: SecretStr | None = None
+    termii_sender_id: str | None = None
+    livekit_url: str | None = None
+    livekit_api_key: str | None = None
+    livekit_api_secret: SecretStr | None = None
     cloudinary_cloud_name: str | None = None
     cloudinary_api_key: str | None = None
     cloudinary_api_secret: SecretStr | None = None
     media_upload_max_bytes: int = Field(default=10_485_760, ge=1)
+    video_upload_max_bytes: int = Field(default=52_428_800, ge=1)
     brevo_api_key: SecretStr | None = None
     brevo_sender_email: str | None = None
     brevo_sender_name: str = "Flingra"

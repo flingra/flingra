@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Circle, Compass, Crown, MonitorPlay, Plus, Radio, Settings, ShieldCheck, Wallet } from 'lucide-react'
+import { ChevronRight, Circle, Compass, Crown, MonitorPlay, Plus, Radio, Settings, ShieldCheck, Wallet } from 'lucide-react'
 import { CreatePostDrawer } from '@/features/profile/components/create-post-drawer'
 import { GoLiveDrawer } from '@/features/livestream/components/go-live-drawer'
 
@@ -19,13 +19,33 @@ const NAV_ITEMS = [
 export function BottomNav() {
   const [createOpen, setCreateOpen] = useState(false)
   const [goLiveOpen, setGoLiveOpen] = useState(false)
+  const [hasMoreItems, setHasMoreItems] = useState(false)
+  const navRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const nav = navRef.current
+    if (!nav) return
+
+    const updateScrollCue = () => {
+      setHasMoreItems(nav.scrollWidth > nav.clientWidth + nav.scrollLeft + 1)
+    }
+
+    updateScrollCue()
+    nav.addEventListener('scroll', updateScrollCue, { passive: true })
+    window.addEventListener('resize', updateScrollCue)
+    return () => {
+      nav.removeEventListener('scroll', updateScrollCue)
+      window.removeEventListener('resize', updateScrollCue)
+    }
+  }, [])
 
   return (
     <>
       <div className="fixed inset-x-0 bottom-3 z-30 flex items-center justify-center gap-2 px-2 sm:bottom-4 sm:gap-3 sm:px-4">
         <nav
-          aria-label="Primary"
-          className="flex max-w-[calc(100vw-5.5rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-ink-900 px-2 py-2 shadow-float sm:max-w-none sm:gap-1 sm:px-3 sm:py-2.5"
+          ref={navRef}
+          aria-label={hasMoreItems ? 'Primary navigation; scroll for more items' : 'Primary navigation'}
+          className="relative flex max-w-[calc(100vw-5.5rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-ink-900 px-2 py-2 pr-8 shadow-float sm:max-w-none sm:gap-1 sm:px-3 sm:py-2.5 sm:pr-3"
         >
           {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
             <NavLink
@@ -49,6 +69,16 @@ export function BottomNav() {
           >
             <Radio className="size-4.5 sm:size-5" aria-hidden="true" />
           </button>
+          {hasMoreItems && (
+            <button
+              type="button"
+              aria-label="Show more navigation items"
+              onClick={() => navRef.current?.scrollBy({ left: 120, behavior: 'smooth' })}
+              className="absolute inset-y-0 right-0 z-10 flex w-9 cursor-pointer items-center justify-center rounded-r-full bg-gradient-to-l from-ink-900 via-ink-900/95 to-transparent text-white/80 sm:hidden"
+            >
+              <ChevronRight className="size-4" aria-hidden="true" />
+            </button>
+          )}
         </nav>
         <button
           type="button"

@@ -2,8 +2,17 @@ from pathlib import Path
 
 from sqlalchemy.exc import DBAPIError
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.database import get_engine, run_migrations
+
+
+def run_configured_migrations(settings: Settings | None = None) -> list[str]:
+    settings = settings or get_settings()
+    migration_settings = settings.model_copy(
+        update={"database_url": settings.migration_database_url or settings.database_url}
+    )
+    migrations_dir = Path(__file__).resolve().parents[1] / "internal" / "migrate" / "migrations"
+    return run_migrations(get_engine(migration_settings), str(migrations_dir))
 
 
 def is_database_permission_error(error: DBAPIError) -> bool:
@@ -11,13 +20,8 @@ def is_database_permission_error(error: DBAPIError) -> bool:
 
 
 def main() -> None:
-    settings = get_settings()
-    migration_settings = settings.model_copy(
-        update={"database_url": settings.migration_database_url or settings.database_url}
-    )
-    migrations_dir = Path(__file__).resolve().parents[1] / "internal" / "migrate" / "migrations"
     try:
-        applied = run_migrations(get_engine(migration_settings), str(migrations_dir))
+        applied = run_configured_migrations()
     except DBAPIError as exc:
         if not is_database_permission_error(exc):
             raise

@@ -28,6 +28,7 @@ def search_locations(
         "namedetails": 1,
     }
 
+    payload = None
     try:
         response = httpx.get(
             "https://nominatim.openstreetmap.org/search",
@@ -37,8 +38,51 @@ def search_locations(
         )
         response.raise_for_status()
         payload = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise ServiceUnavailable("Location search is temporarily unavailable.") from exc
+        if not isinstance(payload, list):
+            raise ValueError("Nominatim returned a non-list payload")
+    except (httpx.HTTPError, ValueError):
+        try:
+            fallback_params = {
+                "q": search_query,
+                "limit": 15,
+                "lang": "en",
+            }
+            fallback_response = httpx.get(
+                "https://photon.komoot.io/api",
+                params=fallback_params,
+                headers={"User-Agent": NOMINATIM_USER_AGENT},
+                timeout=httpx.Timeout(10.0, connect=3.0),
+            )
+            fallback_response.raise_for_status()
+            fallback_payload = fallback_response.json()
+            payload = []
+            for feature in fallback_payload.get("features", []):
+                properties = feature.get("properties") or {}
+                geometry = feature.get("geometry") or {}
+                coordinates = geometry.get("coordinates")
+                if properties.get("country") not in {None, "Nigeria"}:
+                    continue
+                if not isinstance(coordinates, list) or len(coordinates) < 2:
+                    continue
+                area = properties.get("name")
+                if not isinstance(area, str):
+                    area = next((properties[key] for key in (
+                        "district", "suburb", "neighbourhood", "city",
+                        "county", "state",
+                    ) if isinstance(properties.get(key), str)), None)
+                name_parts = [properties[key] for key in (
+                    "name", "street", "district", "suburb", "city", "state", "country",
+                ) if isinstance(properties.get(key), str)]
+                if not isinstance(area, str):
+                    continue
+                payload.append({
+                    "display_name": ", ".join(dict.fromkeys(name_parts)),
+                    "lat": coordinates[1],
+                    "lon": coordinates[0],
+                    "address": {"area": area},
+                })
+        except (httpx.HTTPError, ValueError, AttributeError) as exc:
+            raise ServiceUnavailable("Location search is temporarily unavailable.") from exc
 
     matches = []
     seen = set()
@@ -58,7 +102,7 @@ def search_locations(
         seen.add(position)
         area = next(
             (address[key] for key in (
-                "building", "amenity", "shop", "road", "quarter", "suburb",
+                "area", "building", "park", "amenity", "shop", "road", "quarter", "suburb",
                 "neighbourhood", "city_district", "town", "city", "village",
                 "municipality", "county", "state",
             ) if isinstance(address.get(key), str)),
@@ -72,21 +116,46 @@ def search_locations(
 @router.get("/reverse")
 def reverse_geocode(
     _: CurrentAccount,
-    __: Annotated[Settings, Depends(get_app_settings)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
     latitude: float = Query(ge=-90, le=90),
     longitude: float = Query(ge=-180, le=180),
 ) -> dict[str, str | None]:
-    try:
-        response = httpx.get(
-            "https://nominatim.openstreetmap.org/reverse",
-            params={"lat": latitude, "lon": longitude, "format": "jsonv2", "zoom": 18},
-            headers={"User-Agent": "Flingra/1.0 (location lookup)"},
-            timeout=httpx.Timeout(5.0, connect=2.0),
-        )
-        response.raise_for_status()
-        result = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise ServiceUnavailable("Location lookup is temporarily unavailable.") from exc
+    result = None
+    if settings.opencage_api_key:
+        try:
+            response = httpx.get(
+                "https://api.opencagedata.com/geocode/v1/json",
+                params={
+                    "q": f"{latitude},{longitude}",
+                    "key": settings.opencage_api_key.get_secret_value(),
+                    "no_annotations": 1,
+                    "limit": 1,
+                },
+                timeout=httpx.Timeout(5.0, connect=2.0),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            results = payload.get("results") if isinstance(payload, dict) else None
+            if isinstance(results, list) and results and isinstance(results[0], dict):
+                result = results[0]
+        except (httpx.HTTPError, ValueError, AttributeError):
+            result = None
+
+    if result is None:
+        try:
+            response = httpx.get(
+                "https://nominatim.openstreetmap.org/reverse",
+                params={"lat": latitude, "lon": longitude, "format": "jsonv2", "zoom": 18},
+                headers={"User-Agent": NOMINATIM_USER_AGENT},
+                timeout=httpx.Timeout(5.0, connect=2.0),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("Nominatim returned an invalid response")
+            result = payload
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ServiceUnavailable("Location lookup is temporarily unavailable.") from exc
 
     components = result.get("components") or result.get("address") or {}
     if components.get("country_code") not in {None, "ng"}:

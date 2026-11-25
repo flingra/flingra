@@ -27,13 +27,14 @@ export interface MemberProfile {
   area: string
   latitude?: number | null
   longitude?: number | null
-  distanceKm: number
+  distanceKm: number | null
   interests: string[]
   discoverableBy: AudiencePreference
   wantsToDiscover: AudiencePreference
   identity: 'man' | 'woman' | 'private'
   showIdentity: boolean
   subscriptionTier: SubscriptionTier
+  isDemo?: boolean
 }
 
 export interface VipPlan {
@@ -48,10 +49,11 @@ export type VerificationDocumentType = 'NIN' | 'BVN' | 'voters-card'
 
 export interface OwnProfile extends MemberProfile {
   moderationStatus: 'approved' | 'pending' | 'rejected'
+  locationSharingEnabled?: boolean
   twoFactorEnabled?: boolean
   twoFactorMethod?: 'email' | 'authenticator'
   onboardingComplete?: boolean
-  /** Government ID check, required for female accounts to vet claimed age/identity. */
+  /** Government ID check, required for all accounts. */
   documentVerification?: VerificationStatus
   documentType?: VerificationDocumentType
   /** Set only while `subscriptionTier` is 'vip'; past this date the account reverts to free. */

@@ -13,36 +13,33 @@ export function getCurrentLocation(): Promise<CurrentLocation> {
       return
     }
 
-    let settled = false
-    const resolvePosition = ({ coords }: GeolocationPosition) => {
-      if (settled) return
-      settled = true
-      resolve({
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-        accuracyMeters: coords.accuracy,
-      })
+    let attempts = 0
+    const requestPosition = () => {
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => {
+          resolve({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            accuracyMeters: coords.accuracy,
+          })
+        },
+        (error) => {
+          if (error.code === error.PERMISSION_DENIED) {
+            reject(new Error('Location access is blocked. You can choose your area manually.'))
+            return
+          }
+          if (attempts === 0) {
+            attempts += 1
+            window.setTimeout(requestPosition, 500)
+            return
+          }
+          reject(new Error('We could not get a fresh location fix. You can choose your area manually.'))
+        },
+        { enableHighAccuracy: true, timeout: attempts === 0 ? 15000 : 10000, maximumAge: 0 },
+      )
     }
-    const rejectPosition = (error: GeolocationPositionError) => {
-      if (settled || error.code === error.PERMISSION_DENIED) {
-        if (!settled) {
-          settled = true
-          reject(new Error('Location permission was denied. You can choose your area manually.'))
-        }
-        return
-      }
-      navigator.geolocation.getCurrentPosition(resolvePosition, () => {
-        if (!settled) {
-          settled = true
-          reject(new Error('We could not get your current location. Check your device settings and try again.'))
-        }
-      }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 })
-    }
-    navigator.geolocation.getCurrentPosition(resolvePosition, rejectPosition, {
-      enableHighAccuracy: true,
-      timeout: 15000,
-      maximumAge: 0,
-    })
+
+    requestPosition()
   })
 }
 

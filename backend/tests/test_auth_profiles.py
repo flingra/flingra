@@ -1,6 +1,7 @@
 import io
 
 from PIL import Image
+from sqlalchemy import text
 
 from app.routes import auth
 
@@ -50,6 +51,7 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
     draft = client.get("/profiles/me")
     assert draft.status_code == 200
     assert draft.json()["identity"] == "woman"
+    assert draft.json()["documentVerification"] == "unverified"
 
     verified = client.post(
         "/auth/verify-contact",
@@ -84,7 +86,6 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
             "photos": [photo_url],
             "area": "Yaba, Lagos",
             "interests": ["Music"],
-            "videos": [{"url": "https://cdn.example.test/video.mp4", "locked": True, "priceNaira": 500}],
             "identity": "woman",
             "distanceKm": 0,
         },
@@ -92,7 +93,6 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
     assert updated.status_code == 200
     assert updated.json()["displayName"] == "Tola"
     assert updated.json()["photos"] == [photo_url]
-    assert updated.json()["videos"][0]["priceNaira"] == 500
     assert client.get("/profiles/me").json()["area"] == "Yaba, Lagos"
 
 
@@ -112,6 +112,15 @@ def test_signup_rejects_terms_email_and_minimum_age(api_client, monkeypatch) -> 
     assert underage.status_code == 400
     assert underage.json()["error"]["code"] == "INELIGIBLE_AGE"
 
+    underage_man = signup(
+        client,
+        sex="man",
+        identifier="young-man@example.com",
+        dateOfBirth="2008-01-01",
+    )
+    assert underage_man.status_code == 400
+    assert underage_man.json()["error"]["code"] == "INELIGIBLE_AGE"
+
 
 def test_signup_rejects_duplicate_identifier(api_client, monkeypatch) -> None:
     client, _ = api_client
@@ -122,6 +131,65 @@ def test_signup_rejects_duplicate_identifier(api_client, monkeypatch) -> None:
     duplicate = signup(client)
     assert duplicate.status_code == 409
     assert duplicate.json()["error"]["code"] == "ACCOUNT_EXISTS"
+
+
+def test_referral_signup_does_not_credit_bonus_until_policy_is_decided(
+    api_client, monkeypatch
+) -> None:
+    client, delivered_codes = api_client
+    monkeypatch.setattr(
+        auth,
+        "send_verification_code",
+        lambda _settings, _recipient, code: delivered_codes.append(code),
+    )
+
+    referrer = signup(client, identifier="referrer@example.test")
+    assert referrer.status_code == 201
+    assert client.post(
+        "/auth/verify-contact",
+        headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
+        json={"code": delivered_codes[0]},
+    ).status_code == 200
+    referral_code = client.get("/referrals/code").json()["code"]
+
+    referred = signup(
+        client,
+        identifier="referred@example.test",
+        referralCode=referral_code.lower(),
+    )
+    assert referred.status_code == 201
+    assert client.post(
+        "/auth/verify-contact",
+        headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
+        json={"code": delivered_codes[1]},
+    ).status_code == 200
+
+    account_id = client.get("/auth/session").json()["accountId"]
+    db_generator = client.app.dependency_overrides[auth.db_session]()
+    db = next(db_generator)
+    try:
+        assert db.execute(
+            text(
+                "SELECT COALESCE((SELECT balance_kobo FROM wallet_accounts "
+                "WHERE account_id = :account_id), 0)"
+            ),
+            {"account_id": account_id},
+        ).scalar_one() == 0
+        assert db.execute(
+            text("SELECT COUNT(*) FROM referral_rewards WHERE referred_account_id = :account_id"),
+            {"account_id": account_id},
+        ).scalar_one() == 0
+        assert db.execute(
+            text(
+                "SELECT COUNT(*) FROM wallet_transactions "
+                "WHERE account_id = :account_id AND transaction_type = 'referral-bonus'"
+            ),
+            {"account_id": account_id},
+        ).scalar_one() == 0
+    finally:
+        db_generator.close()
+
+    assert client.get("/referrals").json() == []
 
 
 def test_profile_patch_requires_csrf(api_client, monkeypatch) -> None:
@@ -188,6 +256,80 @@ def test_login_locks_account_after_five_incorrect_passwords(api_client, monkeypa
         json={"identifier": "test@example.com", "password": "secure-password-123"},
     )
     assert correct_password.status_code == 423
+
+
+def test_login_rejects_existing_account_under_21(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    monkeypatch.setattr(auth, "send_verification_code", lambda *_: None)
+    assert signup(client, sex="man").status_code == 201
+
+    db_generator = client.app.dependency_overrides[auth.db_session]()
+    db = next(db_generator)
+    try:
+        db.execute(
+            auth.text(
+                "UPDATE accounts SET date_of_birth = :date_of_birth WHERE identifier = :identifier"
+            ),
+            {"date_of_birth": "2008-01-01", "identifier": "test@example.com"},
+        )
+        db.commit()
+    finally:
+        db_generator.close()
+
+    existing_session = client.get("/profiles/me")
+    assert existing_session.status_code == 403
+    assert existing_session.json()["error"]["code"] == "INELIGIBLE_AGE"
+
+    response = client.post(
+        "/auth/login",
+        json={"identifier": "test@example.com", "password": "secure-password-123"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "INELIGIBLE_AGE"
+
+
+def test_identity_verification_dependency_blocks_unapproved_profiles(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    monkeypatch.setattr(auth, "send_verification_code", lambda *_: None)
+    assert signup(client, sex="man").status_code == 201
+    account_id = client.get("/auth/session").json()["accountId"]
+
+    @client.app.get("/test/identity-verified")
+    def protected_identity_route(account: auth.IdentityVerifiedAccount) -> dict[str, str]:
+        return {"accountId": account.account_id}
+
+    db_generator = client.app.dependency_overrides[auth.db_session]()
+    db = next(db_generator)
+    try:
+        for status in ("unverified", "pending", "rejected"):
+            db.execute(
+                auth.text(
+                    """
+                    UPDATE profiles
+                    SET document_verification = :status
+                    WHERE account_id = :account_id
+                    """
+                ),
+                {"status": status, "account_id": account_id},
+            )
+            db.commit()
+            blocked = client.get("/test/identity-verified")
+            assert blocked.status_code == 403
+            assert blocked.json()["error"]["code"] == "IDENTITY_VERIFICATION_REQUIRED"
+        db.execute(
+            auth.text(
+                "UPDATE profiles SET document_verification = 'verified' WHERE account_id = :account_id"
+            ),
+            {"account_id": account_id},
+        )
+        db.commit()
+    finally:
+        db_generator.close()
+
+    verified = client.get("/test/identity-verified")
+    assert verified.status_code == 200
+    assert verified.json() == {"accountId": account_id}
 
 
 def test_onboarding_completes_without_facial_verification_and_stays_pending_review(api_client, monkeypatch) -> None:
