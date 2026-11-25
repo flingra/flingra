@@ -114,7 +114,8 @@ frontend contract, the migration removing facial-verification data, the media
 metadata, admin/audit, and Google-account-link migrations, and the newer
 safety, chat, content, session-device, subscription-catalog, wallet-ledger,
 Paystack wallet-payment, safety-check-in delivery, payout, meetup-payment, and
-referral migrations. It records applied migration filenames in
+referral migrations, plus call billing, video unlock, livestream interactions,
+and realtime event storage. It records applied migration filenames in
 `schema_migrations`.
 For a database containing the legacy tables but no migration history, it marks
 the four existing migrations as the baseline, then applies the remaining
@@ -133,6 +134,24 @@ completed. On startup, the Uvicorn terminal logs database connection and
 migration results; the API still starts if the database is unavailable so the
 process liveness endpoint remains usable.
 
+Run one background-worker cycle to process queued privacy jobs and lifecycle
+cleanup:
+
+```sh
+python -m app.privacy_worker
+```
+
+In deployed environments, run it as a separate supervised service so call
+billing and stale-call/stream cleanup run continuously:
+
+```sh
+python -m app.privacy_worker --watch --interval 5
+```
+
+The worker needs the same database configuration as the API and LiveKit
+credentials to close rooms. Keep it running after frontend integration; do not
+run it inside each API process.
+
 ## Current scope
 
 Implemented endpoints:
@@ -147,6 +166,8 @@ Implemented endpoints:
   distance and pagination filters, including the live-only filter
 - `POST /media/photos`, `POST /media/documents`, `POST /media/videos`,
   `POST /statuses`, `GET /media/{media_id}`
+- `POST /media/videos?purpose=post` stores an owned private video for a post;
+  the default purpose remains profile video
 - `GET /posts/me`, `POST /posts`, `DELETE /posts/{post_id}`
 - `GET /statuses/nearby`
 - `GET/POST /safety/blocks`, `DELETE /safety/blocks/{target_id}`
@@ -157,8 +178,8 @@ Implemented endpoints:
   and reports only successful deliveries
 - `POST /chat/threads`, `GET /chat/threads`
 - `GET/POST /chat/threads/{thread_id}/messages`
-- `POST /chat/attachments` — returns `503` until private storage and recipient
-  authorization are configured
+- `POST /chat/attachments` — uploads private media; downloads require thread
+  membership and pass block checks
 - `GET /settings/sessions`, `DELETE /settings/sessions/{session_id}`
 - `POST /settings/password`
 - `POST /settings/data-export`, `GET /settings/data-export/{request_id}`,
@@ -172,8 +193,22 @@ Implemented endpoints:
 - `GET /referrals/code`, `GET /referrals`
 - `GET /live-streams`, `GET /live-streams/nearby`, `GET /live-streams/{stream_id}`
 - `POST /live-streams`, `POST /live-streams/{stream_id}/token`,
-  `DELETE /live-streams/{stream_id}` — LiveKit room control and server-issued
-  host/viewer tokens
+  `POST /live-streams/{stream_id}/heartbeat`, `DELETE /live-streams/{stream_id}`
+- `POST /live-streams/{stream_id}/join-requests`,
+  `GET /live-streams/{stream_id}/join-requests`,
+  `PATCH /live-streams/{stream_id}/join-requests/{request_id}`
+- `GET /live-streams/{stream_id}/participants`,
+  `GET /live-streams/{stream_id}/viewers`,
+  `GET/POST /live-streams/{stream_id}/messages`
+- `POST /videos/unlock` — unlocks a creator-priced profile video using the
+  internal wallet ledger
+- `GET /calls/coin-price`, `/calls/coin-packages`, `/calls/credits`,
+  `POST /calls/credits/purchase`, `POST /calls`
+- `GET /calls/incoming`, `POST /calls/{call_id}/accept`, `/decline`,
+  `/connected`, `/heartbeat`, `/token`, `GET /calls/{call_id}`,
+  `DELETE /calls/{call_id}`
+- `GET/PUT /admin/call-credits/price` (super admin only)
+- `/realtime/ws` — authenticated WebSocket; event cursor uses `?after=<id>`
 - `POST /chat/threads/{thread_id}/payment-proposals`
 - `GET /chat/meetup-payments/{payment_id}`
 - `POST /chat/meetup-payments/{payment_id}/accept`, `/decline`, `/release`,
@@ -196,16 +231,26 @@ belonging to underage accounts are revoked when used. Government ID review is
 required for every account; a document upload sets its status to `pending`.
 Safety reports and blocks are persisted; blocking immediately hides either
 member from discovery, chat, and member interactions. Safety reviewers can
-process the resulting queue through the admin API. Chat currently supports
-database-backed text messages and meetup-payment proposal cards. Chat
-attachments and realtime delivery are disabled rather than simulated.
+process the resulting queue through the admin API. Chat messages, meetup
+payment proposals, call updates, livestream interactions, and gifts are
+persisted and delivered through the authenticated WebSocket event stream.
+Private chat attachments use authenticated media storage and thread/block
+authorization.
 
-Image posts and 24-hour image statuses are persisted. Live-stream listing,
-host start/end, and LiveKit host/viewer tokens are implemented; participant
-join-request workflows, stream chat/gifts, and presence accounting are not.
-Video uploads/statuses and video unlock purchases, call-credit billing, private
-chat attachments, and realtime chat delivery are also not implemented and must
-not be represented as successful client-side flows.
+Image/video uploads and statuses are persisted. Live-stream join requests,
+presence, chat and gifts are server-backed; streams are ended and their LiveKit
+rooms cleaned up by the worker when the host heartbeat is absent for 60
+seconds. LiveKit tokens are issued only by the API. Profile-video unlocks use
+the creator's stored price; a successful unlock is permanent, debits the
+viewer, and credits the creator. Calls use server-side credit billing: one
+credit on connection and one credit per started 10-second interval, with the
+default price ₦50 per credit. Only men pay; calls without a male payer are
+free. A super admin can change the credit price. The background worker is
+required to settle missed call ticks, expire unanswered/idle calls, close
+rooms, end stale streams, and process privacy jobs.
+Posts may contain at least three owned photos or one owned `post-video`.
+Uploads validate the MP4/WebM signature and size; server-side video-duration
+transcoding/limits are not currently provided.
 Wallet top-ups and Paystack Transfers require valid Paystack credentials and a
 publicly reachable `/webhooks/paystack` endpoint configured in the Paystack
 dashboard. Bank account numbers are sent to Paystack for

@@ -23,6 +23,7 @@ from app.schemas import (
     AdminRole,
     AdminSessionResponse,
 )
+from app.feature_schemas import CallCreditPriceRequest
 from app.security import generate_token, hash_password, hash_token, mask_contact, verify_password
 from app.storage import ObjectStorage, get_object_storage
 
@@ -421,6 +422,66 @@ def admin_logout(
     _clear_admin_cookies(response, settings)
     response.status_code = 204
     return response
+
+
+@router.get("/call-credits/price")
+def get_call_credit_price(
+    request: Request,
+    db: DbSession,
+    admin: Annotated[AdminAccount, Depends(require_admin_roles("super_admin"))],
+) -> dict[str, int]:
+    price = db.execute(
+        text("SELECT price_naira FROM call_credit_pricing WHERE id = 1")
+    ).scalar_one_or_none()
+    if price is None:
+        raise ServiceUnavailable("Call-credit pricing is not configured.")
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.call_credit_price.viewed",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=None,
+        outcome="success",
+    )
+    db.commit()
+    return {"priceNaira": int(price)}
+
+
+@router.put(
+    "/call-credits/price",
+    dependencies=[Depends(require_admin_csrf)],
+)
+def set_call_credit_price(
+    body: CallCreditPriceRequest,
+    request: Request,
+    db: DbSession,
+    admin: Annotated[AdminAccount, Depends(require_admin_roles("super_admin"))],
+) -> dict[str, int]:
+    result = db.execute(
+        text(
+            """
+            UPDATE call_credit_pricing
+            SET price_naira = :price_naira, updated_at = :now
+            WHERE id = 1
+            """
+        ),
+        {"price_naira": body.price_naira, "now": _now()},
+    )
+    if result.rowcount != 1:
+        raise ServiceUnavailable("Call-credit pricing is not configured.")
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.call_credit_price.updated",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=None,
+        outcome="success",
+        metadata={"priceNaira": body.price_naira},
+    )
+    db.commit()
+    return {"priceNaira": body.price_naira}
 
 
 @router.get("/admins")

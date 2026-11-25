@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import record_audit_event
 from app.dependencies import db_session
-from app.errors import ApiException, ServiceUnavailable
+from app.errors import ApiException
 from app.feature_schemas import PostCreateRequest, PostResponse, StatusResponse
 from app.routes.auth import IdentityVerifiedAccount, require_csrf
 from app.routes.profiles import _visible_profile_rows
@@ -56,6 +56,26 @@ def _owned_profile_photo_ids(db: Session, account_id: str, media_urls: list[str]
     if len(rows) != len(media_ids):
         raise ApiException("MEDIA_NOT_FOUND", "One or more photos are unavailable.", 404)
     return media_ids
+
+
+def _owned_post_video_url(db: Session, account_id: str, media_url: str | None) -> str | None:
+    if media_url is None:
+        return None
+    match = MEDIA_URL_PATTERN.fullmatch(media_url)
+    if match is None:
+        raise ApiException("MEDIA_NOT_FOUND", "Upload your video before posting it.", 400)
+    owned = db.execute(
+        text(
+            """
+            SELECT 1 FROM media_objects
+            WHERE id = :media_id AND account_id = :account_id AND purpose = 'post-video'
+            """
+        ),
+        {"media_id": match.group(1), "account_id": account_id},
+    ).first()
+    if owned is None:
+        raise ApiException("MEDIA_NOT_FOUND", "This video is unavailable.", 404)
+    return media_url
 
 
 @router.get("/posts/me", response_model=list[PostResponse])
@@ -115,24 +135,22 @@ def create_post(
     _require_ready(account)
     if len(body.photos) < 3 and not body.video:
         raise ApiException("POST_MEDIA_REQUIRED", "Add at least 3 photos or 1 video to post.")
-    if body.video:
-        raise ServiceUnavailable(
-            "Video upload is unavailable until validated private video storage is configured."
-        )
     _owned_profile_photo_ids(db, account.account_id, body.photos)
+    video_url = _owned_post_video_url(db, account.account_id, body.video)
     post_id = uuid.uuid4().hex
     created_at = _now()
     db.execute(
         text(
             """
-            INSERT INTO member_posts (id, author_id, photos, caption, created_at)
-            VALUES (:id, :author_id, :photos, :caption, :created_at)
+            INSERT INTO member_posts (id, author_id, photos, video_url, caption, created_at)
+            VALUES (:id, :author_id, :photos, :video_url, :caption, :created_at)
             """
         ),
         {
             "id": post_id,
             "author_id": account.account_id,
             "photos": json.dumps(body.photos, separators=(",", ":")),
+            "video_url": video_url,
             "caption": body.caption.strip() if body.caption else None,
             "created_at": created_at,
         },
@@ -145,14 +163,14 @@ def create_post(
         actor_id=account.account_id,
         subject_account_id=account.account_id,
         outcome="success",
-        metadata={"postId": post_id, "photoCount": len(body.photos)},
+        metadata={"postId": post_id, "photoCount": len(body.photos), "hasVideo": video_url is not None},
     )
     db.commit()
     return PostResponse(
         id=post_id,
         author_id=account.account_id,
         photos=body.photos,
-        video=None,
+        video=video_url,
         caption=body.caption.strip() if body.caption else None,
         created_at=created_at,
     )

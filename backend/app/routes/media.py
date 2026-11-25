@@ -19,6 +19,7 @@ from app.config import Settings
 from app.dependencies import db_session
 from app.errors import ApiException, ServiceUnavailable
 from app.routes.auth import CurrentAccount, IdentityVerifiedAccount, get_app_settings, require_csrf
+from app.routes.profiles import _visible_profile_rows
 from app.schemas import MediaUploadResponse, VerificationDocumentType
 from app.feature_schemas import StatusResponse
 from app.storage import ObjectStorage, get_object_storage
@@ -85,17 +86,28 @@ def _persist_upload(
     account_id: str,
     media_id: str,
     object_key: str,
-    purpose: Literal["profile-photo", "identity-document", "status-media"],
+    purpose: Literal[
+        "profile-photo",
+        "identity-document",
+        "status-media",
+        "profile-video",
+        "post-video",
+        "chat-attachment",
+    ],
     content: bytes,
+    content_type: str = "image/jpeg",
     document_type: VerificationDocumentType | None = None,
 ) -> None:
     try:
-        storage.put(object_key, content, "image/jpeg")
+        storage.put(object_key, content, content_type)
     except ServiceUnavailable:
         event_type = {
             "identity-document": "media.identity_document.uploaded",
             "profile-photo": "media.profile_photo.uploaded",
             "status-media": "media.status.uploaded",
+            "profile-video": "media.profile_video.uploaded",
+            "post-video": "media.post_video.uploaded",
+            "chat-attachment": "chat.attachment_uploaded",
         }[purpose]
         record_audit_event(
             db,
@@ -126,7 +138,7 @@ def _persist_upload(
                 "account_id": account_id,
                 "purpose": purpose,
                 "object_key": object_key,
-                "content_type": "image/jpeg",
+                "content_type": content_type,
                 "size_bytes": len(content),
                 "sha256": hashlib.sha256(content).hexdigest(),
             },
@@ -146,6 +158,9 @@ def _persist_upload(
             "identity-document": "media.identity_document.uploaded",
             "profile-photo": "media.profile_photo.uploaded",
             "status-media": "media.status.uploaded",
+            "profile-video": "media.profile_video.uploaded",
+            "post-video": "media.post_video.uploaded",
+            "chat-attachment": "chat.attachment_uploaded",
         }[purpose]
         record_audit_event(
             db,
@@ -161,17 +176,17 @@ def _persist_upload(
     except SQLAlchemyError as exc:
         db.rollback()
         try:
-            storage.delete(object_key)
+            storage.delete(object_key, content_type)
         except ServiceUnavailable:
             logger.error("Failed to clean up an orphaned uploaded object.")
         raise ServiceUnavailable("Could not save uploaded media metadata.") from exc
 
 
-def _response(media_id: str, size_bytes: int) -> MediaUploadResponse:
+def _response(media_id: str, size_bytes: int, content_type: str = "image/jpeg") -> MediaUploadResponse:
     return MediaUploadResponse(
         media_id=media_id,
         url=f"/media/{media_id}",
-        content_type="image/jpeg",
+        content_type=content_type,
         size_bytes=size_bytes,
     )
 
@@ -299,28 +314,52 @@ def upload_identity_document(
     return _response(media_id, len(content))
 
 
-@router.post(
-    "/videos",
-    status_code=503,
-    dependencies=[Depends(require_csrf)],
-)
+@router.post("/videos", response_model=MediaUploadResponse, status_code=201, dependencies=[Depends(require_csrf)])
 def upload_video(
+    request: Request,
     account: CurrentAccount,
+    db: DbSession,
+    storage: StorageDependency,
     settings: SettingsDependency,
     file: Annotated[UploadFile, File()],
-) -> None:
+    purpose: Literal["profile", "post"] = "profile",
+) -> MediaUploadResponse:
     if not account["email_verified"]:
         raise ApiException("CONTACT_NOT_VERIFIED", "Verify your contact before uploading media.", 403)
-    content = file.file.read(settings.media_upload_max_bytes + 1)
-    if len(content) > settings.media_upload_max_bytes:
+    if not account["onboarding_complete"]:
+        raise ApiException("ONBOARDING_REQUIRED", "Complete onboarding before uploading a video.", 403)
+    profile = db.execute(
+        text("SELECT moderation_status FROM profiles WHERE account_id = :account_id"),
+        {"account_id": account.account_id},
+    ).scalar_one_or_none()
+    if profile != "approved":
+        raise ApiException("PROFILE_NOT_APPROVED", "Your profile must be approved before uploading a video.", 403)
+    if not file.content_type or file.content_type.lower() not in {"video/mp4", "video/webm"}:
+        raise ApiException("UNSUPPORTED_MEDIA_TYPE", "Upload an MP4 or WebM video.", 415)
+    content = file.file.read(settings.video_upload_max_bytes + 1)
+    if len(content) > settings.video_upload_max_bytes:
         raise ApiException("UPLOAD_TOO_LARGE", "The uploaded video exceeds the size limit.", 413)
     if not content:
         raise ApiException("EMPTY_UPLOAD", "Choose a video to upload.", 400)
-    if not file.content_type or not file.content_type.startswith("video/"):
-        raise ApiException("UNSUPPORTED_MEDIA_TYPE", "Upload a video file.", 415)
-    raise ServiceUnavailable(
-        "Video uploads are disabled until private video storage and media validation are configured."
+    if file.content_type.lower() == "video/mp4" and b"ftyp" not in content[:32]:
+        raise ApiException("INVALID_VIDEO", "The uploaded file is not a valid MP4 video.", 400)
+    if file.content_type.lower() == "video/webm" and not content.startswith(b"\x1a\x45\xdf\xa3"):
+        raise ApiException("INVALID_VIDEO", "The uploaded file is not a valid WebM video.", 400)
+    media_id = uuid.uuid4().hex
+    media_purpose = "profile-video" if purpose == "profile" else "post-video"
+    object_key = f"accounts/{account.account_id}/{media_purpose}/{media_id}"
+    _persist_upload(
+        request=request,
+        db=db,
+        storage=storage,
+        account_id=account.account_id,
+        media_id=media_id,
+        object_key=object_key,
+        purpose=media_purpose,
+        content=content,
+        content_type=file.content_type.lower(),
     )
+    return _response(media_id, len(content), file.content_type.lower())
 
 
 @status_router.post(
@@ -339,12 +378,6 @@ def create_status(
 ) -> StatusResponse:
     if not account["email_verified"] or not account["onboarding_complete"]:
         raise ApiException("ONBOARDING_REQUIRED", "Complete verification and onboarding before posting a status.", 403)
-    if file.content_type and file.content_type.startswith("video/"):
-        raise ApiException(
-            "STATUS_VIDEO_UNAVAILABLE",
-            "Video statuses are unavailable until validated video storage is configured.",
-            503,
-        )
     profile = db.execute(
         text(
             """
@@ -358,10 +391,26 @@ def create_status(
         raise ApiException("NO_PROFILE", "Finish onboarding before posting a status.", 404)
     if profile["moderation_status"] != "approved":
         raise ApiException("PROFILE_NOT_APPROVED", "Your profile must be approved before posting a status.", 403)
-    content = _normalize_image(
-        _read_bounded_upload(file, settings.media_upload_max_bytes),
-        settings.media_upload_max_bytes,
-    )
+    is_video = bool(file.content_type and file.content_type.lower() in {"video/mp4", "video/webm"})
+    if is_video:
+        content = file.file.read(settings.video_upload_max_bytes + 1)
+        if len(content) > settings.video_upload_max_bytes:
+            raise ApiException("UPLOAD_TOO_LARGE", "The uploaded video exceeds the size limit.", 413)
+        if not content:
+            raise ApiException("EMPTY_UPLOAD", "Choose a video to upload.", 400)
+        content_type = file.content_type.lower()
+        if content_type == "video/mp4" and b"ftyp" not in content[:32]:
+            raise ApiException("INVALID_VIDEO", "The uploaded file is not a valid MP4 video.", 400)
+        if content_type == "video/webm" and not content.startswith(b"\x1a\x45\xdf\xa3"):
+            raise ApiException("INVALID_VIDEO", "The uploaded file is not a valid WebM video.", 400)
+    else:
+        if file.content_type and file.content_type.lower().startswith("video/"):
+            raise ApiException("UNSUPPORTED_MEDIA_TYPE", "Upload an MP4 or WebM video.", 415)
+        content = _normalize_image(
+            _read_bounded_upload(file, settings.media_upload_max_bytes),
+            settings.media_upload_max_bytes,
+        )
+        content_type = "image/jpeg"
     now = datetime.now(UTC).replace(tzinfo=None)
     media_id = uuid.uuid4().hex
     object_key = f"accounts/{account.account_id}/statuses/{media_id}"
@@ -374,6 +423,7 @@ def create_status(
         object_key=object_key,
         purpose="status-media",
         content=content,
+        content_type=content_type,
     )
     status_id = uuid.uuid4().hex
     db.execute(
@@ -383,7 +433,7 @@ def create_status(
                 id, author_id, media_url, media_kind, created_at, expires_at
             )
             VALUES (
-                :id, :author_id, :media_url, 'image', :created_at, :expires_at
+                :id, :author_id, :media_url, :media_kind, :created_at, :expires_at
             )
             """
         ),
@@ -391,6 +441,7 @@ def create_status(
             "id": status_id,
             "author_id": account.account_id,
             "media_url": f"/media/{media_id}",
+            "media_kind": "video" if is_video else "image",
             "created_at": now,
             "expires_at": now + timedelta(hours=24),
         },
@@ -404,7 +455,7 @@ def create_status(
         actor_id=account.account_id,
         subject_account_id=account.account_id,
         outcome="success",
-        metadata={"statusId": status_id, "kind": "image"},
+        metadata={"statusId": status_id, "kind": "video" if is_video else "image"},
     )
     db.commit()
     return StatusResponse(
@@ -413,7 +464,7 @@ def create_status(
         author_name=profile["display_name"],
         author_photo=photos[0] if photos else "",
         media=f"/media/{media_id}",
-        kind="image",
+        kind="video" if is_video else "image",
         created_at=now,
     )
 
@@ -425,6 +476,7 @@ def get_media(
     account: CurrentAccount,
     db: DbSession,
     storage: StorageDependency,
+    settings: SettingsDependency,
 ) -> RedirectResponse:
     if len(media_id) != 32 or any(character not in "0123456789abcdef" for character in media_id):
         record_audit_event(
@@ -443,7 +495,8 @@ def get_media(
     item = db.execute(
         text(
             """
-            SELECT m.account_id, m.purpose, m.object_key, p.moderation_status
+            SELECT m.account_id, m.purpose, m.object_key, m.content_type,
+                   p.moderation_status
             FROM media_objects m
             JOIN profiles p ON p.account_id = m.account_id
             WHERE m.id = :media_id
@@ -525,7 +578,112 @@ def get_media(
         )
         db.commit()
         raise ApiException("MEDIA_NOT_FOUND", "This media is unavailable.", 404)
-    if not is_owner and not is_approved_public_photo and not is_visible_status:
+    is_visible_profile_video = False
+    is_visible_post_video = False
+    is_accessible_chat_attachment = False
+    if item["purpose"] == "profile-video" and not is_owner:
+        profile_videos = db.execute(
+            text("SELECT videos FROM profiles WHERE account_id = :account_id"),
+            {"account_id": item["account_id"]},
+        ).scalar_one_or_none()
+        profile_videos = json.loads(profile_videos) if isinstance(profile_videos, str) else profile_videos
+        matching_video = next(
+            (
+                video for video in profile_videos or []
+                if isinstance(video, dict) and video.get("url") == f"/media/{media_id}"
+            ),
+            None,
+        )
+        viewer_identity = db.execute(
+            text("SELECT identity FROM profiles WHERE account_id = :account_id"),
+            {"account_id": account.account_id},
+        ).scalar_one_or_none()
+        visible = viewer_identity is not None and any(
+            str(row["id"]) == str(item["account_id"])
+            for row in _visible_profile_rows(
+                db,
+                account.account_id,
+                viewer_identity,
+                settings.demo_profiles_enabled,
+                profile_id=str(item["account_id"]),
+            )
+        )
+        unlocked = db.execute(
+            text(
+                """
+                SELECT 1 FROM video_unlocks
+                WHERE viewer_id = :viewer_id AND media_id = :media_id
+                LIMIT 1
+                """
+            ),
+            {"viewer_id": account.account_id, "media_id": media_id},
+        ).first() is not None
+        is_visible_profile_video = bool(
+            visible
+            and matching_video is not None
+            and (not matching_video.get("locked") or unlocked)
+        )
+    if item["purpose"] == "post-video" and not is_owner:
+        viewer_identity = db.execute(
+            text("SELECT identity FROM profiles WHERE account_id = :account_id"),
+            {"account_id": account.account_id},
+        ).scalar_one_or_none()
+        visible = viewer_identity is not None and any(
+            str(row["id"]) == str(item["account_id"])
+            for row in _visible_profile_rows(
+                db,
+                account.account_id,
+                viewer_identity,
+                settings.demo_profiles_enabled,
+                profile_id=str(item["account_id"]),
+            )
+        )
+        is_visible_post_video = bool(
+            visible
+            and db.execute(
+                text(
+                    """
+                    SELECT 1 FROM member_posts
+                    WHERE author_id = :owner_id AND video_url = :media_url
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "owner_id": item["account_id"],
+                    "media_url": f"/media/{media_id}",
+                },
+            ).first()
+        )
+    if item["purpose"] == "chat-attachment":
+        is_accessible_chat_attachment = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM chat_messages m
+                JOIN chat_threads t ON t.id = m.thread_id
+                WHERE m.attachment_media_id = :media_id
+                  AND (t.participant_a_id = :viewer_id OR t.participant_b_id = :viewer_id)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM safety_blocks b
+                      WHERE (b.blocker_id = :viewer_id AND b.blocked_id = :owner_id)
+                         OR (b.blocker_id = :owner_id AND b.blocked_id = :viewer_id)
+                  )
+                LIMIT 1
+                """
+            ),
+            {
+                "media_id": media_id,
+                "viewer_id": account.account_id,
+                "owner_id": item["account_id"],
+            },
+        ).first() is not None
+    if not is_owner and not (
+        is_approved_public_photo
+        or is_visible_status
+        or is_visible_profile_video
+        or is_visible_post_video
+        or is_accessible_chat_attachment
+    ):
         record_audit_event(
             db,
             request,
@@ -540,7 +698,7 @@ def get_media(
         raise ApiException("MEDIA_NOT_FOUND", "This media is unavailable.", 404)
 
     try:
-        signed_url = storage.get_url(item["object_key"])
+        signed_url = storage.get_url(item["object_key"], item["content_type"])
     except ServiceUnavailable:
         record_audit_event(
             db,

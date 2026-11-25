@@ -12,10 +12,10 @@ class FakeObjectStorage:
     def put(self, key: str, body: bytes, content_type: str) -> None:
         self.objects[key] = (body, content_type)
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str, content_type: str = "image/jpeg") -> None:
         self.objects.pop(key, None)
 
-    def get_url(self, key: str) -> str:
+    def get_url(self, key: str, content_type: str = "image/jpeg") -> str:
         assert key in self.objects
         return f"https://private-storage.example.test/{key}?temporary=signature"
 

@@ -18,10 +18,10 @@ class TestObjectStorage:
     def put(self, key: str, body: bytes, content_type: str) -> None:
         self.objects[key] = (body, content_type)
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str, content_type: str = "image/jpeg") -> None:
         self.objects.pop(key, None)
 
-    def get_url(self, key: str) -> str:
+    def get_url(self, key: str, content_type: str = "image/jpeg") -> str:
         return f"https://storage.example.test/{key}"
 
 
@@ -217,7 +217,8 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
             CREATE TABLE live_streams (
                 id TEXT PRIMARY KEY, host_account_id TEXT NOT NULL, room_name TEXT NOT NULL UNIQUE,
                 title TEXT NOT NULL, status TEXT NOT NULL,
-                started_at DATETIME DEFAULT CURRENT_TIMESTAMP, ended_at DATETIME
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP, ended_at DATETIME,
+                room_closed_at DATETIME
             )
             """
         )
@@ -363,6 +364,97 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 id TEXT PRIMARY KEY, recipient_id TEXT NOT NULL, sender_id TEXT NOT NULL,
                 gift_type_id TEXT NOT NULL, value_kobo INTEGER NOT NULL,
                 redeemed BOOLEAN NOT NULL DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE call_credit_pricing (
+                id INTEGER PRIMARY KEY, price_naira INTEGER NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO call_credit_pricing (id, price_naira) VALUES (1, 50)"
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE call_credit_accounts (
+                account_id TEXT PRIMARY KEY, balance INTEGER NOT NULL DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE call_sessions (
+                id TEXT PRIMARY KEY, caller_id TEXT NOT NULL, callee_id TEXT NOT NULL,
+                payer_id TEXT, room_name TEXT NOT NULL UNIQUE, call_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ringing', started_at DATETIME,
+                last_billed_at DATETIME, last_activity_at DATETIME, ended_at DATETIME,
+                caller_connected_at DATETIME, callee_connected_at DATETIME,
+                room_closed_at DATETIME, billed_ticks INTEGER NOT NULL DEFAULT 0,
+                idempotency_key TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(caller_id, idempotency_key)
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE call_credit_transactions (
+                id TEXT PRIMARY KEY, account_id TEXT NOT NULL, call_id TEXT,
+                tick_number INTEGER, transaction_type TEXT NOT NULL,
+                amount INTEGER NOT NULL, description TEXT NOT NULL,
+                idempotency_key TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(call_id, tick_number), UNIQUE(account_id, idempotency_key)
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE video_unlocks (
+                id TEXT PRIMARY KEY, viewer_id TEXT NOT NULL, creator_id TEXT NOT NULL,
+                media_id TEXT NOT NULL, price_kobo INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(viewer_id, media_id)
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE live_stream_join_requests (
+                id TEXT PRIMARY KEY, stream_id TEXT NOT NULL, requester_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP, responded_at DATETIME
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE live_stream_participants (
+                stream_id TEXT NOT NULL, account_id TEXT NOT NULL, role TEXT NOT NULL,
+                joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (stream_id, account_id)
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE live_stream_messages (
+                id TEXT PRIMARY KEY, stream_id TEXT NOT NULL, author_id TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'message', message_text TEXT NOT NULL,
+                gift_id TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE realtime_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, recipient_id TEXT NOT NULL,
+                event_type TEXT NOT NULL, payload_json TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
         )

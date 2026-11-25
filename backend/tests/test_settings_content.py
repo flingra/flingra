@@ -191,6 +191,26 @@ def test_posts_require_owned_media_and_status_expires(api_client, monkeypatch) -
     )
     assert post.status_code == 201
     assert post.json()["photos"] == photo_urls
+    unowned_video = client.post(
+        "/posts",
+        headers={"X-CSRF-Token": csrf},
+        json={"video": "https://cdn.example.test/video.mp4"},
+    )
+    assert unowned_video.status_code == 400
+    assert unowned_video.json()["error"]["code"] == "MEDIA_NOT_FOUND"
+    upload = client.post(
+        "/media/videos?purpose=post",
+        headers={"X-CSRF-Token": csrf},
+        files={"file": ("post.mp4", b"\x00\x00\x00\x18ftypisom", "video/mp4")},
+    )
+    assert upload.status_code == 201, upload.json()
+    video_post = client.post(
+        "/posts",
+        headers={"X-CSRF-Token": csrf},
+        json={"video": upload.json()["url"], "caption": "A video post"},
+    )
+    assert video_post.status_code == 201, video_post.json()
+    assert video_post.json()["video"] == upload.json()["url"]
 
     image = Image.new("RGB", (4, 4), "red")
     image_bytes = io.BytesIO()
@@ -376,7 +396,7 @@ def test_gift_redemption_credits_wallet_only_once(api_client, monkeypatch) -> No
     assert len(client.get("/wallet/transactions").json()) == 1
 
 
-def test_provider_dependent_uploads_fail_closed(api_client, monkeypatch) -> None:
+def test_unsupported_chat_attachment_and_malformed_video_are_rejected(api_client, monkeypatch) -> None:
     client, _ = api_client
     _create_viewer(client, monkeypatch)
     csrf = client.cookies["flingra_csrf"]
@@ -392,5 +412,7 @@ def test_provider_dependent_uploads_fail_closed(api_client, monkeypatch) -> None
         files={"file": ("clip.mp4", b"video data", "video/mp4")},
     )
 
-    assert chat_attachment.status_code == 503
-    assert video_upload.status_code == 503
+    assert chat_attachment.status_code == 415
+    assert chat_attachment.json()["error"]["code"] == "UNSUPPORTED_MEDIA_TYPE"
+    assert video_upload.status_code == 400
+    assert video_upload.json()["error"]["code"] == "INVALID_VIDEO"

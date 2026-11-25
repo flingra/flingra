@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import text
 
 from app.dependencies import db_session
@@ -45,6 +47,25 @@ def test_meetup_payment_dispute_is_admin_resolved_and_ledger_safe(api_client, mo
     assert proposal.status_code == 201
     payment_id = proposal.json()["id"]
     assert proposal.json()["status"] == "proposed"
+    db, generator = _session(client)
+    try:
+        events = db.execute(
+            text(
+                """
+                SELECT event_type, payload_json FROM realtime_events
+                WHERE recipient_id = :recipient_id ORDER BY id
+                """
+            ),
+            {"recipient_id": recipient_id},
+        ).mappings().all()
+        assert [event["event_type"] for event in events] == [
+            "chat.message",
+            "meetup_payment.updated",
+        ]
+        assert json.loads(events[0]["payload_json"])["paymentId"] == payment_id
+        assert json.loads(events[1]["payload_json"])["status"] == "proposed"
+    finally:
+        generator.close()
 
     db, generator = _session(client)
     try:
@@ -72,6 +93,17 @@ def test_meetup_payment_dispute_is_admin_resolved_and_ledger_safe(api_client, mo
             text("SELECT balance_kobo FROM wallet_accounts WHERE account_id = :id"),
             {"id": payer_id},
         ).scalar_one() == 130000
+        latest_event = db.execute(
+            text(
+                """
+                SELECT payload_json FROM realtime_events
+                WHERE recipient_id = :account_id AND event_type = 'meetup_payment.updated'
+                ORDER BY id DESC LIMIT 1
+                """
+            ),
+            {"account_id": payer_id},
+        ).scalar_one()
+        assert json.loads(latest_event)["status"] == "held"
     finally:
         generator.close()
 

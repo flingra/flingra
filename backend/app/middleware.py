@@ -24,6 +24,11 @@ SENSITIVE_ROUTE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     ("POST", "/admin/auth/login"): (5, 15 * 60),
     ("POST", "/media/photos"): (30, 60 * 60),
     ("POST", "/media/documents"): (5, 24 * 60 * 60),
+    ("POST", "/media/videos"): (20, 60 * 60),
+    ("POST", "/chat/attachments"): (30, 60 * 60),
+    ("POST", "/calls"): (20, 60 * 60),
+    ("POST", "/calls/credits/purchase"): (10, 60 * 60),
+    ("POST", "/videos/unlock"): (20, 60 * 60),
     ("POST", "/wallet/top-ups"): (10, 60 * 60),
     ("POST", "/wallet/top-ups/verify"): (30, 15 * 60),
     ("POST", "/safety/check-ins"): (5, 60 * 60),
@@ -93,6 +98,14 @@ class ApiHardeningMiddleware:
 
         if scope.get("method") == "POST" and scope.get("path") == "/chat/attachments":
             route_max_bytes = MAX_CHAT_ATTACHMENT_REQUEST_BYTES
+        elif scope.get("method") == "POST" and scope.get("path") == "/media/videos":
+            route_max_bytes = scope["app"].state.settings.video_upload_max_bytes + 65_536
+        elif scope.get("method") == "POST" and scope.get("path") == "/statuses":
+            settings = scope["app"].state.settings
+            route_max_bytes = max(
+                settings.media_upload_max_bytes,
+                settings.video_upload_max_bytes,
+            ) + 65_536
         elif scope.get("method") == "POST" and scope.get("path") in {"/media/photos", "/media/documents"}:
             route_max_bytes = self.max_upload_bytes
         else:
@@ -170,6 +183,30 @@ class RedisRateLimitMiddleware:
         if limits is None and route[0] == "POST" and route[1].startswith("/live-streams/") and route[1].endswith("/token"):
             limits = (30, 60 * 60)
             route_key = "/live-streams/{stream_id}/token"
+        if limits is None and route[1].startswith("/calls/"):
+            call_action = route[1].rsplit("/", 1)[-1]
+            if route[0] == "POST" and call_action in {
+                "accept", "decline", "connected", "heartbeat", "token"
+            }:
+                limits = (600 if call_action == "heartbeat" else 30, 60 * 60)
+                route_key = f"/calls/{{call_id}}/{call_action}"
+            elif route[0] == "DELETE" and len(route[1].split("/")) == 3:
+                limits = (30, 60 * 60)
+                route_key = "/calls/{call_id}"
+        if limits is None and route[1].startswith("/live-streams/"):
+            action = route[1].rsplit("/", 1)[-1]
+            if route[0] == "POST" and action == "messages":
+                limits = (120, 60 * 60)
+                route_key = "/live-streams/{stream_id}/messages"
+            elif route[0] == "POST" and action == "join-requests":
+                limits = (20, 60 * 60)
+                route_key = "/live-streams/{stream_id}/join-requests"
+            elif route[0] == "POST" and action == "heartbeat":
+                limits = (600, 60 * 60)
+                route_key = "/live-streams/{stream_id}/heartbeat"
+            elif route[0] == "PATCH" and len(route[1].split("/")) == 5:
+                limits = (60, 60 * 60)
+                route_key = "/live-streams/{stream_id}/join-requests/{request_id}"
         if limits is None and route[0] == "POST" and route[1].startswith("/chat/meetup-payments/"):
             limits = (20, 60 * 60)
             route_key = "/chat/meetup-payments/{payment_id}"

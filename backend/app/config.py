@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     cloudinary_api_key: str | None = None
     cloudinary_api_secret: SecretStr | None = None
     media_upload_max_bytes: int = Field(default=10_485_760, ge=1)
+    video_upload_max_bytes: int = Field(default=52_428_800, ge=1)
     brevo_api_key: SecretStr | None = None
     brevo_sender_email: str | None = None
     brevo_sender_name: str = "Flingra"

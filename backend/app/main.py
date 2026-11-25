@@ -32,6 +32,9 @@ from app.routes.payouts import router as payouts_router
 from app.routes.meetup_admin import router as meetup_admin_router
 from app.routes.referrals import router as referrals_router
 from app.routes.livestreams import router as livestreams_router
+from app.realtime import router as realtime_router
+from app.routes.calls import router as calls_router
+from app.routes.videos import router as videos_router
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -116,6 +119,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(meetup_admin_router)
     application.include_router(referrals_router)
     application.include_router(livestreams_router)
+    application.include_router(calls_router)
+    application.include_router(videos_router)
+    application.include_router(realtime_router)
     application.include_router(safety_router)
     application.include_router(chat_router)
     application.include_router(settings_router)
@@ -128,7 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_origins=app_settings.allowed_origins,
             allow_credentials=True,
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-            allow_headers=["Content-Type", "X-CSRF-Token"],
+            allow_headers=["Content-Type", "X-CSRF-Token", "Idempotency-Key"],
             expose_headers=["X-CSRF-Token"],
         )
 

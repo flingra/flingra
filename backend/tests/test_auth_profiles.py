@@ -86,7 +86,6 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
             "photos": [photo_url],
             "area": "Yaba, Lagos",
             "interests": ["Music"],
-            "videos": [{"url": "https://cdn.example.test/video.mp4", "locked": True, "priceNaira": 500}],
             "identity": "woman",
             "distanceKm": 0,
         },
@@ -94,7 +93,6 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
     assert updated.status_code == 200
     assert updated.json()["displayName"] == "Tola"
     assert updated.json()["photos"] == [photo_url]
-    assert updated.json()["videos"][0]["priceNaira"] == 500
     assert client.get("/profiles/me").json()["area"] == "Yaba, Lagos"
 
 

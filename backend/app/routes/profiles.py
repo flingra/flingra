@@ -396,6 +396,40 @@ def save_own_profile(
                     "One or more profile photos are unavailable.",
                     400,
                 )
+    if "videos" in changes and changes["videos"] is not None:
+        video_ids: list[str] = []
+        for video in changes["videos"]:
+            match = re.fullmatch(r"/media/([0-9a-f]{32})", video["url"])
+            if match is None:
+                raise ApiException(
+                    "INVALID_PROFILE_MEDIA",
+                    "Profile videos must be uploaded through the media endpoint.",
+                )
+            video_ids.append(match.group(1))
+            if video.get("locked") and video.get("price_naira") is None:
+                raise ApiException(
+                    "VIDEO_PRICE_REQUIRED",
+                    "Set a price for locked videos.",
+                )
+        if video_ids:
+            owned_count = db.execute(
+                text(
+                    """
+                    SELECT COUNT(DISTINCT id)
+                    FROM media_objects
+                    WHERE account_id = :account_id
+                      AND purpose = 'profile-video'
+                      AND id IN :media_ids
+                    """
+                ).bindparams(bindparam("media_ids", expanding=True)),
+                {"account_id": account.account_id, "media_ids": tuple(video_ids)},
+            ).scalar_one()
+            if owned_count != len(set(video_ids)):
+                raise ApiException(
+                    "INVALID_PROFILE_MEDIA",
+                    "One or more profile videos are unavailable.",
+                    400,
+                )
 
     column_names = {
         "display_name": "display_name",

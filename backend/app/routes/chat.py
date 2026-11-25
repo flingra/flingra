@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.audit import record_audit_event
 from app.config import Settings
 from app.dependencies import db_session
-from app.errors import ApiException, ServiceUnavailable
+from app.errors import ApiException
 from app.feature_schemas import (
     ChatAttachment,
     ChatMessageCreateRequest,
@@ -24,11 +25,15 @@ from app.feature_schemas import (
 )
 from app.routes.auth import IdentityVerifiedAccount, get_app_settings, require_csrf
 from app.routes.profiles import _effective_subscription_tier, _member_profile, _visible_profile_rows
+from app.realtime import enqueue_realtime_event
+from app.routes.media import _normalize_image, _persist_upload
+from app.storage import ObjectStorage, get_object_storage
 from app.wallet import credit_wallet, debit_wallet
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 DbSession = Annotated[Session, Depends(db_session)]
 SettingsDependency = Annotated[Settings, Depends(get_app_settings)]
+StorageDependency = Annotated[ObjectStorage, Depends(get_object_storage)]
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
 
@@ -334,19 +339,45 @@ def send_message(
     message_text = body.text.strip()
     if not message_text and body.attachment is None:
         raise ApiException("MESSAGE_REQUIRED", "Enter a message or attach a file.")
+    attachment_json = None
+    attachment_media_id = None
     if body.attachment is not None:
-        raise ServiceUnavailable(
-            "Chat attachments are not enabled until private file storage and recipient access are configured."
+        match = re.fullmatch(r"/media/([0-9a-f]{32})", body.attachment.url)
+        if match is None:
+            raise ApiException("INVALID_ATTACHMENT", "Upload this attachment through the chat endpoint.", 400)
+        attachment_media_id = match.group(1)
+        media = db.execute(
+            text(
+                """
+                SELECT content_type FROM media_objects
+                WHERE id = :media_id AND account_id = :account_id AND purpose = 'chat-attachment'
+                """
+            ),
+            {"media_id": attachment_media_id, "account_id": account.account_id},
+        ).scalar_one_or_none()
+        expected_type = (
+            "image" if media and str(media).startswith("image/")
+            else "video" if media and str(media).startswith("video/")
+            else "file" if media == "application/pdf"
+            else None
         )
+        if expected_type is None or expected_type != body.attachment.type:
+            raise ApiException("INVALID_ATTACHMENT", "This attachment is unavailable.", 400)
+        attachment_json = body.attachment.model_dump_json()
+    message_text = message_text or f"📎 {body.attachment.name}" if body.attachment else message_text
     message_id = uuid.uuid4().hex
     created_at = _now()
     db.execute(
         text(
             """
             INSERT INTO chat_messages (
-                id, thread_id, author_id, message_text, payment_id, created_at
+                id, thread_id, author_id, message_text, attachment_json,
+                attachment_media_id, payment_id, created_at
             )
-            VALUES (:id, :thread_id, :author_id, :message_text, NULL, :created_at)
+            VALUES (
+                :id, :thread_id, :author_id, :message_text, :attachment_json,
+                :attachment_media_id, NULL, :created_at
+            )
             """
         ),
         {
@@ -354,6 +385,8 @@ def send_message(
             "thread_id": thread_id,
             "author_id": account.account_id,
             "message_text": message_text,
+            "attachment_json": attachment_json,
+            "attachment_media_id": attachment_media_id,
             "created_at": created_at,
         },
     )
@@ -371,31 +404,86 @@ def send_message(
         outcome="success",
         metadata={"messageId": message_id},
     )
-    db.commit()
-    return DirectMessageResponse(
+    response = DirectMessageResponse(
         id=message_id,
         thread_id=thread_id,
         author_id=account.account_id,
         text=message_text,
+        attachment=body.attachment,
         created_at=created_at,
     )
+    enqueue_realtime_event(
+        db,
+        thread["other_id"],
+        "chat.message",
+        response.model_dump(by_alias=True),
+    )
+    db.commit()
+    return response
 
 
 @router.post(
     "/attachments",
-    status_code=503,
+    response_model=ChatAttachment,
+    status_code=201,
     dependencies=[Depends(require_csrf)],
 )
 def upload_chat_attachment(
     account: IdentityVerifiedAccount,
+    request: Request,
+    db: DbSession,
+    storage: StorageDependency,
     file: Annotated[UploadFile, File()],
-) -> None:
+) -> ChatAttachment:
+    _require_ready(account)
     content = file.file.read(MAX_ATTACHMENT_BYTES + 1)
     if len(content) > MAX_ATTACHMENT_BYTES:
         raise ApiException("ATTACHMENT_TOO_LARGE", "Attachments must be 25MB or smaller.", 413)
-    raise ServiceUnavailable(
-        "Chat attachments are disabled until private file storage and recipient access are configured."
+    if not content:
+        raise ApiException("EMPTY_UPLOAD", "Choose a file to attach.", 400)
+    declared_type = (file.content_type or "").lower()
+    if declared_type in {"image/jpeg", "image/png", "image/webp"}:
+        content = _normalize_image(content, MAX_ATTACHMENT_BYTES)
+        content_type = "image/jpeg"
+        attachment_type = "image"
+        extension = "jpg"
+    elif declared_type in {"video/mp4", "video/webm"}:
+        if declared_type == "video/mp4" and b"ftyp" not in content[:32]:
+            raise ApiException("INVALID_VIDEO", "The uploaded file is not a valid MP4 video.", 400)
+        if declared_type == "video/webm" and not content.startswith(b"\x1a\x45\xdf\xa3"):
+            raise ApiException("INVALID_VIDEO", "The uploaded file is not a valid WebM video.", 400)
+        content_type = declared_type
+        attachment_type = "video"
+        extension = "mp4" if content_type == "video/mp4" else "webm"
+    elif declared_type == "application/pdf" and content.startswith(b"%PDF-"):
+        content_type = declared_type
+        attachment_type = "file"
+        extension = "pdf"
+    else:
+        raise ApiException(
+            "UNSUPPORTED_MEDIA_TYPE",
+            "Attach a JPEG, PNG, WebP, MP4, WebM, or PDF file.",
+            415,
+        )
+
+    media_id = uuid.uuid4().hex
+    object_key = f"accounts/{account.account_id}/chat-attachments/{media_id}.{extension}"
+    _persist_upload(
+        request=request,
+        db=db,
+        storage=storage,
+        account_id=account.account_id,
+        media_id=media_id,
+        object_key=object_key,
+        purpose="chat-attachment",
+        content=content,
+        content_type=content_type,
     )
+    filename = (file.filename or f"attachment.{extension}").replace("\\", "/").split("/")[-1]
+    filename = "".join(character for character in filename if character.isprintable())[:255]
+    if not filename:
+        filename = f"attachment.{extension}"
+    return ChatAttachment(url=f"/media/{media_id}", type=attachment_type, name=filename)
 
 
 @router.post(
@@ -422,6 +510,7 @@ def propose_meetup_payment(
         raise ApiException("RECIPIENT_RESTRICTED", "Meetup payments can only be sent to female accounts.", 403)
 
     payment_id = uuid.uuid4().hex
+    message_id = uuid.uuid4().hex
     now = _now()
     amount_kobo = body.amount_naira * 100
     db.execute(
@@ -460,7 +549,7 @@ def propose_meetup_payment(
             """
         ),
         {
-            "id": uuid.uuid4().hex,
+            "id": message_id,
             "thread_id": thread_id,
             "author_id": account.account_id,
             "message_text": f"Proposed ₦{body.amount_naira:,} for a meetup.",
@@ -482,8 +571,7 @@ def propose_meetup_payment(
         outcome="success",
         metadata={"paymentId": payment_id, "amountKobo": amount_kobo},
     )
-    db.commit()
-    return MeetupPaymentResponse(
+    response = MeetupPaymentResponse(
         id=payment_id,
         from_id=account.account_id,
         from_name=str(viewer.get("display_name") or "Member"),
@@ -493,6 +581,22 @@ def propose_meetup_payment(
         status="proposed",
         created_at=now,
     )
+    enqueue_realtime_event(
+        db,
+        thread["other_id"],
+        "chat.message",
+        DirectMessageResponse(
+            id=message_id,
+            thread_id=thread_id,
+            author_id=account.account_id,
+            text=f"Proposed ₦{body.amount_naira:,} for a meetup.",
+            payment_id=payment_id,
+            created_at=now,
+        ).model_dump(by_alias=True),
+    )
+    _enqueue_meetup_event(db, response)
+    db.commit()
+    return response
 
 
 def _meetup_payment(
@@ -533,6 +637,12 @@ def _meetup_response(row: dict[str, Any]) -> MeetupPaymentResponse:
         created_at=row["created_at"],
         resolved_at=row["resolved_at"],
     )
+
+
+def _enqueue_meetup_event(db: Session, payment: MeetupPaymentResponse) -> None:
+    payload = payment.model_dump(by_alias=True)
+    for recipient_id in {payment.from_id, payment.to_id}:
+        enqueue_realtime_event(db, recipient_id, "meetup_payment.updated", payload)
 
 
 @router.get(
@@ -592,8 +702,9 @@ def accept_meetup_payment(
         outcome="success",
         metadata={"paymentId": payment_id, "amountKobo": int(payment["amount_kobo"])},
     )
-    db.commit()
     payment["status"] = "held"
+    _enqueue_meetup_event(db, _meetup_response(payment))
+    db.commit()
     return _meetup_response(payment)
 
 
@@ -634,8 +745,9 @@ def decline_meetup_payment(
         outcome="success",
         metadata={"paymentId": payment_id},
     )
-    db.commit()
     payment.update(status="declined", resolved_at=now)
+    _enqueue_meetup_event(db, _meetup_response(payment))
+    db.commit()
     return _meetup_response(payment)
 
 
@@ -681,8 +793,9 @@ def release_meetup_payment(
         outcome="success",
         metadata={"paymentId": payment_id, "amountKobo": int(payment["amount_kobo"])},
     )
-    db.commit()
     payment.update(status="released", resolved_at=now)
+    _enqueue_meetup_event(db, _meetup_response(payment))
+    db.commit()
     return _meetup_response(payment)
 
 
@@ -730,8 +843,9 @@ def refund_meetup_payment(
         outcome="success",
         metadata={"paymentId": payment_id, "amountKobo": int(payment["amount_kobo"])},
     )
-    db.commit()
     payment.update(status="refunded", resolved_at=now)
+    _enqueue_meetup_event(db, _meetup_response(payment))
+    db.commit()
     return _meetup_response(payment)
 
 
@@ -775,6 +889,7 @@ def dispute_meetup_payment(
         outcome="success",
         metadata={"paymentId": payment_id},
     )
-    db.commit()
     payment["status"] = "disputed"
+    _enqueue_meetup_event(db, _meetup_response(payment))
+    db.commit()
     return _meetup_response(payment)

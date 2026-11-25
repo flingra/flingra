@@ -118,6 +118,8 @@ class ProfileVideo(BaseModel):
         default=None,
         validation_alias="priceNaira",
         serialization_alias="priceNaira",
+        ge=1,
+        le=10_000_000,
     )
 
 
@@ -234,5 +236,7 @@ class CurrentSessionResponse(SessionResponse):
 class MediaUploadResponse(BaseModel):
     media_id: str = Field(serialization_alias="mediaId")
     url: str
-    content_type: Literal["image/jpeg"] = Field(serialization_alias="contentType")
+    content_type: Literal["image/jpeg", "video/mp4", "video/webm"] = Field(
+        serialization_alias="contentType"
+    )
     size_bytes: int = Field(serialization_alias="sizeBytes", ge=1)

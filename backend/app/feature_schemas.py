@@ -142,6 +142,85 @@ class LiveKitConnectionResponse(BaseModel):
     token: str
 
 
+class CallCreditPriceRequest(BaseModel):
+    price_naira: int = Field(alias="priceNaira", gt=0, le=1_000_000)
+
+
+class CallCreditPurchaseRequest(BaseModel):
+    coins: int = Field(gt=0, le=1000)
+
+
+class CallStartRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    target_id: str = Field(alias="targetId", min_length=1, max_length=64)
+    call_type: Literal["audio", "video"] = Field(default="video", alias="callType")
+
+
+class CallSessionResponse(BaseModel):
+    call_id: str = Field(serialization_alias="callId")
+    caller_id: str = Field(serialization_alias="callerId")
+    callee_id: str = Field(serialization_alias="calleeId")
+    call_type: Literal["audio", "video"] = Field(serialization_alias="callType")
+    status: Literal["ringing", "connecting", "active", "declined", "ended"]
+    livekit_url: str | None = Field(default=None, serialization_alias="liveKitUrl")
+    token: str | None = None
+    credit_balance: int | None = Field(default=None, serialization_alias="creditBalance")
+
+
+class VideoUnlockRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    url: str = Field(min_length=1, max_length=2048)
+    price_naira: int | None = Field(default=None, alias="priceNaira", ge=1)
+    author_name: str | None = Field(default=None, alias="authorName", max_length=100)
+
+
+class VideoUnlockResponse(BaseModel):
+    url: str
+    unlocked: bool
+    price_naira: int = Field(serialization_alias="priceNaira")
+
+
+class LiveJoinRequestResponse(BaseModel):
+    id: str
+    stream_id: str = Field(serialization_alias="streamId")
+    requester_id: str = Field(serialization_alias="requesterId")
+    requester_name: str = Field(serialization_alias="requesterName")
+    requester_photo: str = Field(serialization_alias="requesterPhoto")
+    status: Literal["pending", "accepted", "declined", "expired"]
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class LiveJoinRequestDecisionRequest(BaseModel):
+    accept: bool
+
+
+class LiveStreamMemberResponse(BaseModel):
+    id: str
+    name: str
+    photo: str
+
+
+class LiveStreamMessageCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    text: str = Field(min_length=1, max_length=500)
+    kind: Literal["message", "gift"] = "message"
+    gift_id: str | None = Field(default=None, alias="giftId", min_length=1, max_length=40)
+
+
+class LiveStreamMessageResponse(BaseModel):
+    id: str
+    stream_id: str = Field(serialization_alias="streamId")
+    author_id: str = Field(serialization_alias="authorId")
+    author_name: str = Field(serialization_alias="authorName")
+    kind: Literal["message", "gift", "join"]
+    text: str
+    gift_id: str | None = Field(default=None, serialization_alias="giftId")
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+
 class PostCreateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 

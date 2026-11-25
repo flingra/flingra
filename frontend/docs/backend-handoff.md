@@ -1,6 +1,6 @@
 # Flingra frontend → backend handoff
 
-Status: authentication, profile, and Discover clients use the FastAPI backend. Backend routes also cover persisted text chat, meetup-payment cards and holds, blocks/reports, image posts/statuses, session management, privacy export/deletion processing, wallet/gift ledgers, wallet-funded VIP subscriptions, Paystack wallet funding and payouts, Termii safety check-ins, and LiveKit stream control/tokens. Frontend adapters for these newer routes have not all been switched over; many still use `mock-db.ts`. Call-credit billing, livestream join requests/chat/presence, video uploads/unlocks, chat attachments, and realtime chat delivery are not implemented end-to-end and must fail closed rather than simulate success.
+Status: authentication, profile, and Discover clients use the FastAPI backend. The backend also implements chat attachments and realtime events, meetup-payment cards and holds, call-credit billing, profile-video unlocks, livestream join requests/chat/presence/gifts, privacy jobs, wallet/gift ledgers, payouts, Paystack wallet funding, Termii safety check-ins, and LiveKit room control. Frontend adapters for these newer routes have not all been switched over; many still use `mock-db.ts`. Frontend adapter integration and real provider credentials are the remaining delivery work; do not retain mock-only simulated counterpart actions after switching to the backend.
 
 This document remains the functional contract: it describes the data shapes, business rules, and edge cases that existing frontend components assume. The live backend support and provider gaps are summarized in [`backend/README.md`](../../backend/README.md).
 
@@ -196,7 +196,7 @@ Interest tag pool (`lib/constants/interests.ts`, 28 items) and `CATEGORY_CHIPS` 
 | `sendMessage(threadId, text, attachment?)` | `POST /chat/threads/:id/messages` | Updates the thread's `lastMessage`/`lastMessageAt` (shows `📎 filename` as the preview when it's an attachment-only message). Needs to be real-time (WebSocket/SSE) for the other party — the mock fakes this with a client-side timer (`simulateReply`), which real backend should NOT port; instead push the message to the real recipient's live session. |
 | `proposePaymentInChat(threadId, otherId, otherName, amountNaira)` → `DirectMessage` | `POST /chat/threads/:id/payment-proposals` | Thin wrapper: calls the same meetup-payment proposal flow as §6.5, then drops an embedded proposal card message (`paymentId` set, `text` is a human-readable summary) into the thread. |
 
-The backend now persists text threads/messages and payment-proposal cards, and checks membership, verification, VIP access, and blocks. The frontend chat adapter is still mock-backed. Real-time delivery and attachment upload/access are not implemented; do not restore simulated replies as a substitute.
+The backend persists text threads/messages and payment-proposal cards, checks membership, verification, VIP access, and blocks, and provides private attachment upload/access. `GET /realtime/ws` authenticates with the existing HttpOnly session cookie, checks the configured `Origin`, and emits `{ id, type, data }` events. Pass `?after=<last-seen-event-id>` to resume delivery; without `after`, the connection starts with new events. Use REST to load message history, and persist the last event id client-side for reconnects. Chat and payment events are durable for up to seven days. The frontend chat adapter is still mock-backed; do not restore simulated replies as a substitute.
 
 ## 6. Business rules that span multiple features
 
@@ -206,7 +206,7 @@ These aren't obvious from any single file — they're invariants the frontend en
 VIP members match each other regardless of `maxDistanceKm` — this applies in both Discover (`profiles.ts: matchesFilters`) and the `/live` nearby list (`livestream.ts: listLiveStreamsNearby`, VIP hosts sort first for VIP viewers). A free viewer never gets to bypass distance, even against a VIP target. Rule: `distanceWaived = viewerIsVip && target.subscriptionTier === 'vip'`.
 
 ### 6.2 Gender/audience filtering
-`lookingFor` filter on Discover maps `'men'`/`'women'` → `identity === 'man'/'woman'`; `'everyone'` disables the filter. The backend feed also intersects the viewer's identity with each candidate's `discoverableBy` and `wantsToDiscover` preferences. `liveOnly` remains disabled until livestream presence is available from the backend.
+`lookingFor` filter on Discover maps `'men'`/`'women'` → `identity === 'man'/'woman'`; `'everyone'` disables the filter. The backend feed also intersects the viewer's identity with each candidate's `discoverableBy` and `wantsToDiscover` preferences. Livestream presence is now available from the backend for `liveOnly`; the frontend adapter still needs to send the filter.
 
 ### 6.3 VIP interaction gate (`lib/api/subscription.ts: canInteract`)
 A free viewer can always **see** a VIP member's profile, but cannot message, call, or propose a meetup payment to them — the frontend replaces those action buttons with an "Upgrade to VIP" banner. **Report and Block remain available regardless of VIP status** — safety actions are never paywalled. Rule: `canInteract = target.subscriptionTier !== 'vip' || viewer.subscriptionTier === 'vip'`. Enforce this server-side on every message-send/call-start/payment-propose endpoint, not just in the UI.
@@ -251,17 +251,23 @@ Entry points in the UI: a "Propose a payment" button in the chat page (renders a
 ### 6.7 Video unlock paywall
 Women's profiles can mark individual videos `locked: true, priceNaira`. `unlockVideo(url, priceNaira, authorName)` debits the viewer's wallet once per URL (`isVideoUnlocked` checks a per-viewer unlocked-URL list) and is idempotent (no-op if already unlocked). `INSUFFICIENT_BALANCE` if the viewer can't afford it.
 
+The backend implements `POST /videos/unlock`. It reads the media owner and price from the creator's saved profile video metadata (request-supplied price/author are not trusted), permanently unlocks the media for that viewer, debits the viewer, and credits the creator's wallet. The frontend should refresh the wallet and profile after unlock.
+
+### 6.8 Call-credit billing
+
+The backend exposes `/calls/coin-price`, `/calls/coin-packages`, `/calls/credits`, and `/calls` lifecycle routes for incoming, accept/decline, connection, heartbeat, token, status, and end operations. The server is authoritative for billing and LiveKit permissions. The current policy is one credit on connection and one credit for each started 10-second interval; default price is ₦50 per credit and a super admin can update it. Men pay; calls without a male payer are free. The background worker settles missed billing ticks, expires unanswered or inactive calls, and retries LiveKit room cleanup. Clients must heartbeat active calls and handle `503` when provider cleanup is unavailable.
+
 ## 7. Livestreaming & gifting (`lib/api/livestream.ts`, `lib/api/wallet.ts`)
 
 | Function | Endpoint | Notes |
 |---|---|---|
 | `listLiveStreams()` / `listLiveStreamsNearby()` → joined with host's `area`/`distanceKm`/`subscriptionTier`, sorted VIP-first-for-VIP-viewers then nearest | `GET /live-streams`, `GET /live-streams/nearby` | |
 | `getLiveStream(id)` → `LiveStream` | `GET /live-streams/:id` | Ended/missing → `STREAM_NOT_FOUND`. |
-| `startStream(title)` → `LiveStream` | `POST /live-streams` | Female-only (§6.4). No profile yet → `NO_PROFILE`. |
-| `endStream(id)` | `DELETE /live-streams/:id` | Also clears pending join requests for that stream. |
-| `requestToJoin(streamId)` / `listJoinRequests(streamId)` / `respondToJoinRequest(requestId, accept)` | `POST /live-streams/:id/join-requests`, `GET .../join-requests`, `POST /join-requests/:id/respond` | Cap of **5 participants** (`MAX_PARTICIPANTS`) per stream — reject/ignore accept beyond that. |
-| `listParticipants(streamId)` / `listStreamViewers(streamId)` | `GET .../participants`, `GET .../viewers` | Viewers list is a "who's watching" decorative strip — real version is presence/viewer-count tracking, likely via the same real-time transport as chat. |
-| `listStreamMessages(streamId)` / `sendStreamMessage(streamId, text, kind?, giftId?)` | `GET .../messages`, `POST .../messages` | `kind` is `'message' | 'gift' | 'join'`. Needs to be real-time (same as chat — WebSocket per stream room). |
+| `startStream(title)` → `LiveStream` | `POST /live-streams` | Female-only (§6.4). No profile yet → `NO_PROFILE`. Host must send `POST /live-streams/:id/heartbeat` periodically; stale streams close after 60 seconds. |
+| `endStream(id)` | `DELETE /live-streams/:id` | Also clears pending join requests for that stream. If LiveKit cleanup fails, the API reports an error and the worker retries. |
+| `requestToJoin(streamId)` / `listJoinRequests(streamId)` / `respondToJoinRequest(requestId, accept)` | `POST /live-streams/:id/join-requests`, `GET /live-streams/:id/join-requests`, `PATCH /live-streams/:id/join-requests/:requestId` | Cap of **5 active speakers including the host**; the server rejects an accept beyond the cap. |
+| `listParticipants(streamId)` / `listStreamViewers(streamId)` | `GET /live-streams/:id/participants`, `GET /live-streams/:id/viewers` | Backed by participant heartbeats; stale viewers expire from presence. |
+| `listStreamMessages(streamId)` / `sendStreamMessage(streamId, text, kind?, giftId?)` | `GET /live-streams/:id/messages`, `POST /live-streams/:id/messages` | Persisted messages/gifts are also sent as realtime events. |
 | `spendOwnedGift(giftTypeId)` → `GiftType` | `POST /wallet/gifts/:typeId/spend` | Decrements the sender's owned-gift inventory and should **credit the recipient's `ReceivedGift` list** in real backend (the mock can't do this because there's only one real account — see §1). `GIFT_NOT_FOUND` / `GIFT_NOT_OWNED` as appropriate. |
 | `getOwnedGifts()` → `{ gift, quantity }[]` | `GET /wallet/gifts/owned` | |
 | `buyGift(giftTypeId, quantity = 1)` → new balance | `POST /wallet/gifts/buy` | Debits wallet at catalog price × quantity. `INSUFFICIENT_BALANCE` if short. |
@@ -269,7 +275,7 @@ Women's profiles can mark individual videos `locked: true, priceNaira`. `unlockV
 
 The mock's `simulateJoinRequest`, `simulateIncomingGift`, `simulateIncomingMessage`, `simulateReceivedGift` (livestream/wallet) exist purely to make the solo-account demo feel alive — **none of this ported**; real multi-user rooms replace all of it with genuine events from other connected clients.
 
-Backend status: wallet balance/transaction reads and gift catalog, inventory, send, receive, and redemption use the persistent ledger. Gift sending records the recipient's received gift and redemption credits the recipient once. Live-stream listing/control and LiveKit connection tokens are implemented, but join requests, participant/viewer accounting, stream messages, and realtime events are still missing. The mock adapter is not wired to the backend routes.
+Backend status: wallet balance/transaction reads and gift catalog, inventory, send, receive, and redemption use the persistent ledger. Gift sending records the recipient's received gift and redemption credits the recipient once. Live-stream listing/control, join requests, participant/viewer accounting, stream messages/gifts, and realtime event delivery are implemented. The host must call `POST /live-streams/:id/heartbeat` periodically; after 60 seconds without a host heartbeat the background worker ends the stream and closes its LiveKit room. The mock adapter is not wired to these backend routes.
 
 ## 8. VIP subscription (`lib/api/subscription.ts`)
 
@@ -293,7 +299,7 @@ Be precise about this boundary when scoping backend work:
 
 - **External real-money rails are implemented server-side but not wired in the frontend.** `fundWallet(amountNaira)` in `lib/api/wallet.ts` remains a mock; the backend's `POST /wallet/top-ups` initializes Paystack checkout and settles only after server-side verification or a signed webhook. Paystack Transfers support bank recipient setup and payout requests; transfers settle/refund only from signed webhooks. Endpoints are `GET /payout/banks`, `GET/PUT /payout/bank-account`, and `GET/POST /payouts` (the create request requires `Idempotency-Key`).
 - **Internal ledger unit:** wallet and catalog amounts are stored as integer kobo in the backend. Existing API responses use whole-naira display values to preserve the frontend contract; provider adapters must convert to/from kobo explicitly and must never credit a wallet from an unverified client callback.
-- Gifts and VIP now use the backend wallet ledger. Video unlocks, meetup escrow, and payouts remain unavailable. Keep the existing transaction-type taxonomy when wiring the client wallet so the wallet/transactions page remains compatible.
+- Gifts, VIP, video unlocks, meetup holds, and payouts use the backend wallet ledger. Keep the existing transaction-type taxonomy when wiring the client wallet so the wallet/transactions page remains compatible.
 - `getBankAccount()` / `saveBankAccount(account: BankAccount)` (`lib/api/payout.ts`) — a single bank account per user today (`BankAccount: { bankName, accountNumber, accountName }`), validated non-empty only (`INVALID_BANK_ACCOUNT`) — no real bank-account-number validation (e.g. NUBAN checksum) yet; consider adding it server-side.
 
 Backend status: wallet balances, top-ups, transfers/payouts, meetup holds/disputes, and wallet transactions are persisted. `GET /referrals/code` returns the signed-in member's code; bonus credits are disabled until product confirms the referral policy. Paystack settings and a public webhook endpoint must be configured before real-money use. Payouts in `initiating` status after provider/network errors need reconciliation before retrying.
@@ -330,11 +336,11 @@ Backend status: password changes and session revocation are implemented. Export 
 | `listNearbyStatuses()` → `Status[]` | `GET /statuses/nearby` | 24-hour-style ephemeral media feed (seed data doesn't currently model expiry — add TTL/expiry server-side if that's the intended semantics). |
 | `createStatus(file)` → `Status` | `POST /statuses` (multipart) | Video statuses capped at **50 seconds** (`MAX_STATUS_VIDEO_SECONDS`), checked client-side via `<video>` duration before upload — **re-validate server-side**, don't trust the client check. `STATUS_VIDEO_TOO_LONG` if over. |
 
-Backend status: own-post CRUD and nearby image-status reads are implemented. Post media must belong to the author; video posts and video statuses are disabled until validated video storage/processing is configured. Image statuses expire after 24 hours. Frontend post/status adapters remain mock-backed.
+Backend status: own-post CRUD and nearby image/video-status reads are implemented. A post accepts at least three owned photos or one owned video uploaded through `POST /media/videos?purpose=post`; regular `/media/videos` uploads are profile videos. Uploaded status videos are size- and file-signature-validated and expire after 24 hours. Video-duration limits are not yet validated server-side, despite the 50-second UI limit; enforce this before relying on that limit for moderation. The frontend post/status adapters remain mock-backed.
 
 ## 14. Presence (`lib/api/presence.ts`)
 
-`getPresence(authorId)` → `{ hasStatus, isLive, streamId? }` — currently mock-backed in the frontend. The backend has `GET /presence/{author_id}` for persisted status presence; it reports `isLive: false` until livestream transport/presence exists. Consider Redis only after measured load justifies it.
+`getPresence(authorId)` → `{ hasStatus, isLive, streamId? }` — currently mock-backed in the frontend. The backend's `GET /presence/{author_id}` reports persisted status and livestream presence. Consider Redis only after measured load justifies it.
 
 ## 15. Routes (for reference — confirms which pages need which data)
 

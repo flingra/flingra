@@ -9,6 +9,7 @@ from app.audit import record_audit_event
 from app.dependencies import db_session
 from app.errors import ApiException
 from app.feature_schemas import MeetupPaymentResolutionRequest
+from app.realtime import enqueue_realtime_event
 from app.routes.admin import AdminAccount, require_admin_csrf, require_admin_roles
 from app.wallet import credit_wallet
 
@@ -77,7 +78,8 @@ def resolve_meetup_payment_dispute(
     payment = db.execute(
         text(
             """
-            SELECT payer_id, recipient_id, amount_kobo, status
+            SELECT payer_id, recipient_id, payer_name, recipient_name,
+                   amount_kobo, created_at, status
             FROM meetup_payments WHERE id = :id
             """
             + suffix
@@ -138,5 +140,25 @@ def resolve_meetup_payment_dispute(
         outcome="success",
         metadata={"paymentId": payment_id, "reason": reason},
     )
+    event = {
+        "id": payment_id,
+        "fromId": payer_id,
+        "fromName": str(payment["payer_name"]),
+        "toId": recipient_id,
+        "toName": str(payment["recipient_name"]),
+        "amountNaira": amount_kobo // 100,
+        "status": status,
+        "createdAt": payment["created_at"].isoformat()
+        if isinstance(payment["created_at"], datetime)
+        else str(payment["created_at"]),
+        "resolvedAt": now.isoformat(),
+    }
+    for recipient_account_id in {payer_id, recipient_id}:
+        enqueue_realtime_event(
+            db,
+            recipient_account_id,
+            "meetup_payment.updated",
+            event,
+        )
     db.commit()
     return {"id": payment_id, "status": status}
