@@ -496,9 +496,10 @@ def get_media(
         text(
             """
             SELECT m.account_id, m.purpose, m.object_key, m.content_type,
-                   p.moderation_status
+                   p.moderation_status, a.account_state
             FROM media_objects m
             JOIN profiles p ON p.account_id = m.account_id
+            JOIN accounts a ON a.id = m.account_id
             WHERE m.id = :media_id
             """
         ),
@@ -520,7 +521,9 @@ def get_media(
 
     is_owner = item["account_id"] == account.account_id
     is_approved_public_photo = (
-        item["purpose"] == "profile-photo" and item["moderation_status"] == "approved"
+        item["purpose"] == "profile-photo"
+        and item["moderation_status"] == "approved"
+        and item["account_state"] not in {"deletion_requested", "deleted"}
     )
     is_visible_status = False
     if item["purpose"] == "status-media":
@@ -536,6 +539,7 @@ def get_media(
                     WHERE s.media_url = :media_url
                       AND s.expires_at > :now
                       AND a.email_verified = TRUE
+                      AND a.account_state NOT IN ('deletion_requested', 'deleted')
                       AND p.onboarding_complete = TRUE
                       AND p.document_verification = 'verified'
                       AND p.moderation_status = 'approved'
@@ -613,10 +617,15 @@ def get_media(
                 """
                 SELECT 1 FROM video_unlocks
                 WHERE viewer_id = :viewer_id AND media_id = :media_id
+                  AND expires_at > :now
                 LIMIT 1
                 """
             ),
-            {"viewer_id": account.account_id, "media_id": media_id},
+            {
+                "viewer_id": account.account_id,
+                "media_id": media_id,
+                "now": datetime.now(UTC).replace(tzinfo=None),
+            },
         ).first() is not None
         is_visible_profile_video = bool(
             visible

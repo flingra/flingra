@@ -20,6 +20,10 @@ export function PrivacyPage() {
           </a>
           .
         </p>
+        <p>
+          When you request account deletion, your profile is removed from discovery and access to
+          your account is disabled. Records are retained where needed for legal and safety purposes.
+        </p>
       </div>
     </article>
   )

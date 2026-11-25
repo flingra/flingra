@@ -115,8 +115,8 @@ metadata, admin/audit, and Google-account-link migrations, and the newer
 safety, chat, content, session-device, subscription-catalog, wallet-ledger,
 Paystack wallet-payment, safety-check-in delivery, payout, meetup-payment, and
 referral migrations, plus call billing, video unlock, livestream interactions,
-and realtime event storage. It records applied migration filenames in
-`schema_migrations`.
+realtime event storage, and the per-minute call-credit/video-expiry update. It
+records applied migration filenames in `schema_migrations`.
 For a database containing the legacy tables but no migration history, it marks
 the four existing migrations as the baseline, then applies the remaining
 migrations in order.
@@ -241,11 +241,13 @@ Image/video uploads and statuses are persisted. Live-stream join requests,
 presence, chat and gifts are server-backed; streams are ended and their LiveKit
 rooms cleaned up by the worker when the host heartbeat is absent for 60
 seconds. LiveKit tokens are issued only by the API. Profile-video unlocks use
-the creator's stored price; a successful unlock is permanent, debits the
-viewer, and credits the creator. Calls use server-side credit billing: one
-credit on connection and one credit per started 10-second interval, with the
-default price ₦50 per credit. Only men pay; calls without a male payer are
-free. A super admin can change the credit price. The background worker is
+the creator's stored price (capped at ₦3,000); each unlock lasts 30 days,
+debits the viewer, and credits the creator. Video unlocks are non-refundable.
+Calls use server-side credit billing: one credit on connection covers the
+first started minute, then one credit per additional started minute. The
+10-, 15-, and 30-minute packages are priced at the current per-credit rate
+(default ₦50). Only men pay; calls without a male payer are free. A super admin
+can change the per-minute credit price. The background worker is
 required to settle missed call ticks, expire unanswered/idle calls, close
 rooms, end stale streams, and process privacy jobs.
 Posts may contain at least three owned photos or one owned `post-video`.

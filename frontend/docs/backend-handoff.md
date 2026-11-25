@@ -251,11 +251,11 @@ Entry points in the UI: a "Propose a payment" button in the chat page (renders a
 ### 6.7 Video unlock paywall
 Women's profiles can mark individual videos `locked: true, priceNaira`. `unlockVideo(url, priceNaira, authorName)` debits the viewer's wallet once per URL (`isVideoUnlocked` checks a per-viewer unlocked-URL list) and is idempotent (no-op if already unlocked). `INSUFFICIENT_BALANCE` if the viewer can't afford it.
 
-The backend implements `POST /videos/unlock`. It reads the media owner and price from the creator's saved profile video metadata (request-supplied price/author are not trusted), permanently unlocks the media for that viewer, debits the viewer, and credits the creator's wallet. The frontend should refresh the wallet and profile after unlock.
+The backend implements `POST /videos/unlock`. It reads the media owner and price from the creator's saved profile video metadata (request-supplied price/author are not trusted), caps the price at ₦3,000, and unlocks the video for 30 days. It debits the viewer and credits the creator's wallet; unlock purchases are non-refundable. The frontend should refresh the wallet and profile after unlock.
 
 ### 6.8 Call-credit billing
 
-The backend exposes `/calls/coin-price`, `/calls/coin-packages`, `/calls/credits`, and `/calls` lifecycle routes for incoming, accept/decline, connection, heartbeat, token, status, and end operations. The server is authoritative for billing and LiveKit permissions. The current policy is one credit on connection and one credit for each started 10-second interval; default price is ₦50 per credit and a super admin can update it. Men pay; calls without a male payer are free. The background worker settles missed billing ticks, expires unanswered or inactive calls, and retries LiveKit room cleanup. Clients must heartbeat active calls and handle `503` when provider cleanup is unavailable.
+The backend exposes `/calls/coin-price`, `/calls/coin-packages`, `/calls/credits`, and `/calls` lifecycle routes for incoming, accept/decline, connection, heartbeat, token, status, and end operations. The server is authoritative for billing and LiveKit permissions. One credit covers one started minute: the first is charged on connection, then additional minutes are charged after each minute boundary. Packages contain 10, 15, or 30 credits; default price is ₦50 per credit and a super admin can update it. Men pay; calls without a male payer are free. The background worker settles missed billing ticks, expires unanswered or inactive calls, and retries LiveKit room cleanup. Clients must heartbeat active calls and handle `503` when provider cleanup is unavailable.
 
 ## 7. Livestreaming & gifting (`lib/api/livestream.ts`, `lib/api/wallet.ts`)
 
@@ -323,9 +323,9 @@ Backend status: blocks and reports are persisted, blocks affect discovery immedi
 | `changePassword(currentPassword, newPassword)` | `POST /settings/password` | Wrong current password → `WRONG_PASSWORD`. |
 | `listSessions()` / `revokeSession(id)` | `GET /settings/sessions`, `DELETE /settings/sessions/:id` | Device/session list (`DeviceSession: { id, device, lastActive, current }`) — real version needs actual multi-device session tracking tied to the auth/session system in §3. |
 | `requestDataExport()` | `POST /settings/data-export` | Returns a queued request; poll `GET /settings/data-export/:requestId` for completion and the owner's export data. |
-| `requestAccountDeletion()` | `POST /settings/account/delete` | Queues account and media deletion and revokes active sessions. |
+| `requestAccountDeletion()` | `POST /settings/account/delete` | Queues soft deletion, hides the profile, disables account access, and revokes active sessions; retained records are not removed. |
 
-Backend status: password changes and session revocation are implemented. Export and account deletion requests are durably queued and processed by `python -m app.privacy_worker`; deletion immediately revokes active sessions. The frontend adapter is not yet wired.
+Backend status: password changes and session revocation are implemented. Export and account deletion requests are durably queued and processed by `python -m app.privacy_worker`; deletion immediately revokes active sessions and preserves records for legal and safety needs. The frontend adapter is not yet wired.
 
 ## 13. Posts & status (`lib/api/posts.ts`, `lib/api/status.ts`)
 

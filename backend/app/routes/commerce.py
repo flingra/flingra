@@ -21,6 +21,7 @@ from app.feature_schemas import (
     WalletTransactionResponse,
 )
 from app.paystack import initialize_transaction, verify_transaction, verify_webhook_signature
+from app.realtime import enqueue_realtime_event
 from app.routes.auth import IdentityVerifiedAccount, get_app_settings, require_csrf
 from app.routes.profiles import (
     _effective_subscription_tier,
@@ -500,7 +501,7 @@ def send_gift(
     profile = db.execute(
         text(
             """
-            SELECT identity, subscription_tier, vip_expires_at
+            SELECT display_name, identity, subscription_tier, vip_expires_at
             FROM profiles WHERE account_id = :account_id
             """
         ),
@@ -529,7 +530,7 @@ def send_gift(
     if target_tier == "vip" and viewer_tier != "vip":
         raise ApiException("VIP_REQUIRED", "Upgrade to VIP to interact with this member.", 403)
     gift = db.execute(
-        text("SELECT name, price_kobo FROM gift_catalog WHERE id = :id AND active = TRUE"),
+        text("SELECT name, emoji, price_kobo FROM gift_catalog WHERE id = :id AND active = TRUE"),
         {"id": gift_type_id},
     ).mappings().first()
     if gift is None:
@@ -564,6 +565,18 @@ def send_gift(
             "gift_type_id": gift_type_id,
             "value_kobo": gift["price_kobo"],
             "created_at": _now(),
+        },
+    )
+    enqueue_realtime_event(
+        db,
+        body.recipient_id,
+        "wallet.gift_received",
+        {
+            "giftId": received_id,
+            "giftTypeId": gift_type_id,
+            "giftName": gift["name"],
+            "giftEmoji": gift["emoji"],
+            "senderName": profile["display_name"],
         },
     )
     record_audit_event(

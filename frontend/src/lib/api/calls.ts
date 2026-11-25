@@ -2,9 +2,9 @@ import { delay } from './client'
 import { callCreditStore, coinPriceStore, COIN_PACKAGE_SIZES, ownProfileStore, transactionStore, walletStore } from './mock-db'
 import { ApiError, type CoinPackage, type WalletTransaction } from './types'
 
-/** How many call-credit coins a minute of voice/video call costs. Spent in 10s ticks (1 coin per tick) while connected. */
-export const CALL_CREDIT_COST_PER_MINUTE = 6
-export const CALL_CREDIT_TICK_SECONDS = 10
+/** One call-credit coin covers one started minute of voice/video call time. */
+export const CALL_CREDIT_COST_PER_MINUTE = 1
+export const CALL_CREDIT_TICK_SECONDS = 60
 export const CALL_CREDIT_COST_PER_TICK = Math.round((CALL_CREDIT_COST_PER_MINUTE / 60) * CALL_CREDIT_TICK_SECONDS)
 
 /** Balance a caller is considered "running low" at — used to trigger the private in-call warning. */
@@ -81,7 +81,7 @@ export async function buyCallCredits(coins: number): Promise<{ coins: number; ba
 }
 
 /**
- * Spends call credits while a call is connected (called once per tick from the call screen).
+ * Spends call credits while a call is connected (called once per minute from the call screen).
  * Clamps at 0 rather than going negative — the caller checks the returned balance and ends
  * the call once it hits 0. Not wrapped in the usual network `delay()`: this runs on a local
  * interval during a live call and must never add latency to the tick.

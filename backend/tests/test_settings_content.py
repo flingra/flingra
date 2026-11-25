@@ -1,4 +1,5 @@
 import io
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -108,7 +109,7 @@ def test_privacy_export_worker_completes_and_exposes_only_owner_data(api_client,
     assert payload["result"]["data"]["chat_messages"][0]["id"] == message_id
 
 
-def test_privacy_deletion_worker_removes_account_and_media(api_client, monkeypatch) -> None:
+def test_privacy_deletion_worker_soft_deletes_account_and_retains_records(api_client, monkeypatch) -> None:
     client, _ = api_client
     account_id = _create_viewer(client, monkeypatch)
     csrf = client.cookies["flingra_csrf"]
@@ -139,20 +140,31 @@ def test_privacy_deletion_worker_removes_account_and_media(api_client, monkeypat
         assert process_privacy_requests(
             db,
             Settings(database_url="sqlite://"),
-            storage=storage,
         ) == 1
         assert process_privacy_requests(
             db,
             Settings(database_url="sqlite://"),
-            storage=storage,
         ) == 0
         assert db.execute(
-            text("SELECT COUNT(*) FROM accounts WHERE id = :account_id"),
+            text("SELECT account_state FROM accounts WHERE id = :account_id"),
             {"account_id": account_id},
-        ).scalar_one() == 0
+        ).scalar_one() == "deleted"
+        assert db.execute(
+            text("SELECT status FROM privacy_requests WHERE id = :request_id"),
+            {"request_id": response.json()["requestId"]},
+        ).scalar_one() == "completed"
+        assert db.execute(
+            text("SELECT COUNT(*) FROM profiles WHERE account_id = :account_id"),
+            {"account_id": account_id},
+        ).scalar_one() == 1
+        assert db.execute(
+            text("SELECT COUNT(*) FROM media_objects WHERE account_id = :account_id"),
+            {"account_id": account_id},
+        ).scalar_one() == 1
     finally:
         generator.close()
-    assert object_key not in storage.objects
+    assert object_key in storage.objects
+    assert client.get("/settings/sessions").status_code == 401
 
 
 def test_posts_require_owned_media_and_status_expires(api_client, monkeypatch) -> None:
@@ -281,6 +293,53 @@ def test_wallet_gift_purchase_and_vip_subscription_use_atomic_ledger(api_client,
         "vip-subscription",
         "gift-purchase",
     ]
+
+
+def test_sending_gift_enqueues_recipient_notification(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    sender_id = _create_viewer(client, monkeypatch)
+    recipient_id = _create_candidate(client)
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO gift_inventory (account_id, gift_type_id, quantity)
+                VALUES (:account_id, 'rose', 1)
+                """
+            ),
+            {"account_id": sender_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    sent = client.post(
+        "/wallet/gifts/rose/spend",
+        headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
+        json={"recipientId": recipient_id},
+    )
+
+    assert sent.status_code == 200
+    db, generator = _session(client)
+    try:
+        event = db.execute(
+            text(
+                """
+                SELECT event_type, payload_json FROM realtime_events
+                WHERE recipient_id = :recipient_id
+                ORDER BY id DESC LIMIT 1
+                """
+            ),
+            {"recipient_id": recipient_id},
+        ).mappings().one()
+    finally:
+        generator.close()
+    assert event["event_type"] == "wallet.gift_received"
+    payload = json.loads(event["payload_json"])
+    assert payload["giftId"] == sent.json()["giftId"]
+    assert payload["giftName"] == "Rose"
+    assert payload["giftEmoji"] == "🌹"
 
 
 def test_expired_vip_is_treated_as_free_for_profile_and_chat_access(api_client, monkeypatch) -> None:

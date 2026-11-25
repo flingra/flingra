@@ -231,7 +231,7 @@ def get_authenticated_account(
     ).mappings().first()
     if result is None:
         raise ApiException("UNAUTHENTICATED", "Sign in to continue.", 401)
-    if result["account_state"] == "deletion_requested":
+    if result["account_state"] in {"deletion_requested", "deleted"}:
         raise ApiException("ACCOUNT_DELETION_PENDING", "This account is scheduled for deletion.", 403)
     if result["last_active_at"] is None or _as_datetime(result["last_active_at"]) < _now() - timedelta(minutes=1):
         db.execute(
@@ -608,7 +608,7 @@ def sign_in(
         db.commit()
         raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.", 403)
 
-    if account["account_state"] == "deletion_requested":
+    if account["account_state"] in {"deletion_requested", "deleted"}:
         record_audit_event(
             db,
             request,
@@ -895,7 +895,7 @@ def google_auth(
     account = db.execute(
         text(
             """
-            SELECT id, email, identifier, identifier_type, email_verified,
+            SELECT id, email, identifier, identifier_type, email_verified, account_state,
                    google_sub, login_failed_attempts, locked_until, date_of_birth
             FROM accounts
             WHERE google_sub = :google_sub
@@ -907,7 +907,7 @@ def google_auth(
         account = db.execute(
             text(
                 """
-                SELECT id, email, identifier, identifier_type, email_verified,
+                SELECT id, email, identifier, identifier_type, email_verified, account_state,
                        google_sub, login_failed_attempts, locked_until, date_of_birth
                 FROM accounts
                 WHERE email = :email
@@ -917,6 +917,8 @@ def google_auth(
         ).mappings().first()
 
     if account is not None:
+        if account["account_state"] in {"deletion_requested", "deleted"}:
+            raise ApiException("ACCOUNT_DELETION_PENDING", "This account is scheduled for deletion.", 403)
         if account["google_sub"] not in (None, google_sub):
             raise ApiException(
                 "GOOGLE_ACCOUNT_LINKED_ELSEWHERE",

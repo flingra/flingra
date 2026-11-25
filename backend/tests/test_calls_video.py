@@ -66,17 +66,16 @@ def test_call_credit_purchase_and_server_billed_call_lifecycle(api_client, monke
 
     assert client.get("/calls/coin-price").json() == {"priceNaira": 50}
     assert client.get("/calls/coin-packages").json() == [
-        {"coins": 50, "priceNaira": 2500},
-        {"coins": 150, "priceNaira": 7500},
-        {"coins": 400, "priceNaira": 20000},
-        {"coins": 1000, "priceNaira": 50000},
+        {"coins": 10, "priceNaira": 500},
+        {"coins": 15, "priceNaira": 750},
+        {"coins": 30, "priceNaira": 1500},
     ]
     headers = {"X-CSRF-Token": csrf, "Idempotency-Key": "purchase-key-0001"}
-    purchase = client.post("/calls/credits/purchase", headers=headers, json={"coins": 50})
+    purchase = client.post("/calls/credits/purchase", headers=headers, json={"coins": 10})
     assert purchase.status_code == 201, purchase.json()
-    assert purchase.json() == {"coins": 50, "balanceNaira": 2500}
-    assert client.post("/calls/credits/purchase", headers=headers, json={"coins": 50}).json() == purchase.json()
-    mismatch = client.post("/calls/credits/purchase", headers=headers, json={"coins": 150})
+    assert purchase.json() == {"coins": 10, "balanceNaira": 4500}
+    assert client.post("/calls/credits/purchase", headers=headers, json={"coins": 10}).json() == purchase.json()
+    mismatch = client.post("/calls/credits/purchase", headers=headers, json={"coins": 15})
     assert mismatch.status_code == 409
     assert mismatch.json()["error"]["code"] == "IDEMPOTENCY_KEY_REUSED"
 
@@ -109,14 +108,30 @@ def test_call_credit_purchase_and_server_billed_call_lifecycle(api_client, monke
         )
         assert connected.status_code == 200, connected.json()
         assert connected.json()["status"] == "active"
-        assert connected.json()["creditBalance"] == 49
-        assert client.get("/calls/credits").json() == {"coins": 49}
+        assert connected.json()["creditBalance"] == 9
+        assert client.get("/calls/credits").json() == {"coins": 9}
 
         db, generator = _session(client)
         try:
             db.execute(
                 text("UPDATE call_sessions SET last_billed_at = :time WHERE id = :id"),
-                {"time": datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=11), "id": call_id},
+                {"time": datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=60), "id": call_id},
+            )
+            db.commit()
+        finally:
+            generator.close()
+        boundary = client.post(
+            f"/calls/{call_id}/heartbeat",
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert boundary.status_code == 200, boundary.json()
+        assert boundary.json()["creditBalance"] == 9
+
+        db, generator = _session(client)
+        try:
+            db.execute(
+                text("UPDATE call_sessions SET last_billed_at = :time WHERE id = :id"),
+                {"time": datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=61), "id": call_id},
             )
             db.commit()
         finally:
@@ -126,12 +141,12 @@ def test_call_credit_purchase_and_server_billed_call_lifecycle(api_client, monke
             headers={"X-CSRF-Token": csrf},
         )
         assert heartbeat.status_code == 200, heartbeat.json()
-        assert heartbeat.json()["creditBalance"] == 48
+        assert heartbeat.json()["creditBalance"] == 8
         db, generator = _session(client)
         try:
             db.execute(
                 text("UPDATE call_sessions SET last_billed_at = :time WHERE id = :id"),
-                {"time": datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=11), "id": call_id},
+                {"time": datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=61), "id": call_id},
             )
             db.commit()
         finally:
@@ -142,7 +157,7 @@ def test_call_credit_purchase_and_server_billed_call_lifecycle(api_client, monke
         )
         assert ended.status_code == 204
         assert client.get(f"/calls/{call_id}").json()["status"] == "ended"
-        assert client.get("/calls/credits").json() == {"coins": 47}
+        assert client.get("/calls/credits").json() == {"coins": 7}
     finally:
         callee.close()
 
@@ -192,7 +207,7 @@ def test_video_unlock_uses_creator_price_and_credits_creator(api_client, monkeyp
             },
         )
         db.execute(
-            text("INSERT INTO wallet_accounts (account_id, balance_kobo) VALUES (:id, 200000)"),
+            text("INSERT INTO wallet_accounts (account_id, balance_kobo) VALUES (:id, 400000)"),
             {"id": viewer_id},
         )
         db.commit()
@@ -200,9 +215,16 @@ def test_video_unlock_uses_creator_price_and_credits_creator(api_client, monkeyp
         generator.close()
 
     media_url = f"/media/{media_id}"
-    assert client.get(media_url, follow_redirects=False).status_code == 404
     csrf = client.cookies["flingra_csrf"]
     headers = {"X-CSRF-Token": csrf}
+    invalid_price = client.patch(
+        "/profiles/me",
+        headers=headers,
+        json={"videos": [{"url": media_url, "locked": True, "priceNaira": 3001}]},
+    )
+    assert invalid_price.status_code == 422
+
+    assert client.get(media_url, follow_redirects=False).status_code == 404
     unlocked = client.post(
         "/videos/unlock",
         headers=headers,
@@ -211,7 +233,7 @@ def test_video_unlock_uses_creator_price_and_credits_creator(api_client, monkeyp
     assert unlocked.status_code == 200, unlocked.json()
     assert unlocked.json() == {"url": media_url, "unlocked": True, "priceNaira": 1250}
     assert client.post("/videos/unlock", headers=headers, json={"url": media_url}).json() == unlocked.json()
-    assert client.get("/wallet/balance").json() == {"balanceNaira": 750}
+    assert client.get("/wallet/balance").json() == {"balanceNaira": 2750}
 
     db, generator = _session(client)
     try:
@@ -221,6 +243,29 @@ def test_video_unlock_uses_creator_price_and_credits_creator(api_client, monkeyp
         ).scalar_one() == 125000
     finally:
         generator.close()
+    assert client.get(media_url, follow_redirects=False).status_code == 307
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text(
+                """
+                UPDATE video_unlocks SET expires_at = :expired
+                WHERE viewer_id = :viewer AND media_id = :media
+                """
+            ),
+            {
+                "expired": datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1),
+                "viewer": viewer_id,
+                "media": media_id,
+            },
+        )
+        db.commit()
+    finally:
+        generator.close()
+    assert client.get(media_url, follow_redirects=False).status_code == 404
+    renewed = client.post("/videos/unlock", headers=headers, json={"url": media_url})
+    assert renewed.status_code == 200, renewed.json()
+    assert client.get("/wallet/balance").json() == {"balanceNaira": 1500}
     assert client.get(media_url, follow_redirects=False).status_code == 307
     invalid = client.post(
         "/videos/unlock",

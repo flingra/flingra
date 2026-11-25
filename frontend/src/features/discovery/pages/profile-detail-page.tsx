@@ -358,7 +358,7 @@ export function ProfileDetailPage() {
         open={!!unlockTarget}
         onClose={() => setUnlockTarget(null)}
         title="Unlock this video?"
-        description={`Pay ${formatNaira(unlockTarget?.priceNaira ?? 0)} to watch this video. This is a demo charge — no real payment is made.`}
+        description={`Pay ${formatNaira(unlockTarget?.priceNaira ?? 0)} to watch this video for 30 days. This is a demo charge—no real payment is made. Video unlocks are non-refundable.`}
       >
         <div className="flex gap-3">
           <Button variant="secondary" className="flex-1" onClick={() => setUnlockTarget(null)}>

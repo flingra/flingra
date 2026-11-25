@@ -119,7 +119,7 @@ class ProfileVideo(BaseModel):
         validation_alias="priceNaira",
         serialization_alias="priceNaira",
         ge=1,
-        le=10_000_000,
+        le=3_000,
     )
 
 

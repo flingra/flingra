@@ -59,6 +59,7 @@ def _visible_profile_rows(
                 FROM profiles p
                 JOIN accounts a ON a.id = p.account_id
                 WHERE a.id != :viewer_id
+                  AND a.account_state NOT IN ('deletion_requested', 'deleted')
                   AND a.email_verified = TRUE
                   AND p.onboarding_complete = TRUE
                   AND p.moderation_status = 'approved'
@@ -90,6 +91,22 @@ def _parse_json_list(value: Any) -> list[Any]:
     if value is None:
         return []
     return json.loads(value) if isinstance(value, str) else list(value)
+
+
+def _profile_videos(value: Any) -> list[Any]:
+    videos = _parse_json_list(value)
+    normalized: list[Any] = []
+    for video in videos:
+        if not isinstance(video, dict):
+            normalized.append(video)
+            continue
+        item = dict(video)
+        for price_key in ("priceNaira", "price_naira"):
+            price = item.get(price_key)
+            if isinstance(price, int) and not isinstance(price, bool) and price > 3_000:
+                item[price_key] = 3_000
+        normalized.append(item)
+    return normalized
 
 
 def _parse_date(value: date | str) -> date:
@@ -167,7 +184,7 @@ def _member_profile(
         display_name=row["display_name"],
         bio=row["bio"],
         photos=_parse_json_list(row["photos"]),
-        videos=_parse_json_list(row["videos"]) or None,
+        videos=_profile_videos(row["videos"]) or None,
         age_range=_age_range(_current_age(row["date_of_birth"])),
         area=row["area"],
         latitude=round(latitude, 2) if latitude is not None else None,
@@ -257,7 +274,9 @@ def get_own_profile(
     if isinstance(profile["interests"], str):
         profile["interests"] = json.loads(profile["interests"])
     if isinstance(profile["videos"], str):
-        profile["videos"] = json.loads(profile["videos"])
+        profile["videos"] = _profile_videos(profile["videos"])
+    elif profile["videos"] is not None:
+        profile["videos"] = _profile_videos(profile["videos"])
     return OwnProfileResponse.model_validate(profile)
 
 

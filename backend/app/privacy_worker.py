@@ -15,7 +15,6 @@ from app.errors import ServiceUnavailable
 from app.livekit import delete_room
 from app.routes.calls import process_call_lifecycle
 from app.routes.livestreams import process_live_stream_lifecycle
-from app.storage import CloudinaryObjectStorage, ObjectStorage
 
 logger = logging.getLogger("uvicorn.error")
 PROCESSING_TIMEOUT = timedelta(minutes=15)
@@ -220,18 +219,8 @@ def _process_deletion(
     db: Session,
     request: dict[str, Any],
     settings: Settings,
-    storage: ObjectStorage | None,
 ) -> None:
     account_id = str(request["account_id"])
-    media_objects = db.execute(
-        text("SELECT object_key, content_type FROM media_objects WHERE account_id = :account_id"),
-            {"account_id": account_id},
-        ).mappings().all()
-    if media_objects and storage is None:
-        storage = CloudinaryObjectStorage(settings)
-    if storage is not None:
-        for media in media_objects:
-            storage.delete(str(media["object_key"]), str(media["content_type"]))
     tables = set(inspect(db.get_bind()).get_table_names())
     rooms: list[str] = []
     if "call_sessions" in tables:
@@ -264,8 +253,23 @@ def _process_deletion(
     for room_name in rooms:
         delete_room(settings, room_name)
     db.execute(
-        text("DELETE FROM accounts WHERE id = :account_id AND account_state = 'deletion_requested'"),
+        text(
+            """
+            UPDATE accounts SET account_state = 'deleted'
+            WHERE id = :account_id AND account_state = 'deletion_requested'
+            """
+        ),
         {"account_id": account_id},
+    )
+    db.execute(
+        text(
+            """
+            UPDATE privacy_requests
+            SET status = 'completed', updated_at = :now
+            WHERE id = :request_id AND status = 'processing'
+            """
+        ),
+        {"request_id": request["id"], "now": _now()},
     )
     db.commit()
 
@@ -275,7 +279,6 @@ def process_privacy_requests(
     settings: Settings,
     *,
     limit: int = 25,
-    storage: ObjectStorage | None = None,
 ) -> int:
     if not 1 <= limit <= 100:
         raise ValueError("The worker limit must be between 1 and 100.")
@@ -319,7 +322,7 @@ def process_privacy_requests(
             if request["request_type"] == "data_export":
                 _process_export(db, request)
             elif request["request_type"] == "account_deletion":
-                _process_deletion(db, request, settings, storage)
+                _process_deletion(db, request, settings)
             else:
                 raise ValueError(f"Unknown privacy request type: {request['request_type']}")
         except ServiceUnavailable as exc:

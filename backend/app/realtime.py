@@ -77,7 +77,7 @@ def _authenticated_account_id(websocket: WebSocket, db: Session) -> str | None:
 async def realtime_events(websocket: WebSocket) -> None:
     settings = websocket.app.state.settings
     origin = websocket.headers.get("origin")
-    if settings.allowed_origins and origin not in settings.allowed_origins:
+    if not settings.allowed_origins or origin is None or origin not in settings.allowed_origins:
         await websocket.close(code=4403)
         return
     cursor_text = websocket.query_params.get("after")

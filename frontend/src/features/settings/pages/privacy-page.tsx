@@ -123,8 +123,8 @@ export function PrivacyPage() {
           <h2 className="text-lg font-bold text-danger">Delete account</h2>
         </div>
         <p className="mt-3 text-sm text-ink-500">
-          This permanently removes your profile from discovery. Some records may be retained where required
-          by law.
+          Your profile will be removed from discovery and account access disabled. Records may be retained
+          for legal and safety purposes.
         </p>
         <Button variant="destructive" className="mt-4" onClick={() => setDeleteOpen(true)}>
           Delete account
@@ -139,7 +139,7 @@ export function PrivacyPage() {
       >
         <label className="flex items-start gap-3 text-sm text-ink-700">
           <Checkbox checked={deleteConfirmed} onChange={(event) => setDeleteConfirmed(event.target.checked)} />
-          I understand this is permanent and I want to delete my account.
+          I understand my account access will be disabled, and records may be retained for legal and safety purposes.
         </label>
         <div className="mt-5 flex gap-3">
           <Button variant="secondary" className="flex-1" onClick={() => setDeleteOpen(false)}>

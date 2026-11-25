@@ -1,7 +1,7 @@
 import json
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
@@ -35,7 +35,9 @@ def _video_metadata(db: Session, media_id: str) -> tuple[dict[str, Any], dict[st
                    p.videos, p.identity, p.subscription_tier, p.vip_expires_at
             FROM media_objects m
             JOIN profiles p ON p.account_id = m.account_id
+            JOIN accounts a ON a.id = m.account_id
             WHERE m.id = :media_id AND m.purpose = 'profile-video'
+              AND a.account_state NOT IN ('deletion_requested', 'deleted')
             """
         ),
         {"media_id": media_id},
@@ -118,6 +120,7 @@ def unlock_video(
     price_naira = video.get("priceNaira")
     if isinstance(price_naira, bool) or not isinstance(price_naira, int) or price_naira <= 0:
         raise ApiException("VIDEO_PRICE_INVALID", "This video cannot be purchased right now.", 409)
+    price_naira = min(price_naira, 3_000)
 
     ensure_wallet_account(db, account.account_id)
     if db.get_bind().dialect.name != "sqlite":
@@ -125,11 +128,17 @@ def unlock_video(
             text("SELECT account_id FROM wallet_accounts WHERE account_id = :id FOR UPDATE"),
             {"id": account.account_id},
         ).first()
-    already_unlocked = db.execute(
-        text("SELECT 1 FROM video_unlocks WHERE viewer_id = :viewer AND media_id = :media"),
+    now = _now()
+    existing_unlock = db.execute(
+        text(
+            """
+            SELECT id, expires_at FROM video_unlocks
+            WHERE viewer_id = :viewer AND media_id = :media
+            """
+        ),
         {"viewer": account.account_id, "media": media_id},
-    ).first()
-    if already_unlocked is not None:
+    ).mappings().first()
+    if existing_unlock is not None and datetime.fromisoformat(str(existing_unlock["expires_at"])) > now:
         return VideoUnlockResponse(url=body.url, unlocked=True, price_naira=price_naira)
 
     price_kobo = price_naira * 100
@@ -140,24 +149,43 @@ def unlock_video(
         transaction_type="video-unlock",
         description=f"Unlocked a video from {str(target['display_name'])[:100]}",
     )
-    unlock_id = uuid.uuid4().hex
-    now = _now()
-    db.execute(
-        text(
-            """
-            INSERT INTO video_unlocks (id, viewer_id, creator_id, media_id, price_kobo, created_at)
-            VALUES (:id, :viewer, :creator, :media, :price, :created_at)
-            """
-        ),
-        {
-            "id": unlock_id,
-            "viewer": account.account_id,
-            "creator": creator_id,
-            "media": media_id,
-            "price": price_kobo,
-            "created_at": now,
-        },
-    )
+    expires_at = now + timedelta(days=30)
+    if existing_unlock is None:
+        db.execute(
+            text(
+                """
+                INSERT INTO video_unlocks (
+                    id, viewer_id, creator_id, media_id, price_kobo, created_at, expires_at
+                )
+                VALUES (:id, :viewer, :creator, :media, :price, :created_at, :expires_at)
+                """
+            ),
+            {
+                "id": uuid.uuid4().hex,
+                "viewer": account.account_id,
+                "creator": creator_id,
+                "media": media_id,
+                "price": price_kobo,
+                "created_at": now,
+                "expires_at": expires_at,
+            },
+        )
+    else:
+        db.execute(
+            text(
+                """
+                UPDATE video_unlocks
+                SET price_kobo = :price, created_at = :created_at, expires_at = :expires_at
+                WHERE id = :id
+                """
+            ),
+            {
+                "id": existing_unlock["id"],
+                "price": price_kobo,
+                "created_at": now,
+                "expires_at": expires_at,
+            },
+        )
     credit_wallet(
         db,
         creator_id,

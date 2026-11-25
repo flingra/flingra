@@ -416,7 +416,7 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
             CREATE TABLE video_unlocks (
                 id TEXT PRIMARY KEY, viewer_id TEXT NOT NULL, creator_id TEXT NOT NULL,
                 media_id TEXT NOT NULL, price_kobo INTEGER NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP, expires_at DATETIME NOT NULL,
                 UNIQUE(viewer_id, media_id)
             )
             """

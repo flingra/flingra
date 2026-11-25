@@ -32,9 +32,9 @@ from app.wallet import (
 router = APIRouter(prefix="/calls", tags=["calls"])
 DbSession = Annotated[Session, Depends(db_session)]
 SettingsDependency = Annotated[Settings, Depends(get_app_settings)]
-CALL_TICK_SECONDS = 10
+CALL_TICK_SECONDS = 60
 CALL_TICK_CREDITS = 1
-CALL_PACKAGES = (50, 150, 400, 1000)
+CALL_PACKAGES = (10, 15, 30)
 RING_TIMEOUT = timedelta(seconds=30)
 ACTIVITY_TIMEOUT = timedelta(seconds=30)
 IDEMPOTENCY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
@@ -270,12 +270,13 @@ def _settle_due_ticks(db: Session, row: dict[str, Any], cutoff: datetime) -> tup
     if row["status"] != "active" or row["last_billed_at"] is None:
         return False, None
     last_billed = _as_datetime(row["last_billed_at"])
-    due = max(0, int((cutoff - last_billed).total_seconds() // CALL_TICK_SECONDS))
+    elapsed_seconds = (cutoff - last_billed).total_seconds()
+    due = max(0, int((elapsed_seconds - 1) // CALL_TICK_SECONDS))
     stale = (
         row["last_activity_at"] is not None
         and _as_datetime(row["last_activity_at"]) < _now() - ACTIVITY_TIMEOUT
     )
-    balance: int | None = None
+    balance: int | None = _credit_balance(db, str(row["payer_id"])) if row["payer_id"] else None
     if due and row["payer_id"]:
         new_ticks, balance = _spend_ticks(db, row, due)
         billed_at = last_billed + timedelta(seconds=new_ticks * CALL_TICK_SECONDS)
