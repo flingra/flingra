@@ -763,6 +763,8 @@ def release_meetup_payment(
     db: DbSession,
 ) -> MeetupPaymentResponse:
     payment = _meetup_payment(db, payment_id, account.account_id, lock=True)
+    if payment["payer_id"] != account.account_id:
+        raise ApiException("PAYMENT_ACTION_FORBIDDEN", "Only the payer can release held funds.", 403)
     if payment["status"] != "held":
         raise ApiException("PAYMENT_NOT_HELD", "Only held funds can be released.", 409)
     credit_wallet(
