@@ -27,7 +27,7 @@ import { getDiscoverableProfile, getOwnProfile } from '@/lib/api/profiles'
 import { blockMember } from '@/lib/api/safety'
 import { getOrCreateThread, proposePaymentInChat } from '@/lib/api/chat'
 import { isVideoUnlocked, unlockVideo } from '@/lib/api/wallet'
-import { getCallCreditBalance } from '@/lib/api/calls'
+import { getCallCreditBalance, startCall } from '@/lib/api/calls'
 import { canInteract } from '@/lib/api/subscription'
 import { ApiError, type ProfileVideo } from '@/lib/api/types'
 import { useToast } from '@/components/ui/toast'
@@ -49,7 +49,8 @@ export function ProfileDetailPage() {
   const [interested, setInterested] = useState(false)
   const [chatThreadId, setChatThreadId] = useState<string | null>(null)
   const [activePhoto, setActivePhoto] = useState(0)
-  const [callMode, setCallMode] = useState<'video' | 'voice' | null>(null)
+  const [call, setCall] = useState<{ callId: string; mode: 'video' | 'voice' } | null>(null)
+  const [startingCall, setStartingCall] = useState(false)
   const [playingVideo, setPlayingVideo] = useState<string | null>(null)
   const [unlockTarget, setUnlockTarget] = useState<ProfileVideo | null>(null)
   const [unlocking, setUnlocking] = useState(false)
@@ -67,7 +68,7 @@ export function ProfileDetailPage() {
   const isPayingCaller = ownProfile?.identity === 'man'
   const { data: callCredits } = useQuery({ queryKey: ['call-credits'], queryFn: getCallCreditBalance, enabled: isPayingCaller })
 
-  function handleStartCall(mode: 'video' | 'voice') {
+  async function handleStartCall(mode: 'video' | 'voice') {
     if (isPayingCaller && (callCredits ?? 0) <= 0) {
       showToast({
         title: 'No call credits left',
@@ -77,7 +78,20 @@ export function ProfileDetailPage() {
       navigate('/credits/shop')
       return
     }
-    setCallMode(mode)
+    if (!profile) return
+    setStartingCall(true)
+    try {
+      const session = await startCall(profile.id, mode === 'video' ? 'video' : 'audio')
+      setCall({ callId: session.callId, mode })
+    } catch (error) {
+      showToast({
+        title: 'Could not start call',
+        description: error instanceof ApiError ? error.message : 'Try again.',
+        variant: 'error',
+      })
+    } finally {
+      setStartingCall(false)
+    }
   }
 
   async function handleUnlockVideo() {
@@ -306,10 +320,10 @@ export function ProfileDetailPage() {
                     <HeartHandshake className="size-4" aria-hidden="true" /> Propose a payment
                   </Button>
                 )}
-                <Button variant="outline" onClick={() => handleStartCall('voice')}>
+                <Button variant="outline" loading={startingCall} disabled={startingCall} onClick={() => handleStartCall('voice')}>
                   <Phone className="size-4" aria-hidden="true" /> Voice call
                 </Button>
-                <Button variant="outline" onClick={() => handleStartCall('video')}>
+                <Button variant="outline" loading={startingCall} disabled={startingCall} onClick={() => handleStartCall('video')}>
                   <VideoIcon className="size-4" aria-hidden="true" /> Video call
                 </Button>
               </>
@@ -385,7 +399,7 @@ export function ProfileDetailPage() {
         </div>
       </Dialog>
 
-      {callMode && <CallScreen profile={profile} mode={callMode} onEnd={() => setCallMode(null)} />}
+      {call && profile && <CallScreen callId={call.callId} profile={profile} mode={call.mode} onEnd={() => setCall(null)} />}
       <VideoPlayerDialog src={playingVideo} onClose={() => setPlayingVideo(null)} />
     </div>
   )

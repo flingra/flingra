@@ -2,6 +2,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { Header } from '@/components/layout/header'
 import { Footer } from '@/components/layout/footer'
 import { BottomNav } from '@/components/layout/bottom-nav'
+import { IncomingCallListener } from '@/features/calls/components/incoming-call-listener'
 import { useSessionStore } from '@/lib/stores/session-store'
 import { cn } from '@/lib/utils'
 
@@ -26,6 +27,7 @@ export function ShellLayout() {
       </main>
       {!signedIn && !fullscreen && <Footer />}
       {signedIn && <BottomNav />}
+      {signedIn && <IncomingCallListener />}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -11,15 +11,18 @@ import { Input } from '@/components/ui/input'
 import { useFocusTrap } from '@/lib/use-focus-trap'
 import { useToast } from '@/components/ui/toast'
 import { getOwnProfile } from '@/lib/api/profiles'
+import { getOwnedGifts, spendOwnedGift } from '@/lib/api/wallet'
 import {
-  getOwnedGifts,
-  spendOwnedGift,
-} from '@/lib/api/wallet'
-import { getCallCreditBalance, LOW_CREDIT_WARNING_THRESHOLD } from '@/lib/api/calls'
+  CALL_CREDIT_TICK_SECONDS,
+  endCall,
+  getCall,
+  getCallCreditBalance,
+  heartbeatCall,
+  LOW_CREDIT_WARNING_THRESHOLD,
+  markCallConnected,
+} from '@/lib/api/calls'
 import { getOrCreateThread, proposePaymentInChat } from '@/lib/api/chat'
 import { ApiError, type MemberProfile } from '@/lib/api/types'
-
-const RING_DURATION_MS = 2200
 
 function formatElapsed(seconds: number) {
   const m = Math.floor(seconds / 60)
@@ -27,11 +30,20 @@ function formatElapsed(seconds: number) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; mode: 'video' | 'voice'; onEnd: () => void }) {
+export function CallScreen({
+  callId,
+  profile,
+  mode,
+  onEnd,
+}: {
+  callId: string
+  profile: MemberProfile
+  mode: 'video' | 'voice'
+  onEnd: () => void
+}) {
   const containerRef = useFocusTrap(true)
   const queryClient = useQueryClient()
   const { showToast } = useToast()
-  const [connected, setConnected] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [muted, setMuted] = useState(false)
   const [cameraOn, setCameraOn] = useState(mode === 'video')
@@ -41,6 +53,19 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState('')
   const [proposingPayment, setProposingPayment] = useState(false)
+  const endedRef = useRef(false)
+  const confirmedConnectionRef = useRef(false)
+  const lowCreditWarnedRef = useRef(false)
+
+  // Authoritative call status lives on the backend — this is the one source of
+  // truth for ringing → active → declined/ended, not local component state.
+  const { data: call } = useQuery({
+    queryKey: ['call', callId],
+    queryFn: () => getCall(callId),
+    refetchInterval: 2000,
+  })
+  const status = call?.status
+  const connected = status === 'active'
 
   const { data: ownedGifts = [] } = useQuery({ queryKey: ['owned-gifts'], queryFn: getOwnedGifts, enabled: connected })
   const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
@@ -57,16 +82,83 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
     enabled: isPayingCaller,
   })
 
+  function hangUp() {
+    if (endedRef.current) return
+    endedRef.current = true
+    void endCall(callId).catch(() => {})
+    onEnd()
+  }
+
+  // No real LiveKit/WebRTC media connects here (this app never captures a real
+  // camera or mic), so there's no genuine "media joined" signal to react to.
+  // Once the backend has moved the call past ringing, we confirm the connection
+  // ourselves after a short simulated handshake, same beat the old fake ring
+  // timer used.
   useEffect(() => {
-    const ringTimer = setTimeout(() => setConnected(true), RING_DURATION_MS)
-    return () => clearTimeout(ringTimer)
-  }, [])
+    if (!status || status === 'ringing' || confirmedConnectionRef.current) return
+    if (status === 'declined' || status === 'ended') return
+    confirmedConnectionRef.current = true
+    const timer = setTimeout(() => {
+      markCallConnected(callId)
+        .then((updated) => queryClient.setQueryData(['call', callId], updated))
+        .catch(() => {})
+    }, 1200)
+    return () => clearTimeout(timer)
+  }, [status, callId, queryClient])
+
+  useEffect(() => {
+    if (endedRef.current) return
+    if (status === 'declined') {
+      showToast({ title: `${profile.displayName} declined`, variant: 'info' })
+      hangUp()
+    } else if (status === 'ended') {
+      showToast({ title: 'Call ended', variant: 'info' })
+      hangUp()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status])
 
   useEffect(() => {
     if (!connected) return
     const tick = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(tick)
   }, [connected])
+
+  // Meters the caller's own call-credit balance via the backend heartbeat while
+  // connected, warns them once it runs low, and ends the call once the backend
+  // reports it exhausted — all private to this caller.
+  useEffect(() => {
+    if (!connected || !isPayingCaller) return
+    const tick = setInterval(async () => {
+      try {
+        const updated = await heartbeatCall(callId)
+        queryClient.setQueryData(['call', callId], updated)
+        const remaining = updated.creditBalance ?? 0
+        queryClient.setQueryData(['call-credits'], remaining)
+        if (updated.status === 'ended' || remaining <= 0) {
+          showToast({
+            title: "You're out of call credits",
+            description: 'This call is ending. Buy more call credits to keep talking.',
+            variant: 'error',
+          })
+          hangUp()
+          return
+        }
+        if (remaining <= LOW_CREDIT_WARNING_THRESHOLD && !lowCreditWarnedRef.current) {
+          lowCreditWarnedRef.current = true
+          showToast({
+            title: 'Call credit running low',
+            description: `Only ${remaining} coin${remaining === 1 ? '' : 's'} left. Buy more from the call credit store.`,
+            variant: 'info',
+          })
+        }
+      } catch {
+        // A missed heartbeat isn't fatal — the next tick (or the status poll) will catch a real end-of-call state.
+      }
+    }, CALL_CREDIT_TICK_SECONDS * 1000)
+    return () => clearInterval(tick)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, isPayingCaller, callId])
 
   async function handleSendGift(giftTypeId: string) {
     setGiftPickerOpen(false)
@@ -104,7 +196,7 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') onEnd()
+      if (event.key === 'Escape') hangUp()
     }
     document.addEventListener('keydown', onKeyDown)
     document.body.style.overflow = 'hidden'
@@ -114,6 +206,15 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Best-effort: tell the backend the call is over if this screen unmounts any
+  // other way (navigation, etc.) without the hang-up button being pressed.
+  useEffect(() => {
+    return () => {
+      if (!endedRef.current) void endCall(callId).catch(() => {})
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId])
 
   const showVideoFeed = mode === 'video' && cameraOn
 
@@ -145,7 +246,7 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
         <Avatar name={profile.displayName} src={profile.photos[0]} size="xl" className="size-28 ring-4 ring-white/20" />
         <p className="text-2xl font-bold">{profile.displayName}</p>
         <p className="text-sm text-white/70">
-          {connected ? formatElapsed(elapsed) : mode === 'video' ? 'Ringing video call…' : 'Ringing voice call…'}
+          {connected ? formatElapsed(elapsed) : status === 'connecting' ? 'Connecting…' : mode === 'video' ? 'Ringing video call…' : 'Ringing voice call…'}
         </p>
         {isPayingCaller && callCredits !== undefined && (
           <Link
@@ -253,7 +354,7 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
 
         <button
           type="button"
-          onClick={onEnd}
+          onClick={hangUp}
           aria-label="End call"
           className="flex size-14 cursor-pointer items-center justify-center rounded-full bg-danger text-white shadow-float transition-colors hover:bg-danger/90 sm:size-16"
         >
