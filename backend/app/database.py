@@ -11,6 +11,11 @@ from app.config import Settings
 from app.errors import ServiceUnavailable
 
 MIGRATION_LOCK_WAIT_SECONDS = 300
+ADMIN_MFA_COLUMNS = {
+    "totp_secret": "VARCHAR(64) NULL",
+    "totp_pending_secret": "VARCHAR(64) NULL",
+    "totp_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
+}
 
 
 @lru_cache(maxsize=4)
@@ -219,17 +224,33 @@ def _apply_migrations(connection: Connection, files: list[Path]) -> list[str]:
     for path in files:
         if path.name in applied:
             continue
-        statements = [
-            statement.strip()
-            for statement in path.read_text().split(";")
-            if statement.strip()
-        ]
         with connection.begin():
-            for statement in statements:
-                connection.exec_driver_sql(statement)
+            if path.name == "000028_admin_mfa.sql":
+                _apply_admin_mfa_migration(connection)
+            else:
+                statements = [
+                    statement.strip()
+                    for statement in path.read_text().split(";")
+                    if statement.strip()
+                ]
+                for statement in statements:
+                    connection.exec_driver_sql(statement)
             connection.execute(
                 text("INSERT INTO schema_migrations (version) VALUES (:version)"),
                 {"version": path.name},
             )
         newly_applied.append(path.name)
     return newly_applied
+
+
+def _apply_admin_mfa_migration(connection: Connection) -> None:
+    from sqlalchemy import inspect
+
+    existing_columns = {
+        column["name"] for column in inspect(connection).get_columns("admin_users")
+    }
+    for column_name, definition in ADMIN_MFA_COLUMNS.items():
+        if column_name not in existing_columns:
+            connection.exec_driver_sql(
+                f"ALTER TABLE admin_users ADD COLUMN {column_name} {definition}"
+            )

@@ -5,7 +5,11 @@ import pytest
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.exc import DBAPIError
 
-from app.database import MIGRATION_LOCK_WAIT_SECONDS, run_migrations
+from app.database import (
+    MIGRATION_LOCK_WAIT_SECONDS,
+    _apply_admin_mfa_migration,
+    run_migrations,
+)
 from app.migrate import is_database_permission_error
 
 
@@ -32,6 +36,19 @@ def test_mysql_migration_lock_failure_is_diagnostic(
     lock_call = connection.execute.call_args
     assert lock_call.args[1]["timeout_seconds"] == MIGRATION_LOCK_WAIT_SECONDS
     connection.commit.assert_called_once()
+
+
+def test_admin_mfa_migration_adds_only_missing_columns(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'admin-mfa.db'}")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE admin_users (id TEXT PRIMARY KEY, totp_secret VARCHAR(64) NULL)"
+        )
+        _apply_admin_mfa_migration(connection)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("admin_users")}
+    assert {"totp_secret", "totp_pending_secret", "totp_enabled"} <= columns
+    engine.dispose()
 
 
 def test_mysql_create_denied_is_identified_as_permission_error() -> None:
