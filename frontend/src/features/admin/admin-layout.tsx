@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { ShieldCheck, ClipboardCheck, Users, ScrollText, LogOut, Coins } from 'lucide-react'
+import { ShieldCheck, ClipboardCheck, ShieldAlert, HeartHandshake, Users, ScrollText, LogOut, Coins } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAdminStore } from '@/lib/stores/admin-store'
 
@@ -10,6 +10,8 @@ export function AdminLayout() {
   if (!session) return null
   const links = [
     { to: '/admin', label: 'Reviews', icon: ClipboardCheck, roles: ['super_admin', 'reviewer'] },
+    { to: '/admin/safety-reviews', label: 'Safety reviews', icon: ShieldAlert, roles: ['super_admin', 'safety_admin'] },
+    { to: '/admin/meetup-disputes', label: 'Meetup disputes', icon: HeartHandshake, roles: ['super_admin', 'safety_admin'] },
     { to: '/admin/admins', label: 'Admins', icon: Users, roles: ['super_admin'] },
     { to: '/admin/audit', label: 'Audit', icon: ScrollText, roles: ['super_admin', 'safety_admin', 'auditor'] },
     { to: '/admin/coin-pricing', label: 'Coin pricing', icon: Coins, roles: ['super_admin'] },

@@ -37,7 +37,7 @@ import { PayoutPage } from '@/features/wallet/pages/payout-page'
 import { CreditStorePage } from '@/features/wallet/pages/credit-store-page'
 import { AdminRoute } from '@/features/admin/admin-route'
 import { AdminLayout } from '@/features/admin/admin-layout'
-import { AdminAccountsPage, AdminAuditPage, AdminLoginPage, AdminReviewsPage } from '@/features/admin/admin-pages'
+import { AdminAccountsPage, AdminAuditPage, AdminLoginPage, AdminMeetupDisputesPage, AdminReviewsPage, AdminSafetyReviewsPage } from '@/features/admin/admin-pages'
 import { AdminCoinPricingPage } from '@/features/admin/pages/admin-coin-pricing-page'
 
 export function AppRouter() {
@@ -260,6 +260,8 @@ export function AppRouter() {
           <Route path="admin/admins" element={<AdminAccountsPage />} />
           <Route path="admin/audit" element={<AdminAuditPage />} />
           <Route path="admin/coin-pricing" element={<AdminCoinPricingPage />} />
+          <Route path="admin/safety-reviews" element={<AdminSafetyReviewsPage />} />
+          <Route path="admin/meetup-disputes" element={<AdminMeetupDisputesPage />} />
         </Route>
       </Route>
     </Routes>
