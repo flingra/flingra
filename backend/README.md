@@ -84,8 +84,10 @@ so clients cannot spoof the IP used by rate limits.
 The API automatically applies pending SQL migrations during startup when the
 MySQL database is reachable. Applied filenames are recorded in
 `schema_migrations`, and a MySQL advisory lock prevents app workers from
-applying the same migration concurrently. If migration setup fails, the API
-still starts for liveness checks, but `/health/ready` returns `503`.
+applying the same migration concurrently. A migration waits up to five minutes
+for another runner to release the lock; a timeout means a migration may still
+be running. If migration setup fails, the API still starts for liveness checks,
+but `/health/ready` returns `503`.
 
 For production, configure `FLINGRA_MIGRATION_DATABASE_URL` with a dedicated
 database account that has the required DDL permissions. The app uses that

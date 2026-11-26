@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import Settings
 from app.errors import ServiceUnavailable
 
+MIGRATION_LOCK_WAIT_SECONDS = 300
+
 
 @lru_cache(maxsize=4)
 def _engine_for_url(database_url: str) -> Engine:
@@ -131,12 +133,27 @@ def run_migrations(engine: Engine, migrations_dir: str) -> list[str]:
         if engine.dialect.name == "mysql":
             lock_name = "flingra_schema_migrations"
             acquired = connection.execute(
-                text("SELECT GET_LOCK(:lock_name, 60)"),
-                {"lock_name": lock_name},
+                text("SELECT GET_LOCK(:lock_name, :timeout_seconds)"),
+                {
+                    "lock_name": lock_name,
+                    "timeout_seconds": MIGRATION_LOCK_WAIT_SECONDS,
+                },
             ).scalar_one_or_none()
             connection.commit()
+            if acquired == 0:
+                raise RuntimeError(
+                    "Timed out waiting for the database migration lock after "
+                    f"{MIGRATION_LOCK_WAIT_SECONDS} seconds. Another migration may be running."
+                )
+            if acquired is None:
+                raise RuntimeError(
+                    "The database did not return a result for the migration lock. "
+                    "Verify that MySQL/MariaDB named locks are available."
+                )
             if acquired != 1:
-                raise RuntimeError("Could not acquire the database migration lock.")
+                raise RuntimeError(
+                    f"Unexpected result while acquiring the database migration lock: {acquired!r}."
+                )
             try:
                 return _apply_migrations(connection, files)
             finally:

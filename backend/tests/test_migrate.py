@@ -1,9 +1,37 @@
 from pathlib import Path
+from unittest.mock import MagicMock
 
+import pytest
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.exc import DBAPIError
 
+from app.database import MIGRATION_LOCK_WAIT_SECONDS, run_migrations
 from app.migrate import is_database_permission_error
+
+
+@pytest.mark.parametrize(
+    ("lock_result", "message"),
+    [
+        (0, "Timed out waiting for the database migration lock"),
+        (None, "The database did not return a result for the migration lock"),
+    ],
+)
+def test_mysql_migration_lock_failure_is_diagnostic(
+    tmp_path, lock_result: int | None, message: str
+) -> None:
+    (tmp_path / "000001_test.sql").write_text("SELECT 1")
+    connection = MagicMock()
+    connection.execute.return_value.scalar_one_or_none.return_value = lock_result
+    engine = MagicMock()
+    engine.dialect.name = "mysql"
+    engine.connect.return_value.__enter__.return_value = connection
+
+    with pytest.raises(RuntimeError, match=message):
+        run_migrations(engine, str(tmp_path))
+
+    lock_call = connection.execute.call_args
+    assert lock_call.args[1]["timeout_seconds"] == MIGRATION_LOCK_WAIT_SECONDS
+    connection.commit.assert_called_once()
 
 
 def test_mysql_create_denied_is_identified_as_permission_error() -> None:
