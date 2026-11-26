@@ -1,6 +1,4 @@
-import { delay } from './client'
-import { CURRENT_ACCOUNT } from './mock-db'
-import { ApiError } from './types'
+import { apiRequest, ensureCsrfHeaders } from './client'
 
 export interface DeviceSession {
   id: string
@@ -9,33 +7,29 @@ export interface DeviceSession {
   current: boolean
 }
 
-const sessions: DeviceSession[] = [
-  { id: 'session-current', device: 'This device · Chrome on macOS', lastActive: 'Active now', current: true },
-  { id: 'session-2', device: 'Flingra app · iPhone', lastActive: '2 days ago', current: false },
-]
-
-export async function changePassword(currentPassword: string, _newPassword: string): Promise<void> {
-  await delay(undefined, 700)
-  if (currentPassword !== CURRENT_ACCOUNT.password) {
-    throw new ApiError('WRONG_PASSWORD', 'Your current password is incorrect.')
-  }
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiRequest<void>('/settings/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
 }
 
 export async function listSessions(): Promise<DeviceSession[]> {
-  await delay(null, 400)
-  return sessions
+  return apiRequest<DeviceSession[]>('/settings/sessions')
 }
 
 export async function revokeSession(id: string): Promise<void> {
-  await delay(undefined, 500)
-  const index = sessions.findIndex((session) => session.id === id)
-  if (index >= 0) sessions.splice(index, 1)
+  await apiRequest<void>(`/settings/sessions/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: await ensureCsrfHeaders(),
+  })
 }
 
-export async function requestDataExport(): Promise<void> {
-  await delay(undefined, 600)
+export async function requestDataExport(): Promise<{ requestId: string; status: string }> {
+  return apiRequest('/settings/data-export', { method: 'POST', headers: await ensureCsrfHeaders() })
 }
 
-export async function requestAccountDeletion(): Promise<void> {
-  await delay(undefined, 600)
+export async function requestAccountDeletion(): Promise<{ requestId: string; status: string }> {
+  return apiRequest('/settings/account/delete', { method: 'POST', headers: await ensureCsrfHeaders() })
 }

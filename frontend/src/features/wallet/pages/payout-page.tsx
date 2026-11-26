@@ -11,7 +11,7 @@ import { EmptyState } from '@/components/ui/state-message'
 import { useToast } from '@/components/ui/toast'
 import { formatNaira } from '@/lib/utils'
 import { getWalletBalance } from '@/lib/api/wallet'
-import { getBankAccount, listPayoutRequests, requestPayout, saveBankAccount } from '@/lib/api/payout'
+import { getBankAccount, listPayoutBanks, listPayoutRequests, requestPayout, saveBankAccount } from '@/lib/api/payout'
 import { ApiError } from '@/lib/api/types'
 
 export function PayoutPage() {
@@ -22,7 +22,8 @@ export function PayoutPage() {
   const { data: bankAccount, isLoading: bankLoading } = useQuery({ queryKey: ['bank-account'], queryFn: getBankAccount })
   const { data: payouts, isLoading: payoutsLoading } = useQuery({ queryKey: ['payout-requests'], queryFn: listPayoutRequests })
 
-  const [bankName, setBankName] = useState('')
+  const [bankCode, setBankCode] = useState('')
+  const [banks, setBanks] = useState<{ code: string; name: string }[]>([])
   const [accountNumber, setAccountNumber] = useState('')
   const [accountName, setAccountName] = useState('')
   const [savingAccount, setSavingAccount] = useState(false)
@@ -35,16 +36,19 @@ export function PayoutPage() {
 
   useEffect(() => {
     if (!bankAccount) return
-    setBankName(bankAccount.bankName)
-    setAccountNumber(bankAccount.accountNumber)
+    setAccountNumber('')
     setAccountName(bankAccount.accountName)
   }, [bankAccount])
+
+  useEffect(() => {
+    listPayoutBanks().then(setBanks).catch(() => setBanks([]))
+  }, [])
 
   async function handleSaveBank() {
     setBankError(null)
     setSavingAccount(true)
     try {
-      await saveBankAccount({ bankName, accountNumber, accountName })
+      await saveBankAccount({ accountNumber, bankCode })
       await queryClient.invalidateQueries({ queryKey: ['bank-account'] })
       setEditingAccount(false)
       showToast({ title: 'Bank account saved', variant: 'success' })
@@ -96,7 +100,19 @@ export function PayoutPage() {
         ) : showBankForm ? (
           <div className="mt-4 flex flex-col gap-4">
             <Field id="bank-name" label="Bank name">
-              <Input id="bank-name" value={bankName} onChange={(event) => setBankName(event.target.value)} placeholder="e.g. GTBank" />
+              <select
+                id="bank-name"
+                value={bankCode}
+                onChange={(event) => {
+                  setBankCode(event.target.value)
+                }}
+                className="h-11 w-full rounded-xl border border-ink-200 bg-white px-3 text-sm text-ink-900"
+              >
+                <option value="">Select a bank</option>
+                {banks.map((bank) => (
+                  <option key={bank.code} value={bank.code}>{bank.name}</option>
+                ))}
+              </select>
             </Field>
             <Field id="account-number" label="Account number">
               <Input
@@ -127,7 +143,7 @@ export function PayoutPage() {
             <div>
               <p className="font-semibold text-ink-900">{bankAccount?.bankName}</p>
               <p className="text-sm text-ink-500">
-                {bankAccount?.accountName} · ••••{bankAccount?.accountNumber.slice(-4)}
+                {bankAccount?.accountName} · {bankAccount?.accountNumberMasked}
               </p>
             </div>
             <Button variant="outline" size="sm" onClick={() => setEditingAccount(true)}>

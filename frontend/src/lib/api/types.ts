@@ -187,7 +187,7 @@ export interface WalletTransaction {
 
 export interface BankAccount {
   bankName: string
-  accountNumber: string
+  accountNumberMasked: string
   accountName: string
 }
 

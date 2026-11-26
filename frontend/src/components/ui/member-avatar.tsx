@@ -2,6 +2,7 @@ import { Radio } from 'lucide-react'
 import { Avatar } from './avatar'
 import { cn } from '@/lib/utils'
 import { getPresence } from '@/lib/api/presence'
+import { useQuery } from '@tanstack/react-query'
 
 type AvatarSize = 'sm' | 'md' | 'lg' | 'xl'
 
@@ -23,7 +24,9 @@ export function MemberAvatar({
   size?: AvatarSize
   className?: string
 }) {
-  const { hasStatus, isLive } = getPresence(id)
+  const { data: presence } = useQuery({ queryKey: ['presence', id], queryFn: () => getPresence(id) })
+  const hasStatus = presence?.hasStatus ?? false
+  const isLive = presence?.isLive ?? false
 
   return (
     <span className="relative inline-flex shrink-0">

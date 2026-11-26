@@ -10,9 +10,9 @@ import { Input } from '@/components/ui/input'
 import { PageSpinner } from '@/components/ui/spinner'
 import { ErrorState } from '@/components/ui/state-message'
 import { useToast } from '@/components/ui/toast'
-import { listMessages, listThreads, proposePaymentInChat, sendMessage, simulateReply, uploadChatAttachment } from '@/lib/api/chat'
+import { listMessages, listThreads, proposePaymentInChat, sendMessage, uploadChatAttachment } from '@/lib/api/chat'
 import { getOwnProfile, getProfile } from '@/lib/api/profiles'
-import { acceptMeetupPayment, declineMeetupPayment, listMeetupPayments, simulateRecipientResponse } from '@/lib/api/wallet'
+import { acceptMeetupPayment, declineMeetupPayment, getMeetupPayment } from '@/lib/api/wallet'
 import { ApiError } from '@/lib/api/types'
 import { cn, formatNaira } from '@/lib/utils'
 
@@ -30,7 +30,6 @@ export function ChatPage() {
   const [respondingId, setRespondingId] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const repliedRef = useRef(false)
 
   const { data: threads, isLoading: threadsLoading } = useQuery({ queryKey: ['chat-threads'], queryFn: listThreads })
   const thread = threads?.find((item) => item.id === threadId)
@@ -49,12 +48,7 @@ export function ChatPage() {
     enabled: !!thread,
     refetchInterval: 2000,
   })
-  const { data: meetupPayments = [] } = useQuery({
-    queryKey: ['meetup-payments'],
-    queryFn: listMeetupPayments,
-    enabled: !!thread,
-    refetchInterval: 2000,
-  })
+  const meetupPayments: Awaited<ReturnType<typeof getMeetupPayment>>[] = []
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
@@ -70,19 +64,6 @@ export function ChatPage() {
     await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
   }
 
-  // Scheduled once, right after the first message goes out, rather than reactively off
-  // query state — react-query gives the thread object a new reference on every refetch,
-  // which would otherwise cancel-and-reschedule (or silently drop) this timer.
-  function maybeScheduleReply(otherId: string) {
-    if (repliedRef.current) return
-    repliedRef.current = true
-    setTimeout(() => {
-      simulateReply(threadId, otherId)
-      queryClient.invalidateQueries({ queryKey: ['chat-messages', threadId] })
-      queryClient.invalidateQueries({ queryKey: ['chat-threads'] })
-    }, 2500)
-  }
-
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     if (!text.trim() || sending || !thread) return
@@ -91,7 +72,6 @@ export function ChatPage() {
       await sendMessage(threadId, text.trim())
       setText('')
       await refresh()
-      maybeScheduleReply(thread.otherId)
     } finally {
       setSending(false)
     }
@@ -106,7 +86,6 @@ export function ChatPage() {
       await sendMessage(threadId, text.trim(), attachment)
       setText('')
       await refresh()
-      maybeScheduleReply(thread.otherId)
     } catch (error) {
       showToast({
         title: "Couldn't send attachment",
@@ -123,26 +102,13 @@ export function ChatPage() {
     if (!thread) return
     setProposingPayment(true)
     try {
-      const message = await proposePaymentInChat(threadId, thread.otherId, thread.otherName, Number(paymentAmount))
+      await proposePaymentInChat(threadId, thread.otherId, thread.otherName, Number(paymentAmount))
       setPaymentDialogOpen(false)
       setPaymentAmount('')
       await refresh()
       await refreshPayments()
       showToast({ title: 'Proposal sent', description: `Waiting for ${thread.otherName} to respond.`, variant: 'success' })
 
-      const paymentId = message.paymentId
-      if (paymentId) {
-        setTimeout(async () => {
-          const outcome = await simulateRecipientResponse(paymentId)
-          await refresh()
-          await refreshPayments()
-          showToast({
-            title: outcome === 'held' ? `${thread.otherName} accepted` : `${thread.otherName} declined`,
-            description: outcome === 'held' ? 'The amount is now held — release it once you meet up.' : 'No funds were charged.',
-            variant: outcome === 'held' ? 'success' : 'info',
-          })
-        }, 3000)
-      }
     } catch (error) {
       showToast({
         title: 'Could not send proposal',

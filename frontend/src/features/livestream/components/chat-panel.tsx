@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { Send } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { GIFT_CATALOG } from '@/lib/api/wallet'
 import type { StreamMessage } from '@/lib/api/types'
 
 export function ChatPanel({
@@ -36,12 +35,11 @@ export function ChatPanel({
         className="scrollbar-hide flex max-h-36 flex-col gap-1 overflow-x-hidden overflow-y-auto pr-1 [mask-image:linear-gradient(to_bottom,transparent,black_28px)]"
       >
         {messages.slice(-20).map((message) => {
-          const gift = message.kind === 'gift' ? GIFT_CATALOG.find((item) => item.id === message.giftId) : undefined
           return (
             <p key={message.id} className="break-words text-sm leading-snug drop-shadow-sm">
               <span className="font-semibold text-white">{message.authorName}</span>{' '}
               <span className={cn(message.kind === 'gift' ? 'font-semibold text-amber-300' : 'text-white/90')}>
-                {gift ? `sent ${gift.emoji} ${gift.name}` : message.text}
+                {message.text}
               </span>
             </p>
           )

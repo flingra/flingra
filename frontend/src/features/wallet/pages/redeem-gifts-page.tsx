@@ -6,7 +6,7 @@ import { PageSpinner } from '@/components/ui/spinner'
 import { EmptyState } from '@/components/ui/state-message'
 import { useToast } from '@/components/ui/toast'
 import { formatNaira } from '@/lib/utils'
-import { GIFT_CATALOG, listReceivedGifts, redeemAllGifts, redeemGift } from '@/lib/api/wallet'
+import { listGiftCatalog, listReceivedGifts, redeemAllGifts, redeemGift } from '@/lib/api/wallet'
 import { getBankAccount } from '@/lib/api/payout'
 
 export function RedeemGiftsPage() {
@@ -16,6 +16,7 @@ export function RedeemGiftsPage() {
 
   const { data: gifts, isLoading } = useQuery({ queryKey: ['received-gifts'], queryFn: listReceivedGifts })
   const { data: bankAccount } = useQuery({ queryKey: ['bank-account'], queryFn: getBankAccount })
+  const { data: catalog = [] } = useQuery({ queryKey: ['gift-catalog'], queryFn: listGiftCatalog })
 
   const unredeemed = gifts?.filter((gift) => !gift.redeemed) ?? []
   const unredeemedTotal = unredeemed.reduce((sum, gift) => sum + gift.valueNaira, 0)
@@ -74,7 +75,7 @@ export function RedeemGiftsPage() {
       {gifts && gifts.length > 0 && (
         <ul className="mt-4 flex flex-col gap-3">
           {gifts.map((received) => {
-            const gift = GIFT_CATALOG.find((item) => item.id === received.giftTypeId)
+            const gift = catalog.find((item) => item.id === received.giftTypeId)
             return (
               <li key={received.id} className="flex items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4 shadow-soft">
                 <span className="text-2xl">{gift?.emoji}</span>

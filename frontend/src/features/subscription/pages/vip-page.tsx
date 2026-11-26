@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Crown } from 'lucide-react'
@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/ui/state-message'
 import { useToast } from '@/components/ui/toast'
 import { getOwnProfile, listVipProfiles } from '@/lib/api/profiles'
 import { getWalletBalance } from '@/lib/api/wallet'
-import { subscribeToVip, VIP_PLANS } from '@/lib/api/subscription'
+import { listVipPlans, subscribeToVip } from '@/lib/api/subscription'
 import { ApiError } from '@/lib/api/types'
 import { cn, formatNaira } from '@/lib/utils'
 import { CircleCard } from '@/features/discovery/components/circle-card'
@@ -19,7 +19,7 @@ export function VipPage() {
   const { showToast } = useToast()
   const queryClient = useQueryClient()
   const [planDialogOpen, setPlanDialogOpen] = useState(false)
-  const [selectedPlanId, setSelectedPlanId] = useState(VIP_PLANS[1]?.id ?? VIP_PLANS[0]?.id)
+  const [selectedPlanId, setSelectedPlanId] = useState('')
   const [subscribing, setSubscribing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [insufficientBalance, setInsufficientBalance] = useState(false)
@@ -27,6 +27,10 @@ export function VipPage() {
   const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile })
   const { data: vipMembers, isLoading } = useQuery({ queryKey: ['vip-members'], queryFn: listVipProfiles })
   const { data: balance } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance })
+  const { data: vipPlans = [] } = useQuery({ queryKey: ['vip-plans'], queryFn: listVipPlans })
+  useEffect(() => {
+    if (!selectedPlanId && vipPlans.length > 0) setSelectedPlanId(vipPlans[1]?.id ?? vipPlans[0].id)
+  }, [vipPlans, selectedPlanId])
 
   const isVip = ownProfile?.subscriptionTier === 'vip'
 
@@ -151,7 +155,7 @@ export function VipPage() {
               </Link>
             </div>
           )}
-          {VIP_PLANS.map((plan) => (
+          {vipPlans.map((plan) => (
             <button
               key={plan.id}
               type="button"

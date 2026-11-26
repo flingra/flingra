@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Gift, PhoneCall, RefreshCcw, UserPlus, X } from 'lucide-react'
@@ -20,9 +20,6 @@ import {
   requestToJoin,
   respondToJoinRequest,
   sendStreamMessage,
-  simulateIncomingGift,
-  simulateIncomingMessage,
-  simulateJoinRequest,
 } from '@/lib/api/livestream'
 import { ChatPanel } from '../components/chat-panel'
 import { ParticipantStack } from '../components/participant-stack'
@@ -90,32 +87,6 @@ export function LivePage() {
     return () => clearInterval(timer)
   }, [isHost, joinedToChat, stream, previewSecondsLeft])
 
-  // Simulate another member chatting in, and (for the host) asking to join or
-  // sending a gift, so the flows are testable without a second real account.
-  const simulatedJoinRequestFired = useRef(false)
-  useEffect(() => {
-    if (!stream) return
-    const chatTimer = setInterval(() => simulateIncomingMessage(stream.id), 6000)
-    let giftTimer: ReturnType<typeof setInterval> | undefined
-    let joinTimer: ReturnType<typeof setTimeout> | undefined
-    if (isHost) {
-      giftTimer = setInterval(() => {
-        simulateIncomingGift(stream.id)
-        queryClient.invalidateQueries({ queryKey: ['live-messages', streamId] })
-        queryClient.invalidateQueries({ queryKey: ['received-gifts'] })
-      }, 9000)
-      if (!simulatedJoinRequestFired.current) {
-        simulatedJoinRequestFired.current = true
-        joinTimer = setTimeout(() => simulateJoinRequest(stream.id), 5000)
-      }
-    }
-    return () => {
-      clearInterval(chatTimer)
-      if (giftTimer) clearInterval(giftTimer)
-      if (joinTimer) clearTimeout(joinTimer)
-    }
-  }, [stream, isHost, streamId, queryClient])
-
   async function handleLeave() {
     if (isHost && stream) {
       setEnding(true)
@@ -125,7 +96,7 @@ export function LivePage() {
   }
 
   async function handleRespond(requestId: string, accept: boolean) {
-    await respondToJoinRequest(requestId, accept)
+    await respondToJoinRequest(streamId, requestId, accept)
     await queryClient.invalidateQueries({ queryKey: ['live-join-requests', streamId] })
     await queryClient.invalidateQueries({ queryKey: ['live-participants', streamId] })
   }
@@ -138,7 +109,8 @@ export function LivePage() {
   async function handleSendGift(giftTypeId: string) {
     setGiftPickerOpen(false)
     try {
-      const gift = await spendOwnedGift(giftTypeId)
+      if (!stream) return
+      const gift = await spendOwnedGift(giftTypeId, stream.hostId)
       await sendStreamMessage(streamId, `sent ${gift.name}`, 'gift', gift.id)
       await queryClient.invalidateQueries({ queryKey: ['live-messages', streamId] })
       await queryClient.invalidateQueries({ queryKey: ['owned-gifts'] })

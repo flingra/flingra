@@ -16,7 +16,6 @@ import {
   Lock,
   HeartHandshake,
 } from 'lucide-react'
-import { getPresence } from '@/lib/api/presence'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
@@ -26,8 +25,8 @@ import { PageSpinner } from '@/components/ui/spinner'
 import { ErrorState } from '@/components/ui/state-message'
 import { getDiscoverableProfile, getOwnProfile } from '@/lib/api/profiles'
 import { blockMember } from '@/lib/api/safety'
-import { getOrCreateThread } from '@/lib/api/chat'
-import { isVideoUnlocked, proposeMeetupPayment, simulateRecipientResponse, unlockVideo } from '@/lib/api/wallet'
+import { getOrCreateThread, proposePaymentInChat } from '@/lib/api/chat'
+import { isVideoUnlocked, unlockVideo } from '@/lib/api/wallet'
 import { getCallCreditBalance } from '@/lib/api/calls'
 import { canInteract } from '@/lib/api/subscription'
 import { ApiError, type ProfileVideo } from '@/lib/api/types'
@@ -37,6 +36,7 @@ import { ReportDialog } from '@/features/safety/components/report-dialog'
 import { CallScreen } from '@/features/calls/components/call-screen'
 import { VideoThumbnail } from '@/components/ui/video-thumbnail'
 import { VideoPlayerDialog } from '@/components/ui/video-player-dialog'
+import { getPresence } from '@/lib/api/presence'
 
 export function ProfileDetailPage() {
   const { profileId = '' } = useParams()
@@ -47,7 +47,6 @@ export function ProfileDetailPage() {
   const [blockConfirmOpen, setBlockConfirmOpen] = useState(false)
   const [blocking, setBlocking] = useState(false)
   const [interested, setInterested] = useState(false)
-  const [notified, setNotified] = useState(false)
   const [chatThreadId, setChatThreadId] = useState<string | null>(null)
   const [activePhoto, setActivePhoto] = useState(0)
   const [callMode, setCallMode] = useState<'video' | 'voice' | null>(null)
@@ -85,7 +84,7 @@ export function ProfileDetailPage() {
     if (!unlockTarget?.priceNaira || !profile) return
     setUnlocking(true)
     try {
-      await unlockVideo(unlockTarget.url, unlockTarget.priceNaira, profile.displayName)
+      await unlockVideo(unlockTarget.url)
       await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
       showToast({ title: 'Video unlocked', variant: 'success' })
       setPlayingVideo(unlockTarget.url)
@@ -106,7 +105,8 @@ export function ProfileDetailPage() {
     setPaymentError(null)
     setSendingPayment(true)
     try {
-      const payment = await proposeMeetupPayment(profile.id, profile.displayName, Number(paymentAmount))
+      const thread = await getOrCreateThread(profile.id, profile.displayName, profile.photos[0] ?? '')
+      await proposePaymentInChat(thread.id, profile.id, profile.displayName, Number(paymentAmount))
       showToast({
         title: 'Proposal sent',
         description: `Waiting for ${profile.displayName} to respond — nothing is charged until she agrees.`,
@@ -114,16 +114,6 @@ export function ProfileDetailPage() {
       })
       setPaymentOpen(false)
       setPaymentAmount('')
-      setTimeout(async () => {
-        const outcome = await simulateRecipientResponse(payment.id)
-        await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
-        await queryClient.invalidateQueries({ queryKey: ['meetup-payments'] })
-        showToast({
-          title: outcome === 'held' ? `${profile.displayName} accepted` : `${profile.displayName} declined`,
-          description: outcome === 'held' ? 'The amount is now held — release it once you meet up.' : 'No funds were charged.',
-          variant: outcome === 'held' ? 'success' : 'info',
-        })
-      }, 3000)
     } catch (error) {
       setPaymentError(error instanceof ApiError ? error.message : 'Could not send proposal. Try again.')
     } finally {
@@ -137,10 +127,6 @@ export function ProfileDetailPage() {
     showToast({ title: 'Interest sent', description: `${profile.displayName} will be notified.`, variant: 'success' })
     const thread = await getOrCreateThread(profile.id, profile.displayName, profile.photos[0])
     setChatThreadId(thread.id)
-    setTimeout(() => {
-      setNotified(true)
-      showToast({ title: `${profile.displayName} was notified`, description: 'You can now chat with each other.', variant: 'info' })
-    }, 1200)
   }
 
   async function handleBlock() {
@@ -169,7 +155,9 @@ export function ProfileDetailPage() {
   }
 
   const photos = profile.photos.length > 0 ? profile.photos : undefined
-  const { isLive, streamId } = getPresence(profile.id)
+  const { data: presence } = useQuery({ queryKey: ['presence', profile.id], queryFn: () => getPresence(profile.id) })
+  const isLive = presence?.isLive ?? false
+  const streamId = presence?.streamId
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
@@ -308,7 +296,7 @@ export function ProfileDetailPage() {
                 >
                   <Heart className="size-4" aria-hidden="true" /> {interested ? 'Interest sent' : 'Show interest'}
                 </Button>
-                {notified && chatThreadId && (
+                {chatThreadId && (
                   <Link to={`/messages/${chatThreadId}`} className={cn(buttonVariants({ variant: 'accent' }))}>
                     <MessageCircle className="size-4" aria-hidden="true" /> Chat
                   </Link>

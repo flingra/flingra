@@ -4,7 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { formatNaira } from '@/lib/utils'
-import { GIFT_CATALOG, buyGift, getOwnedGifts, getWalletBalance } from '@/lib/api/wallet'
+import { buyGift, getOwnedGifts, getWalletBalance, listGiftCatalog } from '@/lib/api/wallet'
 import { ApiError } from '@/lib/api/types'
 
 export function GiftShopPage() {
@@ -13,6 +13,7 @@ export function GiftShopPage() {
 
   const { data: balance } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance })
   const { data: owned } = useQuery({ queryKey: ['owned-gifts'], queryFn: getOwnedGifts })
+  const { data: gifts = [] } = useQuery({ queryKey: ['gift-catalog'], queryFn: listGiftCatalog })
 
   async function handleBuy(giftTypeId: string) {
     try {
@@ -42,7 +43,7 @@ export function GiftShopPage() {
       <p className="mt-1 text-sm text-ink-500">Buy gifts here, then send them on a livestream or in chat.</p>
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {GIFT_CATALOG.map((gift) => (
+        {gifts.map((gift) => (
           <div key={gift.id} className="flex flex-col items-center gap-2 rounded-3xl border border-ink-100 bg-white p-5 text-center shadow-soft">
             <span className="text-4xl">{gift.emoji}</span>
             <p className="font-semibold text-ink-900">{gift.name}</p>

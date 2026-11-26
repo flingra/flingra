@@ -1,7 +1,5 @@
-import { apiRequest, delay, ensureCsrfHeaders, resolveMediaUrl, uploadFile } from './client'
-import { PROFILES } from './mock-db'
+import { apiRequest, ensureCsrfHeaders, resolveMediaUrl, uploadFile } from './client'
 import {
-  ApiError,
   type DiscoveryFilters,
   type MemberProfile,
   type OwnProfile,
@@ -60,12 +58,7 @@ export async function getDiscoverableProfile(id: string): Promise<MemberProfile>
 }
 
 export async function getProfile(id: string): Promise<MemberProfile> {
-  await delay(null, 450)
-  const profile = PROFILES.find((item) => item.id === id)
-  if (!profile) {
-    throw new ApiError('PROFILE_NOT_FOUND', 'This profile is unavailable. It may have been removed.')
-  }
-  return profile
+  return getDiscoverableProfile(id)
 }
 
 export async function getOwnProfile(): Promise<OwnProfile> {
@@ -131,8 +124,16 @@ export async function uploadIdentityDocument(
 }
 
 export async function uploadVideo(file: File): Promise<string> {
-  await delay(null, 1200)
-  return URL.createObjectURL(file)
+  const result = await apiRequest<{ url: string }>(`/media/videos?purpose=profile`, {
+    method: 'POST',
+    headers: await ensureCsrfHeaders(),
+    body: (() => {
+      const form = new FormData()
+      form.append('file', file)
+      return form
+    })(),
+  })
+  return result.url
 }
 
 export interface NearbyVideo {
@@ -144,21 +145,11 @@ export interface NearbyVideo {
 
 /** Every VIP member, for the VIP showcase page — visible to everyone, interaction gated elsewhere. */
 export async function listVipProfiles(): Promise<MemberProfile[]> {
-  await delay(null, 500)
-  return PROFILES.filter((profile) => profile.id !== 'me' && profile.subscriptionTier === 'vip')
+  const profiles = await apiRequest<MemberProfile[]>('/profiles')
+  return profiles.map(resolveProfileMedia)
 }
 
 /** Only free (unlocked) videos appear in this teaser feed — paid content only shows on the profile itself. */
 export async function listNearbyVideos(): Promise<NearbyVideo[]> {
-  await delay(null, 400)
-  return PROFILES.filter((profile) => profile.id !== 'me' && profile.videos && profile.videos.length > 0).flatMap((profile) =>
-    (profile.videos ?? [])
-      .filter((video) => !video.locked)
-      .map((video) => ({
-        authorId: profile.id,
-        authorName: profile.displayName,
-        authorPhoto: profile.photos[0],
-        video: video.url,
-      })),
-  )
+  return apiRequest<NearbyVideo[]>('/videos/nearby')
 }

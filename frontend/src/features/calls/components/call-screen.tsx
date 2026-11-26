@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -13,17 +13,13 @@ import { useToast } from '@/components/ui/toast'
 import { getOwnProfile } from '@/lib/api/profiles'
 import {
   getOwnedGifts,
-  proposeMeetupPayment,
-  simulateReceivedGift,
-  simulateRecipientResponse,
   spendOwnedGift,
 } from '@/lib/api/wallet'
-import { CALL_CREDIT_TICK_SECONDS, getCallCreditBalance, LOW_CREDIT_WARNING_THRESHOLD, spendCallCredits } from '@/lib/api/calls'
+import { getCallCreditBalance, LOW_CREDIT_WARNING_THRESHOLD } from '@/lib/api/calls'
+import { getOrCreateThread, proposePaymentInChat } from '@/lib/api/chat'
 import { ApiError, type MemberProfile } from '@/lib/api/types'
 
 const RING_DURATION_MS = 2200
-/** Simulates the other party gifting back periodically, since this mock only has one real account. */
-const INCOMING_GIFT_INTERVAL_MS = 15000
 
 function formatElapsed(seconds: number) {
   const m = Math.floor(seconds / 60)
@@ -60,8 +56,6 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
     queryFn: getCallCreditBalance,
     enabled: isPayingCaller,
   })
-  const lowCreditWarnedRef = useRef(false)
-  const outOfCreditsRef = useRef(false)
 
   useEffect(() => {
     const ringTimer = setTimeout(() => setConnected(true), RING_DURATION_MS)
@@ -74,52 +68,10 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
     return () => clearInterval(tick)
   }, [connected])
 
-  // Once both sides are connected, the other party can gift back too — simulated
-  // here since this mock only has one real logged-in account.
-  useEffect(() => {
-    if (!connected) return
-    const giftTimer = setInterval(() => {
-      const gift = simulateReceivedGift(profile.id, profile.displayName)
-      queryClient.invalidateQueries({ queryKey: ['received-gifts'] })
-      showToast({ title: `${profile.displayName} sent you ${gift.emoji} ${gift.name}`, description: 'Redeem it from your wallet.', variant: 'success' })
-    }, INCOMING_GIFT_INTERVAL_MS)
-    return () => clearInterval(giftTimer)
-  }, [connected, profile.id, profile.displayName, queryClient, showToast])
-
-  // Meters the caller's own call-credit balance while connected, warns them once it
-  // runs low, and ends the call once it's exhausted — all private to this caller.
-  useEffect(() => {
-    if (!connected || !isPayingCaller) return
-    const tick = setInterval(() => {
-      const remaining = spendCallCredits()
-      queryClient.setQueryData(['call-credits'], remaining)
-      if (remaining <= 0 && !outOfCreditsRef.current) {
-        outOfCreditsRef.current = true
-        showToast({
-          title: "You're out of call credits",
-          description: 'This call is ending. Buy more call credits to keep talking.',
-          variant: 'error',
-        })
-        onEnd()
-        return
-      }
-      if (remaining > 0 && remaining <= LOW_CREDIT_WARNING_THRESHOLD && !lowCreditWarnedRef.current) {
-        lowCreditWarnedRef.current = true
-        showToast({
-          title: 'Call credit running low',
-          description: `Only ${remaining} coin${remaining === 1 ? '' : 's'} left. Buy more from the call credit store.`,
-          variant: 'info',
-        })
-      }
-    }, CALL_CREDIT_TICK_SECONDS * 1000)
-    return () => clearInterval(tick)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, isPayingCaller])
-
   async function handleSendGift(giftTypeId: string) {
     setGiftPickerOpen(false)
     try {
-      const gift = await spendOwnedGift(giftTypeId)
+      const gift = await spendOwnedGift(giftTypeId, profile.id)
       await queryClient.invalidateQueries({ queryKey: ['owned-gifts'] })
       showToast({ title: `You sent ${gift.emoji} ${gift.name}`, variant: 'success' })
     } catch (error) {
@@ -134,20 +86,11 @@ export function CallScreen({ profile, mode, onEnd }: { profile: MemberProfile; m
   async function handleProposePayment() {
     setProposingPayment(true)
     try {
-      const payment = await proposeMeetupPayment(profile.id, profile.displayName, Number(paymentAmount))
+      const thread = await getOrCreateThread(profile.id, profile.displayName, profile.photos[0] ?? '')
+      await proposePaymentInChat(thread.id, profile.id, profile.displayName, Number(paymentAmount))
       setPaymentDialogOpen(false)
       setPaymentAmount('')
       showToast({ title: 'Proposal sent', description: `Waiting for ${profile.displayName} to respond.`, variant: 'success' })
-      setTimeout(async () => {
-        const outcome = await simulateRecipientResponse(payment.id)
-        await queryClient.invalidateQueries({ queryKey: ['meetup-payments'] })
-        await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
-        showToast({
-          title: outcome === 'held' ? `${profile.displayName} accepted` : `${profile.displayName} declined`,
-          description: outcome === 'held' ? 'The amount is now held — release it once you meet up.' : 'No funds were charged.',
-          variant: outcome === 'held' ? 'success' : 'info',
-        })
-      }, 3000)
     } catch (error) {
       showToast({
         title: 'Could not send proposal',
