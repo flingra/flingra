@@ -17,6 +17,18 @@ router = APIRouter(tags=["realtime"])
 EVENT_RETENTION = timedelta(days=7)
 
 
+def is_origin_allowed(
+    origin: str | None,
+    allowed_origins: list[str],
+    *,
+    request_scheme: str,
+    request_netloc: str,
+) -> bool:
+    expected_scheme = "https" if request_scheme in {"https", "wss"} else "http"
+    same_origin = origin == f"{expected_scheme}://{request_netloc}"
+    return same_origin or origin in allowed_origins
+
+
 def enqueue_realtime_event(
     db: Session,
     recipient_id: str,
@@ -50,12 +62,9 @@ def _authenticated_account_id(websocket: WebSocket, db: Session) -> str | None:
             SELECT a.id, a.date_of_birth
             FROM sessions s
             JOIN accounts a ON a.id = s.account_id
-            JOIN profiles p ON p.account_id = a.id
             WHERE s.session_token_hash = :token_hash
               AND s.revoked_at IS NULL AND s.expires_at > :now
               AND a.email_verified = TRUE AND a.account_state = 'active'
-              AND p.onboarding_complete = TRUE
-              AND p.document_verification = 'verified'
             """
         ),
         {
@@ -77,7 +86,12 @@ def _authenticated_account_id(websocket: WebSocket, db: Session) -> str | None:
 async def realtime_events(websocket: WebSocket) -> None:
     settings = websocket.app.state.settings
     origin = websocket.headers.get("origin")
-    if not settings.allowed_origins or origin is None or origin not in settings.allowed_origins:
+    if not is_origin_allowed(
+        origin,
+        settings.allowed_origins,
+        request_scheme=websocket.url.scheme,
+        request_netloc=websocket.url.netloc,
+    ):
         await websocket.close(code=4403)
         return
     cursor_text = websocket.query_params.get("after")

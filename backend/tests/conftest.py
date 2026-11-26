@@ -114,7 +114,9 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 role TEXT NOT NULL DEFAULT 'reviewer',
                 failed_login_attempts INTEGER NOT NULL DEFAULT 0, locked_until DATETIME,
                 disabled_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                totp_secret TEXT, totp_pending_secret TEXT,
+                totp_enabled BOOLEAN NOT NULL DEFAULT FALSE
             )
             """
         )

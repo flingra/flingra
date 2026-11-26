@@ -24,6 +24,7 @@ from app.routes.safety import router as safety_router
 from app.routes.chat import router as chat_router
 from app.routes.settings import router as settings_router
 from app.routes.admin_safety import router as admin_safety_router
+from app.routes.admin_operations import router as admin_operations_router
 from app.routes.content import router as content_router
 from app.routes.profile_extras import router as profile_extras_router
 from app.routes.subscriptions import router as subscriptions_router
@@ -106,6 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(auth_router)
     application.include_router(admin_router)
     application.include_router(admin_safety_router)
+    application.include_router(admin_operations_router)
     application.include_router(profiles_router)
     application.include_router(discovery_router)
     application.include_router(location_router)

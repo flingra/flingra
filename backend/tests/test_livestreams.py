@@ -172,6 +172,9 @@ def test_live_stream_lifecycle_issues_restricted_livekit_tokens(api_client, monk
 
 def test_livekit_token_requires_credentials(api_client) -> None:
     client, _ = api_client
+    client.app.state.settings.livekit_url = None
+    client.app.state.settings.livekit_api_key = None
+    client.app.state.settings.livekit_api_secret = None
     with pytest.raises(ServiceUnavailable):
         livekit.create_room_token(
             client.app.state.settings,

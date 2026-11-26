@@ -233,6 +233,8 @@ def get_authenticated_account(
         raise ApiException("UNAUTHENTICATED", "Sign in to continue.", 401)
     if result["account_state"] in {"deletion_requested", "deleted"}:
         raise ApiException("ACCOUNT_DELETION_PENDING", "This account is scheduled for deletion.", 403)
+    if result["account_state"] in {"suspended", "banned"}:
+        raise ApiException("ACCOUNT_SUSPENDED", "This account is not permitted to sign in.", 403)
     if result["last_active_at"] is None or _as_datetime(result["last_active_at"]) < _now() - timedelta(minutes=1):
         db.execute(
             text("UPDATE sessions SET last_active_at = :now WHERE id = :session_id"),
@@ -621,6 +623,19 @@ def sign_in(
         )
         db.commit()
         raise ApiException("ACCOUNT_DELETION_PENDING", "This account is scheduled for deletion.", 403)
+    if account["account_state"] in {"suspended", "banned"}:
+        record_audit_event(
+            db,
+            request,
+            event_type="auth.login",
+            actor_type="anonymous",
+            actor_id=None,
+            subject_account_id=str(account["id"]),
+            outcome="denied",
+            metadata={"reason": "account_suspended"},
+        )
+        db.commit()
+        raise ApiException("ACCOUNT_SUSPENDED", "This account is not permitted to sign in.", 403)
 
     db.execute(
         text("UPDATE accounts SET login_failed_attempts = 0, locked_until = NULL WHERE id = :account_id"),
@@ -919,6 +934,8 @@ def google_auth(
     if account is not None:
         if account["account_state"] in {"deletion_requested", "deleted"}:
             raise ApiException("ACCOUNT_DELETION_PENDING", "This account is scheduled for deletion.", 403)
+        if account["account_state"] in {"suspended", "banned"}:
+            raise ApiException("ACCOUNT_SUSPENDED", "This account is not permitted to sign in.", 403)
         if account["google_sub"] not in (None, google_sub):
             raise ApiException(
                 "GOOGLE_ACCOUNT_LINKED_ELSEWHERE",

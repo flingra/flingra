@@ -1,6 +1,7 @@
 import json
 import uuid
 
+import pyotp
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -141,6 +142,52 @@ def test_admin_login_is_separate_and_csrf_protected(api_client) -> None:
     )
     assert logged_out.status_code == 204
     assert client.get("/admin/auth/session").json() is None
+
+
+def test_admin_mfa_and_password_change_flow(api_client) -> None:
+    client, _ = api_client
+    admin_id = seed_admin(client)
+    assert admin_login(client).status_code == 200
+    csrf = {"X-CSRF-Token": client.cookies["flingra_admin_csrf"]}
+
+    setup = client.post("/admin/auth/mfa/setup", headers=csrf)
+    assert setup.status_code == 200
+    secret = setup.json()["secret"]
+    code = pyotp.TOTP(secret).now()
+    enabled = client.post("/admin/auth/mfa/enable", headers=csrf, json={"code": code})
+    assert enabled.status_code == 200
+    assert enabled.json() == {"enabled": True}
+
+    client.post("/admin/auth/logout", headers=csrf)
+    required = admin_login(client)
+    assert required.status_code == 401
+    assert required.json()["error"]["code"] == "ADMIN_MFA_REQUIRED"
+    authenticated = client.post(
+        "/admin/auth/login",
+        json={"email": "reviewer@example.test", "password": "a-very-long-admin-password", "mfaCode": pyotp.TOTP(secret).now()},
+    )
+    assert authenticated.status_code == 200
+
+    password_change = client.post(
+        "/admin/auth/password",
+        headers={"X-CSRF-Token": client.cookies["flingra_admin_csrf"]},
+        json={
+            "currentPassword": "a-very-long-admin-password",
+            "newPassword": "an-even-longer-new-admin-password",
+        },
+    )
+    assert password_change.status_code == 200
+    assert password_change.json() == {"status": "updated"}
+    assert admin_login(client).status_code == 401
+    assert client.post(
+        "/admin/auth/login",
+        json={
+            "email": "reviewer@example.test",
+            "password": "an-even-longer-new-admin-password",
+            "mfaCode": pyotp.TOTP(secret).now(),
+        },
+    ).status_code == 200
+    assert admin_id
 
 
 def test_admin_reviews_are_user_scoped_audited_and_paginated(api_client) -> None:

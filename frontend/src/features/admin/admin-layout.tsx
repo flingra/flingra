@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { ShieldCheck, ClipboardCheck, ShieldAlert, HeartHandshake, Users, ScrollText, LogOut, Coins } from 'lucide-react'
+import { ShieldCheck, ClipboardCheck, ShieldAlert, HeartHandshake, Users, ScrollText, LogOut, Coins, FileText, UserRound, Wallet, LockKeyhole, Gift, Radio, LayoutDashboard, KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAdminStore } from '@/lib/stores/admin-store'
 
@@ -9,11 +9,23 @@ export function AdminLayout() {
   const navigate = useNavigate()
   if (!session) return null
   const links = [
-    { to: '/admin', label: 'Reviews', icon: ClipboardCheck, roles: ['super_admin', 'reviewer'] },
+    { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, roles: ['super_admin', 'reviewer', 'safety_admin', 'auditor'] },
+    { to: '/admin/security', label: 'Security', icon: KeyRound, roles: ['super_admin', 'reviewer', 'safety_admin', 'auditor'] },
+    { to: '/admin/reviews', label: 'Reviews', icon: ClipboardCheck, roles: ['super_admin', 'reviewer'] },
     { to: '/admin/safety-reviews', label: 'Safety reviews', icon: ShieldAlert, roles: ['super_admin', 'safety_admin'] },
-    { to: '/admin/meetup-disputes', label: 'Meetup disputes', icon: HeartHandshake, roles: ['super_admin', 'safety_admin'] },
+    { to: '/admin/safety-reports', label: 'Safety reports', icon: FileText, roles: ['super_admin', 'safety_admin'] },
+    { to: '/admin/meetup-disputes', label: 'Meetup disputes', icon: HeartHandshake, roles: ['super_admin'] },
+    { to: '/admin/users', label: 'Members', icon: UserRound, roles: ['super_admin'] },
+    { to: '/admin/privacy-requests', label: 'Privacy requests', icon: LockKeyhole, roles: ['super_admin'] },
+    { to: '/admin/payouts', label: 'Payouts', icon: Wallet, roles: ['super_admin'] },
+    { to: '/admin/wallet-adjustments', label: 'Wallet adjustments', icon: Wallet, roles: ['super_admin'] },
+    { to: '/admin/gifts', label: 'Gift catalog', icon: Gift, roles: ['super_admin'] },
+    { to: '/admin/subscriptions', label: 'Subscriptions', icon: Coins, roles: ['super_admin'] },
+    { to: '/admin/live-streams', label: 'Live streams', icon: Radio, roles: ['super_admin', 'safety_admin'] },
+    { to: '/admin/content', label: 'Content', icon: FileText, roles: ['super_admin', 'safety_admin'] },
     { to: '/admin/admins', label: 'Admins', icon: Users, roles: ['super_admin'] },
     { to: '/admin/audit', label: 'Audit', icon: ScrollText, roles: ['super_admin', 'safety_admin', 'auditor'] },
+    { to: '/admin/audit/events', label: 'Platform audit', icon: ScrollText, roles: ['super_admin', 'auditor'] },
     { to: '/admin/coin-pricing', label: 'Coin pricing', icon: Coins, roles: ['super_admin'] },
   ].filter((link) => link.roles.includes(session.role))
   return (
@@ -25,7 +37,7 @@ export function AdminLayout() {
         </div>
       </header>
       <div className="mx-auto grid max-w-7xl gap-6 px-6 py-8 md:grid-cols-[220px_1fr]">
-        <nav className="flex gap-2 md:flex-col">{links.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/admin'} className={({ isActive }) => `flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold ${isActive ? 'bg-primary-500 text-white' : 'text-ink-600 hover:bg-white'}`}><Icon className="size-4" />{label}</NavLink>)}</nav>
+        <nav className="flex flex-wrap gap-2 md:flex-col">{links.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/admin'} className={({ isActive }) => `flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold ${isActive ? 'bg-primary-500 text-white' : 'text-ink-600 hover:bg-white'}`}><Icon className="size-4" />{label}</NavLink>)}</nav>
         <main><Outlet /></main>
       </div>
     </div>

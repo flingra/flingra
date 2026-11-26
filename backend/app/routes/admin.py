@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal, cast
 
+import pyotp
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import text
@@ -19,6 +20,8 @@ from app.schemas import (
     AdminAccountUpdateRequest,
     AdminAccountCreateRequest,
     AdminLoginRequest,
+    AdminMfaVerifyRequest,
+    AdminPasswordChangeRequest,
     AdminReviewDecisionRequest,
     AdminRole,
     AdminSessionResponse,
@@ -243,7 +246,8 @@ def admin_login(
         db.execute(
             text(
                 """
-                SELECT id, email, password_hash, failed_login_attempts, locked_until, role
+                SELECT id, email, password_hash, failed_login_attempts, locked_until, role,
+                       totp_secret, totp_enabled
                 FROM admin_users
                 WHERE email = :email AND disabled_at IS NULL
                 """
@@ -294,6 +298,54 @@ def admin_login(
             )
         db.commit()
         raise ApiException("INVALID_ADMIN_CREDENTIALS", "Email or password is incorrect.", 401)
+
+    if admin["totp_enabled"]:
+        code = body.mfa_code or ""
+        secret = admin["totp_secret"]
+        if not code:
+            record_audit_event(
+                db,
+                request,
+                event_type="admin.login",
+                actor_type="anonymous",
+                actor_id=None,
+                subject_account_id=None,
+                outcome="denied",
+                metadata={"reason": "mfa_required"},
+            )
+            db.commit()
+            raise ApiException("ADMIN_MFA_REQUIRED", "Enter your authenticator code to continue.", 401)
+        if not secret or not pyotp.TOTP(str(secret)).verify(code, valid_window=1):
+            db.execute(
+                text(
+                    """
+                    UPDATE admin_users
+                    SET locked_until = CASE
+                            WHEN failed_login_attempts >= :lock_threshold THEN :locked_until
+                            ELSE NULL
+                        END,
+                        failed_login_attempts = failed_login_attempts + 1
+                    WHERE id = :admin_id
+                    """
+                ),
+                {
+                    "lock_threshold": MAX_LOGIN_ATTEMPTS - 1,
+                    "locked_until": now + LOCKOUT_DURATION,
+                    "admin_id": admin["id"],
+                },
+            )
+            record_audit_event(
+                db,
+                request,
+                event_type="admin.login",
+                actor_type="anonymous",
+                actor_id=None,
+                subject_account_id=None,
+                outcome="failure",
+                metadata={"reason": "invalid_mfa"},
+            )
+            db.commit()
+            raise ApiException("ADMIN_MFA_INVALID", "The authenticator code is invalid.", 401)
 
     db.execute(
         text(
@@ -422,6 +474,197 @@ def admin_logout(
     _clear_admin_cookies(response, settings)
     response.status_code = 204
     return response
+
+
+@router.post(
+    "/auth/mfa/setup",
+    dependencies=[Depends(require_admin_csrf)],
+)
+def setup_admin_mfa(
+    request: Request,
+    db: DbSession,
+    admin: CurrentAdmin,
+) -> dict[str, str]:
+    secret = pyotp.random_base32()
+    db.execute(
+        text("UPDATE admin_users SET totp_pending_secret = :secret WHERE id = :id"),
+        {"secret": secret, "id": admin.admin_id},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.mfa.setup_started",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=None,
+        outcome="success",
+    )
+    db.commit()
+    return {
+        "secret": secret,
+        "provisioningUri": pyotp.TOTP(secret).provisioning_uri(
+            name=admin["email"],
+            issuer_name="Flingra Admin",
+        ),
+    }
+
+
+@router.get("/auth/mfa/status")
+def get_admin_mfa_status(
+    db: DbSession,
+    admin: CurrentAdmin,
+) -> dict[str, bool]:
+    enabled = db.execute(
+        text("SELECT totp_enabled FROM admin_users WHERE id = :id"),
+        {"id": admin.admin_id},
+    ).scalar_one()
+    return {"enabled": bool(enabled)}
+
+
+@router.post(
+    "/auth/mfa/enable",
+    dependencies=[Depends(require_admin_csrf)],
+)
+def enable_admin_mfa(
+    body: AdminMfaVerifyRequest,
+    request: Request,
+    db: DbSession,
+    admin: CurrentAdmin,
+) -> dict[str, bool]:
+    secret = db.execute(
+        text("SELECT totp_pending_secret FROM admin_users WHERE id = :id"),
+        {"id": admin.admin_id},
+    ).scalar_one_or_none()
+    if not secret or not pyotp.TOTP(str(secret)).verify(body.code, valid_window=1):
+        raise ApiException("ADMIN_MFA_CODE_INVALID", "The authenticator code is invalid.", 400)
+    db.execute(
+        text(
+            """
+            UPDATE admin_users
+            SET totp_secret = :secret, totp_pending_secret = NULL, totp_enabled = TRUE
+            WHERE id = :id
+            """
+        ),
+        {"secret": secret, "id": admin.admin_id},
+    )
+    raw_token = request.cookies.get("flingra_admin_session", "")
+    db.execute(
+        text(
+            """
+            UPDATE admin_sessions SET revoked_at = :now
+            WHERE admin_id = :admin_id AND revoked_at IS NULL
+              AND session_token_hash != :token_hash
+            """
+        ),
+        {"now": _now(), "admin_id": admin.admin_id, "token_hash": hash_token(raw_token)},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.mfa.enabled",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=None,
+        outcome="success",
+    )
+    db.commit()
+    return {"enabled": True}
+
+
+@router.post(
+    "/auth/mfa/disable",
+    dependencies=[Depends(require_admin_csrf)],
+)
+def disable_admin_mfa(
+    body: AdminMfaVerifyRequest,
+    request: Request,
+    db: DbSession,
+    admin: CurrentAdmin,
+) -> dict[str, bool]:
+    secret = db.execute(
+        text("SELECT totp_secret FROM admin_users WHERE id = :id AND totp_enabled = TRUE"),
+        {"id": admin.admin_id},
+    ).scalar_one_or_none()
+    if not secret or not pyotp.TOTP(str(secret)).verify(body.code, valid_window=1):
+        raise ApiException("ADMIN_MFA_CODE_INVALID", "The authenticator code is invalid.", 400)
+    db.execute(
+        text(
+            """
+            UPDATE admin_users
+            SET totp_secret = NULL, totp_pending_secret = NULL, totp_enabled = FALSE
+            WHERE id = :id
+            """
+        ),
+        {"id": admin.admin_id},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.mfa.disabled",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=None,
+        outcome="success",
+    )
+    db.commit()
+    return {"enabled": False}
+
+
+@router.post(
+    "/auth/password",
+    dependencies=[Depends(require_admin_csrf)],
+)
+def change_admin_password(
+    body: AdminPasswordChangeRequest,
+    request: Request,
+    db: DbSession,
+    admin: CurrentAdmin,
+) -> dict[str, str]:
+    password_hash = db.execute(
+        text("SELECT password_hash FROM admin_users WHERE id = :id"),
+        {"id": admin.admin_id},
+    ).scalar_one()
+    if not verify_password(password_hash, body.current_password):
+        record_audit_event(
+            db,
+            request,
+            event_type="admin.password.change_denied",
+            actor_type="admin",
+            actor_id=admin.admin_id,
+            subject_account_id=None,
+            outcome="denied",
+            metadata={"reason": "current_password_invalid"},
+        )
+        db.commit()
+        raise ApiException("ADMIN_PASSWORD_INVALID", "Current password is incorrect.", 400)
+    if body.current_password == body.new_password:
+        raise ApiException("ADMIN_PASSWORD_UNCHANGED", "Choose a new password different from the current one.", 400)
+    db.execute(
+        text("UPDATE admin_users SET password_hash = :password_hash WHERE id = :id"),
+        {"password_hash": hash_password(body.new_password), "id": admin.admin_id},
+    )
+    raw_token = request.cookies.get("flingra_admin_session", "")
+    db.execute(
+        text(
+            """
+            UPDATE admin_sessions SET revoked_at = :now
+            WHERE admin_id = :admin_id AND revoked_at IS NULL
+              AND session_token_hash != :token_hash
+            """
+        ),
+        {"now": _now(), "admin_id": admin.admin_id, "token_hash": hash_token(raw_token)},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.password.changed",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=None,
+        outcome="success",
+    )
+    db.commit()
+    return {"status": "updated"}
 
 
 @router.get("/call-credits/price")

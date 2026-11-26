@@ -144,7 +144,7 @@ Message body:
 
 `text` may be empty only when an attachment is supplied. Upload chat media first; the backend accepts owned media URLs, not `blob:` URLs. There is currently **no list-all meetup-payments endpoint**. The mock `listMeetupPayments()` cannot be directly replaced; either derive payment cards from messages and fetch by ID, or agree on and add a participant-scoped list endpoint.
 
-Connect to authenticated WebSocket `/realtime/ws` using the session cookie. Reconnect with `?after=<last-event-id>` to resume. Events have shape `{"id": 123, "type": "...", "data": {...}}`. Implemented event types include `chat.message`, `wallet.gift_received`, `meetup_payment.updated`, call events, and livestream events. Gift payload includes `{giftId, giftTypeId, giftName, giftEmoji, senderName}`. The current notification bell handles only the gift event.
+Connect to authenticated WebSocket `/realtime/ws` using the session cookie. Same-origin connections are accepted; cross-origin frontend deployments must have their exact HTTPS origin in backend `FLINGRA_ALLOWED_ORIGINS`. The endpoint accepts any authenticated, active member session (identity verification is not required for opening the event stream). Reconnect with `?after=<last-event-id>` to resume. Events have shape `{"id": 123, "type": "...", "data": {...}}`. Implemented event types include `chat.message`, `wallet.gift_received`, `meetup_payment.updated`, call events, and livestream events. Gift payload includes `{giftId, giftTypeId, giftName, giftEmoji, senderName}`. The current notification bell handles only the gift event.
 
 ### Safety and settings
 
@@ -251,25 +251,62 @@ Admin calls use the separate `flingra_admin_csrf` token and admin session cookie
 
 | Method and path | Request | Success response |
 |---|---|---|
-| `POST /admin/auth/login` | `{email, password}` | `{adminId, email, role}` |
+| `POST /admin/auth/login` | `{email, password, mfaCode?}` | `{adminId, email, role}` |
 | `GET /admin/auth/session` | — | admin session or `null` |
 | `POST /admin/auth/logout` | — + admin CSRF | `204` |
+| `GET /admin/auth/mfa/status` | — | `{enabled}` |
+| `POST /admin/auth/mfa/setup` | — + admin CSRF | `{secret, provisioningUri}` |
+| `POST /admin/auth/mfa/enable`, `/mfa/disable` | `{code}` + admin CSRF | `{enabled}` |
+| `POST /admin/auth/password` | `{currentPassword, newPassword}` + admin CSRF | `{status: "updated"}` |
+| `GET /admin/users?search=&status=&limit=&offset=` | Query | member account summaries |
+| `GET /admin/users/{account_id}` | — | member account detail |
+| `POST /admin/users/{account_id}/status` | `{status: "active" \| "suspended" \| "banned", reason}` + admin CSRF | updated account status |
+| `POST /admin/users/{account_id}/sessions/revoke` | — + admin CSRF | revoked session count |
+| `POST /admin/users/{account_id}/wallet-adjustments` | `{amount_kobo, reason}` + admin CSRF | updated wallet balance |
+| `POST /admin/users/{account_id}/call-credit-adjustments` | `{amount, reason}` + admin CSRF | updated call-credit balance |
+| `PUT /admin/users/{account_id}/subscription` | `{tier, expires_at?, reason}` + admin CSRF | updated subscription |
+| `GET /admin/subscriptions?tier=&limit=&offset=` | Query | member subscription queue |
+| `GET /admin/subscription-plans` | — | plan catalog |
+| `PATCH /admin/subscription-plans/{plan_id}` | plan fields + admin CSRF | updated plan |
 | `GET /admin/reviews?type=&limit=&offset=` | Query | `{items, nextOffset}` |
 | `GET /admin/reviews/{review_id}` | — | review details |
 | `GET /admin/reviews/{review_id}/document` | — | protected document |
 | `POST /admin/reviews/{review_id}/decision` | `{decision: "approved" \| "rejected", reason}` + admin CSRF | updated review |
 | `GET /admin/safety/reviews?status=&limit=&offset=` | Query | safety review queue |
 | `POST /admin/safety/reviews/{review_id}/decision` | `{decision: "reviewed" \| "dismissed", reason}` + admin CSRF | updated review |
+| `GET /admin/safety/reports?status=&limit=&offset=` | Query | `{items, nextOffset}` |
+| `POST /admin/safety/reports/{report_id}/decision` | `{decision: "reviewed" \| "dismissed", reason}` + admin CSRF | updated report |
 | `GET /admin/users/{account_id}/audit` | optional `eventType`, `outcome`, `limit`, `offset` | `{items, nextOffset}` |
+| `GET /admin/audit/events?eventType=&outcome=&accountId=&limit=&offset=` | Query | platform audit stream |
+| `GET /admin/dashboard` | — | operational queue and service counts |
+| `GET /admin/privacy/requests?status=&limit=&offset=` | Query | `{items, nextOffset}` |
+| `POST /admin/privacy/requests/{request_id}/retry` | — + admin CSRF | requeued failed request |
+| `GET /admin/payouts?status=&limit=&offset=` | Query | `{items, nextOffset}` |
+| `GET /admin/gift-catalog` | — | gift catalog |
+| `POST /admin/gift-catalog` | gift fields + admin CSRF | created gift |
+| `PATCH /admin/gift-catalog/{gift_id}` | gift fields + admin CSRF | updated gift |
+| `GET /admin/live-streams?status=&limit=&offset=` | Query | `{items, nextOffset}` |
+| `POST /admin/live-streams/{stream_id}/end` | — + admin CSRF | closed stream |
+| `GET /admin/content/posts`, `GET /admin/content/statuses` | Query | moderated content queues |
+| `DELETE /admin/content/posts/{post_id}`, `DELETE /admin/content/statuses/{status_id}` | — + admin CSRF | removed content |
 | `GET /admin/admins?limit=&offset=` | Query | `{items, nextOffset}` |
 | `POST /admin/admins` | `{email, password, role?}` + admin CSRF | admin account |
 | `PATCH /admin/admins/{target_admin_id}` | `{role?, disabled?}` + admin CSRF | updated admin account |
+
+The admin portal includes account security settings for authenticator MFA and
+password rotation. Apply database migration `000028_admin_mfa.sql` before
+deploying these endpoints. MFA setup returns the authenticator secret once;
+store it only in the administrator's authenticator app.
 | `GET /admin/call-credits/price` | — | `{priceNaira}` |
 | `PUT /admin/call-credits/price` | `{priceNaira}` + admin CSRF | `{priceNaira}` |
 | `GET /admin/meetup-payments/disputes?limit=` | Query | dispute queue |
 | `POST /admin/meetup-payments/{payment_id}/resolve` | `{resolution: "release" \| "refund", reason}` + admin CSRF | updated payment |
 
-Some admin endpoints are implemented but not yet exposed through the frontend admin adapter/UI.
+The admin console exposes the member, safety report/review, privacy request,
+payout, audit, staff-account, review, meetup-dispute, and call-credit pricing
+surfaces. Payout operations are read-only: provider retries and manual
+settlement are deliberately not exposed because they can create duplicate
+transfers or ledger adjustments.
 
 ### Health and provider callbacks (not browser feature APIs)
 

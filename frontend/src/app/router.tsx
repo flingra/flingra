@@ -39,6 +39,7 @@ import { AdminRoute } from '@/features/admin/admin-route'
 import { AdminLayout } from '@/features/admin/admin-layout'
 import { AdminAccountsPage, AdminAuditPage, AdminLoginPage, AdminMeetupDisputesPage, AdminReviewsPage, AdminSafetyReviewsPage } from '@/features/admin/admin-pages'
 import { AdminCoinPricingPage } from '@/features/admin/pages/admin-coin-pricing-page'
+import { AdminAuditEventsPage, AdminContentPage, AdminDashboardPage, AdminGiftCatalogPage, AdminLiveStreamsPage, AdminPayoutsPage, AdminPrivacyRequestsPage, AdminSafetyReportsPage, AdminSecurityPage, AdminSubscriptionsPage, AdminUsersPage, AdminWalletAdjustmentsPage } from '@/features/admin/admin-operations-pages'
 
 export function AppRouter() {
   return (
@@ -256,12 +257,24 @@ export function AppRouter() {
       <Route path="admin/login" element={<AdminLoginPage />} />
       <Route element={<AdminRoute />}>
         <Route element={<AdminLayout />}>
-          <Route path="admin" element={<AdminReviewsPage />} />
+          <Route path="admin" element={<AdminDashboardPage />} />
+          <Route path="admin/security" element={<AdminSecurityPage />} />
+          <Route path="admin/reviews" element={<AdminReviewsPage />} />
           <Route path="admin/admins" element={<AdminAccountsPage />} />
           <Route path="admin/audit" element={<AdminAuditPage />} />
           <Route path="admin/coin-pricing" element={<AdminCoinPricingPage />} />
           <Route path="admin/safety-reviews" element={<AdminSafetyReviewsPage />} />
+          <Route path="admin/safety-reports" element={<AdminSafetyReportsPage />} />
           <Route path="admin/meetup-disputes" element={<AdminMeetupDisputesPage />} />
+          <Route path="admin/users" element={<AdminUsersPage />} />
+          <Route path="admin/privacy-requests" element={<AdminPrivacyRequestsPage />} />
+          <Route path="admin/payouts" element={<AdminPayoutsPage />} />
+          <Route path="admin/wallet-adjustments" element={<AdminWalletAdjustmentsPage />} />
+          <Route path="admin/gifts" element={<AdminGiftCatalogPage />} />
+          <Route path="admin/subscriptions" element={<AdminSubscriptionsPage />} />
+          <Route path="admin/live-streams" element={<AdminLiveStreamsPage />} />
+          <Route path="admin/content" element={<AdminContentPage />} />
+          <Route path="admin/audit/events" element={<AdminAuditEventsPage />} />
         </Route>
       </Route>
     </Routes>

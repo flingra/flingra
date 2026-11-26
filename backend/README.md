@@ -218,13 +218,31 @@ Implemented endpoints:
 - `GET /wallet/gifts/catalog`, `/wallet/gifts/owned`, `/wallet/gifts/received`
 - `POST /wallet/gifts/buy`, `/wallet/gifts/{gift_type_id}/spend`,
   `/wallet/gifts/{gift_id}/redeem`, `/wallet/gifts/redeem-all`
-- `POST /admin/auth/login`, `GET /admin/auth/session`, `POST /admin/auth/logout`
+- `POST /admin/auth/login` (optional `mfaCode`),
+  `GET /admin/auth/session`, `POST /admin/auth/logout`
+- `GET /admin/auth/mfa/status`, `POST /admin/auth/mfa/setup`,
+  `/mfa/enable`, `/mfa/disable`, `POST /admin/auth/password`
 - `GET /admin/reviews`, `GET /admin/reviews/{review_id}`
 - `GET /admin/reviews/{review_id}/document`
 - `POST /admin/reviews/{review_id}/decision`
 - `GET /admin/safety/reviews`, `POST /admin/safety/reviews/{review_id}/decision`
 - `GET /admin/users/{account_id}/audit`
 - `GET /admin/admins`, `PATCH /admin/admins/{admin_id}` (super admin only)
+- `GET /admin/users`, `/admin/users/{account_id}` and
+  `POST /admin/users/{account_id}/status`,
+  `/sessions/revoke`, `/wallet-adjustments`, `/call-credit-adjustments`,
+  `/subscription`
+- `GET /admin/safety/reports`, `POST /admin/safety/reports/{report_id}/decision`
+- `GET /admin/privacy/requests`, `POST /admin/privacy/requests/{request_id}/retry`
+- `GET /admin/payouts` (read-only operational inspection)
+- `GET /admin/subscription-plans`, `PATCH /admin/subscription-plans/{plan_id}`,
+  `GET /admin/subscriptions`
+- `GET/POST/PATCH /admin/gift-catalog`
+- `GET /admin/live-streams`, `POST /admin/live-streams/{stream_id}/end`
+- `GET /admin/content/posts`, `DELETE /admin/content/posts/{post_id}`
+- `GET /admin/content/statuses`, `DELETE /admin/content/statuses/{status_id}`
+- `GET /admin/audit/events`
+- `GET /admin/dashboard`
 
 All signup and sign-in paths enforce a minimum age of 21; existing sessions
 belonging to underage accounts are revoked when used. Government ID review is
@@ -327,14 +345,19 @@ origin(s) in production; otherwise admin requests use the general
 failures. Do not expose the admin API without TLS, configured
 trusted origins, and available Redis rate-limit storage.
 
+WebSocket origins must match the exact HTTP(S) origin of the API host or an
+entry in `FLINGRA_ALLOWED_ORIGINS`. Same-origin clients work without an
+allowlist; cross-origin deployments must configure the frontend origin or the
+upgrade is rejected.
+
 Admin authorization is role-based and enforced on every protected endpoint:
 
 | Role | Permissions |
 | --- | --- |
-| `super_admin` | All admin operations; manage staff roles and disable/enable accounts |
+| `super_admin` | Admin operations; manage staff, member accounts, privacy requests, payouts and audit |
 | `reviewer` | View profile/document review queues and details; view documents and decide reviews |
-| `safety_admin` | Read user-scoped audit history; reserved for authorized safety-case workflows |
-| `auditor` | Read user-scoped audit history only |
+| `safety_admin` | Review safety reports/review requests and suspend or ban members |
+| `auditor` | Read user-scoped and platform audit history |
 
 Only a super admin can list or update admin accounts. Role/disable changes are
 CSRF-protected and audited; disabling an account revokes its active sessions.
@@ -415,10 +438,16 @@ API key and verified sender address. The API key is loaded as a secret and is
 never included in logs or API error responses. Phone-based signup is
 currently unavailable until an SMS provider is configured. Facial/selfie
 verification is not used. Completed profiles enter pending moderation for manual admin review. The
-backend now supports basic profile/document approval and rejection, but does
-implement safety reports, blocking, and a safety-review queue. Admin MFA,
-password rotation/recovery, privacy-request processing, and an admin frontend
-remain unimplemented. The frontend uses the backend for Discover feeds and
+backend now supports basic profile/document approval and rejection, safety
+reports, blocking, and a safety-review queue. Admin TOTP MFA and password
+rotation are implemented; password recovery, automated payout
+reconciliation/retry, livestream participant/chat moderation, and chat-message
+moderation remain unimplemented.
+Apply migration `000028_admin_mfa.sql` before deploying the admin MFA endpoints.
+The payout admin surface is read-only to avoid duplicate provider transfers.
+The admin frontend exposes member account controls, safety reports, privacy
+request retries, payout inspection, content and stream moderation, subscription
+and gift catalog controls, wallet adjustments, and platform audit search. The frontend uses the backend for Discover feeds and
 discoverable profile details; other feature areas still use mock APIs and need
 their own integrations.
 

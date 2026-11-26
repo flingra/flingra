@@ -48,8 +48,20 @@ class GoogleAuthRequest(BaseModel):
 
 
 class AdminLoginRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=128)
+    mfa_code: str | None = Field(default=None, alias="mfaCode", min_length=6, max_length=6)
+
+
+class AdminPasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128, alias="currentPassword")
+    new_password: str = Field(min_length=14, max_length=128, alias="newPassword")
+
+
+class AdminMfaVerifyRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
 class AdminSessionResponse(BaseModel):
