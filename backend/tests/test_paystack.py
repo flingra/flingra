@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import logging
 
 import httpx
 from sqlalchemy import text
@@ -86,6 +87,31 @@ def test_wallet_top_up_initializes_paystack_without_crediting_wallet(
         assert db.execute(text("SELECT COUNT(*) FROM wallet_transactions")).scalar_one() == 0
     finally:
         generator.close()
+
+
+def test_wallet_top_up_logs_paystack_http_status_without_response_body_or_secret(
+    api_client, monkeypatch, caplog
+) -> None:
+    client, _ = api_client
+    _create_viewer(client, monkeypatch)
+    _enable_paystack(client)
+    _mock_paystack(
+        monkeypatch,
+        lambda _request: httpx.Response(400, text="private provider response"),
+    )
+    caplog.set_level(logging.WARNING, logger="uvicorn.error")
+    csrf = client.cookies["flingra_csrf"]
+
+    response = client.post(
+        "/wallet/top-ups",
+        headers={"X-CSRF-Token": csrf},
+        json={"amountNaira": 1250},
+    )
+
+    assert response.status_code == 503
+    assert "Paystack transaction initialization returned HTTP 400." in caplog.text
+    assert "private provider response" not in caplog.text
+    assert SECRET not in caplog.text
 
 
 def test_signed_paystack_webhook_settles_wallet_once(api_client, monkeypatch) -> None:

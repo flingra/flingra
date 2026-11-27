@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import logging
 from typing import Any
 
 import httpx
@@ -8,6 +9,7 @@ from app.config import Settings
 from app.errors import ServiceUnavailable
 
 PAYSTACK_API_URL = "https://api.paystack.co"
+logger = logging.getLogger("uvicorn.error")
 
 
 def _secret(settings: Settings) -> str:
@@ -44,7 +46,20 @@ def initialize_transaction(
             )
             response.raise_for_status()
             payload = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Paystack transaction initialization returned HTTP %d.",
+            exc.response.status_code,
+        )
+        raise ServiceUnavailable("Paystack is temporarily unavailable.") from exc
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "Paystack transaction initialization failed: %s.",
+            type(exc).__name__,
+        )
+        raise ServiceUnavailable("Paystack is temporarily unavailable.") from exc
+    except ValueError as exc:
+        logger.warning("Paystack transaction initialization returned invalid JSON.")
         raise ServiceUnavailable("Paystack is temporarily unavailable.") from exc
 
     data = payload.get("data") if isinstance(payload, dict) else None
@@ -70,7 +85,20 @@ def verify_transaction(settings: Settings, reference: str) -> dict[str, Any]:
             )
             response.raise_for_status()
             payload = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Paystack transaction verification returned HTTP %d.",
+            exc.response.status_code,
+        )
+        raise ServiceUnavailable("Paystack is temporarily unavailable.") from exc
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "Paystack transaction verification failed: %s.",
+            type(exc).__name__,
+        )
+        raise ServiceUnavailable("Paystack is temporarily unavailable.") from exc
+    except ValueError as exc:
+        logger.warning("Paystack transaction verification returned invalid JSON.")
         raise ServiceUnavailable("Paystack is temporarily unavailable.") from exc
 
     data = payload.get("data") if isinstance(payload, dict) else None
@@ -99,7 +127,14 @@ def _request_data(
             )
             response.raise_for_status()
             body = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+    except httpx.HTTPStatusError as exc:
+        logger.warning("Paystack API request returned HTTP %d.", exc.response.status_code)
+        raise ServiceUnavailable("Paystack is temporarily unavailable.") from exc
+    except httpx.HTTPError as exc:
+        logger.warning("Paystack API request failed: %s.", type(exc).__name__)
+        raise ServiceUnavailable("Paystack is temporarily unavailable.") from exc
+    except ValueError as exc:
+        logger.warning("Paystack API request returned invalid JSON.")
         raise ServiceUnavailable("Paystack is temporarily unavailable.") from exc
     if not isinstance(body, dict) or body.get("status") is not True:
         raise ServiceUnavailable("Paystack could not complete this request.")
