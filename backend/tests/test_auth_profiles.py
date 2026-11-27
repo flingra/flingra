@@ -1,3 +1,4 @@
+import hashlib
 import io
 
 from PIL import Image
@@ -138,6 +139,17 @@ def test_email_two_factor_setup_sends_and_verifies_code(api_client, monkeypatch)
     assert sent.status_code == 200
     assert sent.json() == {"status": "sent"}
     assert len(two_factor_codes) == 1
+    account_id = client.get("/auth/session").json()["accountId"]
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        challenge = db.execute(
+            text("SELECT code_hash FROM two_factor_challenges WHERE account_id = :account_id"),
+            {"account_id": account_id},
+        ).scalar_one()
+    finally:
+        generator.close()
+    assert challenge == hashlib.sha256(two_factor_codes[0].encode()).hexdigest()
 
     verified = client.post(
         "/auth/2fa/email/verify",

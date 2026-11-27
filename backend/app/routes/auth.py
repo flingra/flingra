@@ -697,7 +697,7 @@ def request_two_factor_code(
             ),
             {
                 "account_id": account.account_id,
-                "code_hash": hash_token(code),
+                "code_hash": hash_token(code).hex(),
                 "expires_at": _now() + TWO_FACTOR_LIFETIME,
             },
         )
@@ -738,7 +738,7 @@ def verify_two_factor_code(
         and _as_datetime(challenge["expires_at"]) > _now()
         and int(challenge["attempt_count"]) < 5
         and len(normalized_code) == 6
-        and hmac.compare_digest(challenge["code_hash"], hash_token(normalized_code))
+        and hmac.compare_digest(challenge["code_hash"], hash_token(normalized_code).hex())
     )
     if not valid:
         if challenge is not None and int(challenge["attempt_count"]) < 5:
