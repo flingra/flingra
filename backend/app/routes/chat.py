@@ -15,6 +15,8 @@ from app.dependencies import db_session
 from app.errors import ApiException
 from app.feature_schemas import (
     ChatAttachment,
+    ChatInterestCreateRequest,
+    ChatInterestResponse,
     ChatMessageCreateRequest,
     ChatThreadCreateRequest,
     ChatThreadResponse,
@@ -82,6 +84,29 @@ def _ensure_not_blocked(db: Session, account_id: str, other_id: str) -> None:
         raise ApiException("MEMBER_BLOCKED", "Messaging is unavailable for this member.", 403)
 
 
+def _ensure_interest_accepted(db: Session, account_id: str, other_id: str) -> None:
+    accepted = db.execute(
+        text(
+            """
+            SELECT 1 FROM chat_interest_requests
+            WHERE status = 'accepted'
+              AND (
+                  (sender_id = :account_id AND recipient_id = :other_id)
+                  OR (sender_id = :other_id AND recipient_id = :account_id)
+              )
+            LIMIT 1
+            """
+        ),
+        {"account_id": account_id, "other_id": other_id},
+    ).first()
+    if accepted is None:
+        raise ApiException(
+            "INTEREST_NOT_ACCEPTED",
+            "The interest request must be accepted before messaging.",
+            403,
+        )
+
+
 def _discoverable_target(
     db: Session,
     account_id: str,
@@ -130,6 +155,79 @@ def _thread_response(row: dict[str, Any]) -> ChatThreadResponse:
     )
 
 
+def _interest_request_row(db: Session, interest_id: str) -> dict[str, Any] | None:
+    row = db.execute(
+        text(
+            """
+            SELECT i.id, i.sender_id, i.recipient_id, i.status, i.created_at,
+                   p.display_name AS sender_name, p.photos AS sender_photos
+            FROM chat_interest_requests i
+            JOIN profiles p ON p.account_id = i.sender_id
+            WHERE i.id = :interest_id
+            """
+        ),
+        {"interest_id": interest_id},
+    ).mappings().first()
+    return dict(row) if row is not None else None
+
+
+def _interest_response(row: dict[str, Any]) -> ChatInterestResponse:
+    photos = row["sender_photos"]
+    photos = json.loads(photos) if isinstance(photos, str) else photos
+    return ChatInterestResponse(
+        id=str(row["id"]),
+        sender_id=str(row["sender_id"]),
+        sender_name=row["sender_name"],
+        sender_photo=photos[0] if photos else "",
+        status=row["status"],
+        created_at=row["created_at"],
+    )
+
+
+def _get_or_create_thread_id(db: Session, first_id: str, second_id: str) -> str:
+    left, right = sorted((first_id, second_id))
+    existing = db.execute(
+        text(
+            """
+            SELECT id FROM chat_threads
+            WHERE participant_a_id = :left AND participant_b_id = :right
+            """
+        ),
+        {"left": left, "right": right},
+    ).scalar_one_or_none()
+    if existing is not None:
+        return str(existing)
+
+    thread_id = uuid.uuid4().hex
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO chat_threads (
+                    id, participant_a_id, participant_b_id, created_at, last_message_at
+                )
+                VALUES (:id, :left, :right, :created_at, :created_at)
+                """
+            ),
+            {"id": thread_id, "left": left, "right": right, "created_at": _now()},
+        )
+    except IntegrityError:
+        db.rollback()
+        existing = db.execute(
+            text(
+                """
+                SELECT id FROM chat_threads
+                WHERE participant_a_id = :left AND participant_b_id = :right
+                """
+            ),
+            {"left": left, "right": right},
+        ).scalar_one_or_none()
+        if existing is None:
+            raise
+        return str(existing)
+    return thread_id
+
+
 def _list_threads(db: Session, account_id: str) -> list[ChatThreadResponse]:
     rows = db.execute(
         text(
@@ -156,7 +254,15 @@ def _list_threads(db: Session, account_id: str) -> list[ChatThreadResponse]:
             JOIN profiles p
               ON p.account_id = CASE WHEN t.participant_a_id = :account_id
                                      THEN t.participant_b_id ELSE t.participant_a_id END
-            WHERE t.participant_a_id = :account_id OR t.participant_b_id = :account_id
+            WHERE (t.participant_a_id = :account_id OR t.participant_b_id = :account_id)
+              AND EXISTS (
+                  SELECT 1 FROM chat_interest_requests i
+                  WHERE i.status = 'accepted'
+                    AND (
+                        (i.sender_id = t.participant_a_id AND i.recipient_id = t.participant_b_id)
+                        OR (i.sender_id = t.participant_b_id AND i.recipient_id = t.participant_a_id)
+                    )
+              )
             ORDER BY last_message_at DESC, t.id
             """
         ),
@@ -168,12 +274,10 @@ def _list_threads(db: Session, account_id: str) -> list[ChatThreadResponse]:
 @router.post(
     "/threads",
     response_model=ChatThreadResponse,
-    status_code=201,
     dependencies=[Depends(require_csrf)],
 )
 def get_or_create_thread(
     body: ChatThreadCreateRequest,
-    request: Request,
     account: IdentityVerifiedAccount,
     db: DbSession,
     settings: SettingsDependency,
@@ -182,7 +286,7 @@ def get_or_create_thread(
     _ensure_not_blocked(db, account.account_id, body.other_id)
     viewer, target = _discoverable_target(db, account.account_id, settings, body.other_id)
     left, right = sorted((account.account_id, body.other_id))
-    existing = db.execute(
+    thread_id = db.execute(
         text(
             """
             SELECT id FROM chat_threads
@@ -191,68 +295,331 @@ def get_or_create_thread(
         ),
         {"left": left, "right": right},
     ).scalar_one_or_none()
-    if existing is None:
-        thread_id = uuid.uuid4().hex
+    if thread_id is None:
+        if viewer["identity"] == "woman" and target["identity"] == "man":
+            raise ApiException(
+                "INTEREST_DIRECTION_RESTRICTED",
+                "Women cannot start a conversation. Wait for the man to send an interest request.",
+                403,
+            )
+        raise ApiException(
+            "INTEREST_NOT_ACCEPTED",
+            "The interest request must be accepted before messaging.",
+            403,
+        )
+    _ensure_interest_accepted(db, account.account_id, body.other_id)
+    thread_id = str(thread_id)
+    thread_rows = _list_threads(db, account.account_id)
+    response = next((thread for thread in thread_rows if thread.id == thread_id), None)
+    if response is None:
+        raise ApiException("THREAD_NOT_FOUND", "This conversation is unavailable.", 404)
+    return response
+
+
+@router.post(
+    "/interests",
+    response_model=ChatInterestResponse,
+    status_code=201,
+    dependencies=[Depends(require_csrf)],
+)
+def create_interest_request(
+    body: ChatInterestCreateRequest,
+    request: Request,
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+    settings: SettingsDependency,
+) -> ChatInterestResponse:
+    _require_ready(account)
+    _ensure_not_blocked(db, account.account_id, body.target_id)
+    viewer, target = _discoverable_target(db, account.account_id, settings, body.target_id)
+    if viewer["identity"] != "man" or target["identity"] != "woman":
+        raise ApiException(
+            "INTEREST_DIRECTION_RESTRICTED",
+            "Only men can send interest requests to women.",
+            403,
+        )
+
+    existing = db.execute(
+        text(
+            """
+            SELECT id, status FROM chat_interest_requests
+            WHERE sender_id = :sender_id AND recipient_id = :recipient_id
+            """
+        ),
+        {"sender_id": account.account_id, "recipient_id": body.target_id},
+    ).mappings().first()
+    now = _now()
+    if existing is not None and existing["status"] != "declined":
+        row = _interest_request_row(db, str(existing["id"]))
+        if row is None:
+            raise ApiException("INTEREST_NOT_FOUND", "This interest request is unavailable.", 404)
+        return _interest_response(row)
+
+    if existing is not None:
+        interest_id = str(existing["id"])
+        updated = db.execute(
+            text(
+                """
+                UPDATE chat_interest_requests
+                SET status = 'pending', created_at = :now, updated_at = :now, decided_at = NULL
+                WHERE id = :id AND status = 'declined'
+                """
+            ),
+            {"id": interest_id, "now": now},
+        )
+        if updated.rowcount != 1:
+            row = _interest_request_row(db, interest_id)
+            if row is None:
+                raise ApiException("INTEREST_NOT_FOUND", "This interest request is unavailable.", 404)
+            return _interest_response(row)
+    else:
+        interest_id = uuid.uuid4().hex
         try:
             db.execute(
                 text(
                     """
-                    INSERT INTO chat_threads (
-                        id, participant_a_id, participant_b_id, created_at, last_message_at
+                    INSERT INTO chat_interest_requests (
+                        id, sender_id, recipient_id, status, created_at, updated_at
                     )
-                    VALUES (:id, :left, :right, :created_at, :created_at)
+                    VALUES (:id, :sender_id, :recipient_id, 'pending', :created_at, :updated_at)
                     """
                 ),
-                {"id": thread_id, "left": left, "right": right, "created_at": _now()},
+                {
+                    "id": interest_id,
+                    "sender_id": account.account_id,
+                    "recipient_id": body.target_id,
+                    "created_at": now,
+                    "updated_at": now,
+                },
             )
         except IntegrityError:
             db.rollback()
-            existing = db.execute(
+            existing_id = db.execute(
+                text(
+                    """
+                    SELECT id FROM chat_interest_requests
+                    WHERE sender_id = :sender_id AND recipient_id = :recipient_id
+                    """
+                ),
+                {"sender_id": account.account_id, "recipient_id": body.target_id},
+            ).scalar_one_or_none()
+            if existing_id is None:
+                raise
+            row = _interest_request_row(db, str(existing_id))
+            if row is None:
+                raise ApiException("INTEREST_NOT_FOUND", "This interest request is unavailable.", 404)
+            return _interest_response(row)
+
+    record_audit_event(
+        db,
+        request,
+        event_type="chat.interest_requested",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=body.target_id,
+        outcome="success",
+    )
+    enqueue_realtime_event(
+        db,
+        body.target_id,
+        "chat.interest_received",
+        {
+            "interestId": interest_id,
+            "senderName": viewer["display_name"],
+        },
+    )
+    db.commit()
+    row = _interest_request_row(db, interest_id)
+    if row is None:
+        raise ApiException("INTEREST_NOT_FOUND", "This interest request is unavailable.", 404)
+    return _interest_response(row)
+
+
+@router.get("/interests", response_model=list[ChatInterestResponse])
+def list_incoming_interest_requests(
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> list[ChatInterestResponse]:
+    _require_ready(account)
+    rows = db.execute(
+        text(
+            """
+            SELECT i.id, i.sender_id, i.recipient_id, i.status, i.created_at,
+                   p.display_name AS sender_name, p.photos AS sender_photos
+            FROM chat_interest_requests i
+            JOIN profiles p ON p.account_id = i.sender_id
+            WHERE i.recipient_id = :recipient_id AND i.status = 'pending'
+            ORDER BY i.created_at DESC, i.id
+            """
+        ),
+        {"recipient_id": account.account_id},
+    ).mappings()
+    return [_interest_response(dict(row)) for row in rows]
+
+
+@router.post(
+    "/interests/{interest_id}/accept",
+    response_model=ChatThreadResponse,
+    dependencies=[Depends(require_csrf)],
+)
+def accept_interest_request(
+    interest_id: str,
+    request: Request,
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> ChatThreadResponse:
+    _require_ready(account)
+    interest = db.execute(
+        text(
+            """
+            SELECT id, sender_id, recipient_id, status
+            FROM chat_interest_requests
+            WHERE id = :interest_id AND recipient_id = :recipient_id
+            """
+        ),
+        {"interest_id": interest_id, "recipient_id": account.account_id},
+    ).mappings().first()
+    if interest is None:
+        raise ApiException("INTEREST_NOT_FOUND", "This interest request is unavailable.", 404)
+    if interest["status"] == "declined":
+        raise ApiException("INTEREST_ALREADY_DECLINED", "This interest request was declined.", 409)
+
+    sender_id = str(interest["sender_id"])
+    _ensure_not_blocked(db, account.account_id, sender_id)
+    if interest["status"] == "pending":
+        thread_id = _get_or_create_thread_id(db, sender_id, account.account_id)
+        now = _now()
+        updated = db.execute(
+            text(
+                """
+                UPDATE chat_interest_requests
+                SET status = 'accepted', updated_at = :now, decided_at = :now
+                WHERE id = :interest_id AND status = 'pending'
+                """
+            ),
+            {"interest_id": interest_id, "now": now},
+        )
+        if updated.rowcount != 1:
+            db.rollback()
+            latest_status = db.execute(
+                text("SELECT status FROM chat_interest_requests WHERE id = :interest_id"),
+                {"interest_id": interest_id},
+            ).scalar_one_or_none()
+            if latest_status == "declined":
+                raise ApiException("INTEREST_ALREADY_DECLINED", "This interest request was declined.", 409)
+            if latest_status != "accepted":
+                raise ApiException("INTEREST_NOT_FOUND", "This interest request is unavailable.", 404)
+            thread_id = db.execute(
                 text(
                     """
                     SELECT id FROM chat_threads
                     WHERE participant_a_id = :left AND participant_b_id = :right
                     """
                 ),
-                {"left": left, "right": right},
+                {"left": min(sender_id, account.account_id), "right": max(sender_id, account.account_id)},
             ).scalar_one_or_none()
-            if existing is None:
-                raise
+            if thread_id is None:
+                raise ApiException("THREAD_NOT_FOUND", "The accepted conversation is unavailable.", 404)
+            thread_id = str(thread_id)
         else:
-            existing = thread_id
+            recipient_name = db.execute(
+                text("SELECT display_name FROM profiles WHERE account_id = :account_id"),
+                {"account_id": account.account_id},
+            ).scalar_one()
             record_audit_event(
                 db,
                 request,
-                event_type="chat.thread_created",
+                event_type="chat.interest_accepted",
                 actor_type="user",
                 actor_id=account.account_id,
-                subject_account_id=body.other_id,
+                subject_account_id=sender_id,
                 outcome="success",
             )
-            if body.notify_interest:
-                enqueue_realtime_event(
-                    db,
-                    body.other_id,
-                    "chat.interest",
-                    {
-                        "threadId": thread_id,
-                        "senderName": viewer["display_name"],
-                    },
-                )
+            enqueue_realtime_event(
+                db,
+                sender_id,
+                "chat.interest_accepted",
+                {"threadId": thread_id, "recipientName": recipient_name},
+            )
             db.commit()
-    thread_id = str(existing)
-    thread_rows = _list_threads(db, account.account_id)
-    response = next((thread for thread in thread_rows if thread.id == thread_id), None)
-    if response is not None:
-        return response
-    return ChatThreadResponse(
-        id=thread_id,
-        other_id=body.other_id,
-        other_name=target["display_name"],
-        other_photo=target["photos"][0] if target["photos"] else "",
-        last_message="",
-        last_message_at=_now(),
-    )
+    else:
+        thread_id = db.execute(
+            text(
+                """
+                SELECT id FROM chat_threads
+                WHERE participant_a_id = :left AND participant_b_id = :right
+                """
+            ),
+            {"left": min(sender_id, account.account_id), "right": max(sender_id, account.account_id)},
+        ).scalar_one_or_none()
+        if thread_id is None:
+            raise ApiException("THREAD_NOT_FOUND", "The accepted conversation is unavailable.", 404)
+        thread_id = str(thread_id)
+
+    thread = next((item for item in _list_threads(db, account.account_id) if item.id == thread_id), None)
+    if thread is None:
+        raise ApiException("THREAD_NOT_FOUND", "The accepted conversation is unavailable.", 404)
+    return thread
+
+
+@router.post(
+    "/interests/{interest_id}/decline",
+    status_code=204,
+    dependencies=[Depends(require_csrf)],
+)
+def decline_interest_request(
+    interest_id: str,
+    request: Request,
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> None:
+    _require_ready(account)
+    interest = db.execute(
+        text(
+            """
+            SELECT status, sender_id FROM chat_interest_requests
+            WHERE id = :interest_id AND recipient_id = :recipient_id
+            """
+        ),
+        {"interest_id": interest_id, "recipient_id": account.account_id},
+    ).mappings().first()
+    if interest is None:
+        raise ApiException("INTEREST_NOT_FOUND", "This interest request is unavailable.", 404)
+    if interest["status"] == "accepted":
+        raise ApiException("INTEREST_ALREADY_ACCEPTED", "This interest request was already accepted.", 409)
+    if interest["status"] == "pending":
+        now = _now()
+        updated = db.execute(
+            text(
+                """
+                UPDATE chat_interest_requests
+                SET status = 'declined', updated_at = :now, decided_at = :now
+                WHERE id = :interest_id AND status = 'pending'
+                """
+            ),
+            {"interest_id": interest_id, "now": now},
+        )
+        if updated.rowcount != 1:
+            db.rollback()
+            latest_status = db.execute(
+                text("SELECT status FROM chat_interest_requests WHERE id = :interest_id"),
+                {"interest_id": interest_id},
+            ).scalar_one_or_none()
+            if latest_status == "accepted":
+                raise ApiException("INTEREST_ALREADY_ACCEPTED", "This interest request was already accepted.", 409)
+            if latest_status is None:
+                raise ApiException("INTEREST_NOT_FOUND", "This interest request is unavailable.", 404)
+        else:
+            record_audit_event(
+                db,
+                request,
+                event_type="chat.interest_declined",
+                actor_type="user",
+                actor_id=account.account_id,
+                subject_account_id=interest["sender_id"],
+                outcome="success",
+            )
+            db.commit()
 
 
 @router.get("/threads", response_model=list[ChatThreadResponse])
@@ -287,6 +654,7 @@ def list_messages(
     _require_ready(account)
     thread = _get_thread(db, thread_id, account.account_id)
     _ensure_not_blocked(db, account.account_id, thread["other_id"])
+    _ensure_interest_accepted(db, account.account_id, thread["other_id"])
     rows = db.execute(
         text(
             """
@@ -345,6 +713,7 @@ def send_message(
     _require_ready(account)
     thread = _get_thread(db, thread_id, account.account_id)
     _ensure_not_blocked(db, account.account_id, thread["other_id"])
+    _ensure_interest_accepted(db, account.account_id, thread["other_id"])
     _discoverable_target(db, account.account_id, settings, thread["other_id"])
     message_text = body.text.strip()
     if not message_text and body.attachment is None:
@@ -513,6 +882,7 @@ def propose_meetup_payment(
     _require_ready(account)
     thread = _get_thread(db, thread_id, account.account_id)
     _ensure_not_blocked(db, account.account_id, thread["other_id"])
+    _ensure_interest_accepted(db, account.account_id, thread["other_id"])
     viewer, target = _discoverable_target(db, account.account_id, settings, thread["other_id"])
     if viewer["identity"] != "man":
         raise ApiException("PAYER_RESTRICTED", "Only male accounts can propose a meetup payment.", 403)

@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Coins, PhoneCall } from 'lucide-react'
@@ -12,6 +13,8 @@ import { ApiError } from '@/lib/api/types'
 export function CreditStorePage() {
   const { showToast } = useToast()
   const queryClient = useQueryClient()
+  const purchaseInProgress = useRef(false)
+  const [buyingCoins, setBuyingCoins] = useState<number | null>(null)
 
   const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
   const { data: packages } = useQuery({ queryKey: ['coin-packages'], queryFn: listCoinPackages })
@@ -21,6 +24,9 @@ export function CreditStorePage() {
   const canBuy = ownProfile?.identity === 'man'
 
   async function handleBuy(coins: number) {
+    if (purchaseInProgress.current) return
+    purchaseInProgress.current = true
+    setBuyingCoins(coins)
     try {
       await buyCallCredits(coins)
       await queryClient.invalidateQueries({ queryKey: ['call-credits'] })
@@ -32,6 +38,9 @@ export function CreditStorePage() {
         description: err instanceof ApiError ? err.message : 'Try again.',
         variant: 'error',
       })
+    } finally {
+      purchaseInProgress.current = false
+      setBuyingCoins(null)
     }
   }
 
@@ -65,7 +74,13 @@ export function CreditStorePage() {
             <Coins className="size-7 text-primary-500" aria-hidden="true" />
             <p className="font-semibold text-ink-900">{pkg.coins} minutes</p>
             <p className="text-sm text-ink-500">{formatNaira(pkg.priceNaira)}</p>
-            <Button size="sm" className="mt-1 w-full" disabled={!canBuy} onClick={() => handleBuy(pkg.coins)}>
+            <Button
+              size="sm"
+              className="mt-1 w-full"
+              loading={buyingCoins === pkg.coins}
+              disabled={!canBuy || buyingCoins !== null}
+              onClick={() => void handleBuy(pkg.coins)}
+            >
               Buy
             </Button>
           </div>

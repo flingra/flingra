@@ -1,6 +1,61 @@
 import { useEffect, useRef, useState } from 'react'
 import { Play } from 'lucide-react'
 
+export async function createBlurredVideoPreview(file: File): Promise<string> {
+  const source = URL.createObjectURL(file)
+  const video = document.createElement('video')
+  video.muted = true
+  video.preload = 'auto'
+  video.src = source
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => reject(new Error('Video preview generation timed out.')), 10_000)
+      video.addEventListener('loadeddata', () => {
+        window.clearTimeout(timeout)
+        resolve()
+      }, { once: true })
+      video.addEventListener('error', () => {
+        window.clearTimeout(timeout)
+        reject(new Error('Could not read the video to create a preview.'))
+      }, { once: true })
+      video.load()
+    })
+
+    if (!video.videoWidth || !video.videoHeight) {
+      throw new Error('The video has no previewable frame.')
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 160
+    canvas.height = 160
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Could not create a video preview.')
+
+    const cropSize = Math.min(video.videoWidth, video.videoHeight)
+    context.filter = 'blur(16px)'
+    context.drawImage(
+      video,
+      (video.videoWidth - cropSize) / 2,
+      (video.videoHeight - cropSize) / 2,
+      cropSize,
+      cropSize,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    )
+
+    const preview = canvas.toDataURL('image/jpeg', 0.35)
+    if (preview.length > 24_000) throw new Error('The generated video preview is too large.')
+    return preview
+  } finally {
+    video.removeAttribute('src')
+    video.load()
+    URL.revokeObjectURL(source)
+  }
+}
+
 /**
  * A video tile that auto-captures a frame as its thumbnail instead of showing a
  * blank box — or, if `poster` is given (e.g. the author's profile photo), uses

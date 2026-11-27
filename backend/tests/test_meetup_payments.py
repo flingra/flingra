@@ -33,12 +33,42 @@ def test_meetup_payment_dispute_is_admin_resolved_and_ledger_safe(api_client, mo
     finally:
         generator.close()
 
+    interest = client.post(
+        "/chat/interests",
+        headers={"X-CSRF-Token": csrf},
+        json={"targetId": recipient_id},
+    )
+    assert interest.status_code == 201
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text("UPDATE sessions SET account_id = :recipient_id WHERE id = :session_id"),
+            {"recipient_id": recipient_id, "session_id": session_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+    accepted = client.post(
+        f"/chat/interests/{interest.json()['id']}/accept",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert accepted.status_code == 200
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text("UPDATE sessions SET account_id = :payer_id WHERE id = :session_id"),
+            {"payer_id": payer_id, "session_id": session_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
     thread = client.post(
         "/chat/threads",
         headers={"X-CSRF-Token": csrf},
         json={"otherId": recipient_id},
     )
-    assert thread.status_code == 201
+    assert thread.status_code == 200
     proposal = client.post(
         f"/chat/threads/{thread.json()['id']}/payment-proposals",
         headers={"X-CSRF-Token": csrf},
@@ -66,11 +96,12 @@ def test_meetup_payment_dispute_is_admin_resolved_and_ledger_safe(api_client, mo
             {"recipient_id": recipient_id},
         ).mappings().all()
         assert [event["event_type"] for event in events] == [
+            "chat.interest_received",
             "chat.message",
             "meetup_payment.updated",
         ]
-        assert json.loads(events[0]["payload_json"])["paymentId"] == payment_id
-        assert json.loads(events[1]["payload_json"])["status"] == "proposed"
+        assert json.loads(events[1]["payload_json"])["paymentId"] == payment_id
+        assert json.loads(events[2]["payload_json"])["status"] == "proposed"
     finally:
         generator.close()
 

@@ -26,6 +26,8 @@ import {
 import { getOrCreateThread, proposePaymentInChat } from '@/lib/api/chat'
 import { ApiError, type MemberProfile } from '@/lib/api/types'
 
+export type CallParticipant = Pick<MemberProfile, 'id' | 'displayName' | 'identity' | 'photos'>
+
 function formatElapsed(seconds: number) {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
@@ -39,7 +41,7 @@ export function CallScreen({
   onEnd,
 }: {
   callId: string
-  profile: MemberProfile
+  profile: CallParticipant
   mode: 'video' | 'voice'
   onEnd: () => void
 }) {

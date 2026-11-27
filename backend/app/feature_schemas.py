@@ -68,10 +68,22 @@ class ChatAttachment(BaseModel):
 
 
 class ChatThreadCreateRequest(BaseModel):
+    other_id: str = Field(alias="otherId", min_length=1, max_length=64)
+
+
+class ChatInterestCreateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    other_id: str = Field(alias="otherId", min_length=1, max_length=64)
-    notify_interest: bool = Field(default=False, alias="notifyInterest")
+    target_id: str = Field(alias="targetId", min_length=1, max_length=64)
+
+
+class ChatInterestResponse(BaseModel):
+    id: str
+    sender_id: str = Field(serialization_alias="senderId")
+    sender_name: str = Field(serialization_alias="senderName")
+    sender_photo: str = Field(serialization_alias="senderPhoto")
+    status: Literal["pending", "accepted", "declined"]
+    created_at: datetime = Field(serialization_alias="createdAt")
 
 
 class ChatMessageCreateRequest(BaseModel):

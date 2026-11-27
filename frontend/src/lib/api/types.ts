@@ -13,6 +13,7 @@ export interface ProfileVideo {
   /** Women-only: hide behind a paywall until a viewer pays `priceNaira` to unlock it. */
   locked?: boolean
   priceNaira?: number
+  previewImage?: string | null
 }
 
 export type SubscriptionTier = 'free' | 'vip'
@@ -242,6 +243,15 @@ export interface ChatThread {
   otherPhoto: string
   lastMessage: string
   lastMessageAt: string
+}
+
+export interface ChatInterestRequest {
+  id: string
+  senderId: string
+  senderName: string
+  senderPhoto: string
+  status: 'pending' | 'accepted' | 'declined'
+  createdAt: string
 }
 
 export type ChatAttachmentType = 'image' | 'video' | 'file'

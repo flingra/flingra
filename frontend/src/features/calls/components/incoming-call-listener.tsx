@@ -5,9 +5,8 @@ import { Avatar } from '@/components/ui/avatar'
 import { useToast } from '@/components/ui/toast'
 import { useSessionStore } from '@/lib/stores/session-store'
 import { acceptCall, declineCall, listIncomingCalls } from '@/lib/api/calls'
-import { getDiscoverableProfile } from '@/lib/api/profiles'
-import { ApiError, type MemberProfile } from '@/lib/api/types'
-import { CallScreen } from './call-screen'
+import { ApiError } from '@/lib/api/types'
+import { CallScreen, type CallParticipant } from './call-screen'
 
 /**
  * Surfaces a real incoming call from the backend (`GET /calls/incoming`) as a private
@@ -19,7 +18,7 @@ export function IncomingCallListener() {
   const signedIn = useSessionStore((state) => state.session?.stage === 'active')
   const queryClient = useQueryClient()
   const { showToast } = useToast()
-  const [activeCall, setActiveCall] = useState<{ callId: string; mode: 'video' | 'voice'; profile: MemberProfile } | null>(null)
+  const [activeCall, setActiveCall] = useState<{ callId: string; mode: 'video' | 'voice'; profile: CallParticipant } | null>(null)
   const [responding, setResponding] = useState(false)
 
   const { data: incoming = [] } = useQuery({
@@ -30,18 +29,21 @@ export function IncomingCallListener() {
   })
   const ringingCall = incoming.find((call) => call.status === 'ringing')
 
-  const { data: callerProfile } = useQuery({
-    queryKey: ['profile', ringingCall?.callerId],
-    queryFn: () => getDiscoverableProfile(ringingCall!.callerId),
-    enabled: Boolean(ringingCall),
-  })
-
   async function handleAccept() {
-    if (!ringingCall || !callerProfile) return
+    if (!ringingCall) return
     setResponding(true)
     try {
       const session = await acceptCall(ringingCall.callId)
-      setActiveCall({ callId: session.callId, mode: ringingCall.callType === 'video' ? 'video' : 'voice', profile: callerProfile })
+      setActiveCall({
+        callId: session.callId,
+        mode: ringingCall.callType === 'video' ? 'video' : 'voice',
+        profile: {
+          id: ringingCall.callerId,
+          displayName: ringingCall.callerName,
+          identity: ringingCall.callerIdentity,
+          photos: ringingCall.callerPhoto ? [ringingCall.callerPhoto] : [],
+        },
+      })
     } catch (error) {
       showToast({
         title: 'Could not accept call',
@@ -68,13 +70,13 @@ export function IncomingCallListener() {
     return <CallScreen callId={activeCall.callId} profile={activeCall.profile} mode={activeCall.mode} onEnd={() => setActiveCall(null)} />
   }
 
-  if (!ringingCall || !callerProfile) return null
+  if (!ringingCall) return null
 
   return (
     <div className="fixed inset-x-4 top-20 z-50 mx-auto flex max-w-sm items-center gap-3 rounded-3xl border border-ink-100 bg-white p-4 shadow-float">
-      <Avatar name={callerProfile.displayName} src={callerProfile.photos[0]} size="md" />
+      <Avatar name={ringingCall.callerName} src={ringingCall.callerPhoto ?? undefined} size="md" />
       <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold text-ink-900">{callerProfile.displayName}</p>
+        <p className="truncate font-semibold text-ink-900">{ringingCall.callerName}</p>
         <p className="text-xs text-ink-500">Incoming {ringingCall.callType === 'video' ? 'video' : 'voice'} call…</p>
       </div>
       <button

@@ -675,7 +675,8 @@ def list_incoming_calls(account: IdentityVerifiedAccount, db: DbSession) -> list
     rows = db.execute(
         text(
             """
-            SELECT c.id, c.caller_id, c.call_type, c.created_at, p.display_name, p.photos
+            SELECT c.id, c.caller_id, c.call_type, c.created_at,
+                   p.display_name, p.photos, p.identity
             FROM call_sessions c JOIN profiles p ON p.account_id = c.caller_id
             WHERE c.callee_id = :account_id AND c.status = 'ringing'
             ORDER BY c.created_at DESC LIMIT 20
@@ -689,7 +690,9 @@ def list_incoming_calls(account: IdentityVerifiedAccount, db: DbSession) -> list
             "callerId": str(row["caller_id"]),
             "callerName": row["display_name"],
             "callerPhoto": _first_photo(row["photos"]),
+            "callerIdentity": row["identity"],
             "callType": row["call_type"],
+            "status": "ringing",
             "createdAt": row["created_at"],
         }
         for row in rows

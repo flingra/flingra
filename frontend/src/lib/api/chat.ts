@@ -1,14 +1,43 @@
 import { apiRequest, ensureCsrfHeaders, uploadFile } from './client'
-import { type ChatAttachment, type ChatThread, type DirectMessage, type MeetupPayment } from './types'
+import {
+  type ChatAttachment,
+  type ChatInterestRequest,
+  type ChatThread,
+  type DirectMessage,
+  type MeetupPayment,
+} from './types'
 
-export async function getOrCreateThread(
-  otherId: string,
-  options: { notifyInterest?: boolean } = {},
-): Promise<ChatThread> {
+export async function getOrCreateThread(otherId: string): Promise<ChatThread> {
   return apiRequest<ChatThread>('/chat/threads', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
-    body: JSON.stringify({ otherId, ...(options.notifyInterest ? { notifyInterest: true } : {}) }),
+    body: JSON.stringify({ otherId }),
+  })
+}
+
+export async function createInterestRequest(targetId: string): Promise<ChatInterestRequest> {
+  return apiRequest<ChatInterestRequest>('/chat/interests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
+    body: JSON.stringify({ targetId }),
+  })
+}
+
+export async function listIncomingInterestRequests(): Promise<ChatInterestRequest[]> {
+  return apiRequest<ChatInterestRequest[]>('/chat/interests')
+}
+
+export async function acceptInterestRequest(interestId: string): Promise<ChatThread> {
+  return apiRequest<ChatThread>(`/chat/interests/${encodeURIComponent(interestId)}/accept`, {
+    method: 'POST',
+    headers: await ensureCsrfHeaders(),
+  })
+}
+
+export async function declineInterestRequest(interestId: string): Promise<void> {
+  await apiRequest<void>(`/chat/interests/${encodeURIComponent(interestId)}/decline`, {
+    method: 'POST',
+    headers: await ensureCsrfHeaders(),
   })
 }
 

@@ -77,15 +77,28 @@ export function NotificationBell() {
               void queryClient.invalidateQueries({ queryKey: ['chat-threads'] })
               void queryClient.invalidateQueries({ queryKey: ['chat-messages'] })
             } else if (
-              event.type === 'chat.interest'
-              && typeof event.data.threadId === 'string'
+              event.type === 'chat.interest_received'
+              && typeof event.data.interestId === 'string'
               && typeof event.data.senderName === 'string'
             ) {
               notification = {
                 id: `interest-${event.id}`,
                 icon: MessageCircle,
-                title: 'Someone showed interest',
-                body: `${event.data.senderName} wants to connect with you.`,
+                title: 'New interest request',
+                body: `${event.data.senderName} wants to connect. Review the request in Messages.`,
+                href: '/messages',
+              }
+              void queryClient.invalidateQueries({ queryKey: ['chat-interests'] })
+            } else if (
+              event.type === 'chat.interest_accepted'
+              && typeof event.data.threadId === 'string'
+              && typeof event.data.recipientName === 'string'
+            ) {
+              notification = {
+                id: `interest-accepted-${event.id}`,
+                icon: MessageCircle,
+                title: 'Interest accepted',
+                body: `${event.data.recipientName} accepted your request. You can start chatting.`,
                 href: `/messages/${encodeURIComponent(event.data.threadId)}`,
               }
               void queryClient.invalidateQueries({ queryKey: ['chat-threads'] })

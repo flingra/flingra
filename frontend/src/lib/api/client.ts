@@ -59,6 +59,13 @@ export function resolveMediaUrl(url: string): string {
   return url.startsWith('/media/') ? apiUrl(url) : url
 }
 
+export function mediaPath(url: string): string {
+  if (API_BASE_URL && url.startsWith(`${API_BASE_URL}/media/`)) {
+    return url.slice(API_BASE_URL.length)
+  }
+  return url
+}
+
 export async function uploadFile<T>(path: string, file: File): Promise<T> {
   const formData = new FormData()
   formData.append('file', file)

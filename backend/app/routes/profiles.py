@@ -177,14 +177,28 @@ def _profile_coordinates(row: dict[str, Any]) -> tuple[float | None, float | Non
 def _member_profile(
     row: dict[str, Any],
     distance_km: float | None,
+    *,
+    include_video_previews: bool = False,
 ) -> DiscoveryProfileResponse:
     latitude, longitude = _profile_coordinates(row)
+    videos = _profile_videos(row["videos"])
+    if not include_video_previews:
+        videos = [
+            {
+                key: value
+                for key, value in video.items()
+                if key not in {"previewImage", "preview_image"}
+            }
+            if isinstance(video, dict)
+            else video
+            for video in videos
+        ]
     return DiscoveryProfileResponse(
         id=str(row["id"]),
         display_name=row["display_name"],
         bio=row["bio"],
         photos=_parse_json_list(row["photos"]),
-        videos=_profile_videos(row["videos"]) or None,
+        videos=videos or None,
         age_range=_age_range(_current_age(row["date_of_birth"])),
         area=row["area"],
         latitude=round(latitude, 2) if latitude is not None else None,
@@ -660,4 +674,4 @@ def get_discoverable_profile(
         outcome="success",
     )
     db.commit()
-    return _member_profile(row, distance)
+    return _member_profile(row, distance, include_video_previews=True)

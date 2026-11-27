@@ -25,7 +25,7 @@ import { PageSpinner } from '@/components/ui/spinner'
 import { ErrorState } from '@/components/ui/state-message'
 import { getDiscoverableProfile, getOwnProfile } from '@/lib/api/profiles'
 import { blockMember } from '@/lib/api/safety'
-import { getOrCreateThread, proposePaymentInChat } from '@/lib/api/chat'
+import { createInterestRequest, getOrCreateThread, listThreads, proposePaymentInChat } from '@/lib/api/chat'
 import { listUnlockedVideos, unlockVideo } from '@/lib/api/wallet'
 import { getCallCreditBalance, startCall } from '@/lib/api/calls'
 import { canInteract } from '@/lib/api/subscription'
@@ -46,8 +46,7 @@ export function ProfileDetailPage() {
   const [reportOpen, setReportOpen] = useState(false)
   const [blockConfirmOpen, setBlockConfirmOpen] = useState(false)
   const [blocking, setBlocking] = useState(false)
-  const [interested, setInterested] = useState(false)
-  const [chatThreadId, setChatThreadId] = useState<string | null>(null)
+  const [interestStatus, setInterestStatus] = useState<'idle' | 'pending' | 'declined'>('idle')
   const [activePhoto, setActivePhoto] = useState(0)
   const [call, setCall] = useState<{ callId: string; mode: 'video' | 'voice' } | null>(null)
   const [startingCall, setStartingCall] = useState(false)
@@ -69,8 +68,14 @@ export function ProfileDetailPage() {
     enabled: Boolean(profile?.id),
   })
   const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
+  const { data: chatThreads = [] } = useQuery({
+    queryKey: ['chat-threads'],
+    queryFn: listThreads,
+    staleTime: 30_000,
+  })
   const { data: unlockedVideos = [] } = useQuery({ queryKey: ['unlocked-videos'], queryFn: listUnlockedVideos })
   const locked = !!profile && !canInteract(ownProfile, profile)
+  const chatThread = chatThreads.find((thread) => thread.otherId === profile?.id)
   const isPayingCaller = ownProfile?.identity === 'man'
   const { data: callCredits } = useQuery({ queryKey: ['call-credits'], queryFn: getCallCreditBalance, enabled: isPayingCaller })
 
@@ -124,7 +129,7 @@ export function ProfileDetailPage() {
   }
 
   async function handleSendPayment() {
-    if (!profile || locked) return
+    if (!profile || locked || !chatThread) return
     setPaymentError(null)
     setSendingPayment(true)
     try {
@@ -145,15 +150,20 @@ export function ProfileDetailPage() {
   }
 
   async function handleShowInterest() {
-    if (!profile || locked || interested) return
+    if (!profile || locked || interestStatus !== 'idle') return
     try {
-      const thread = await getOrCreateThread(profile.id, { notifyInterest: true })
-      setChatThreadId(thread.id)
-      setInterested(true)
+      const request = await createInterestRequest(profile.id)
+      if (request.status === 'accepted') {
+        navigate('/messages')
+        return
+      }
+      setInterestStatus(request.status === 'declined' ? 'declined' : 'pending')
       showToast({
-        title: 'Conversation opened',
-        description: `Send ${profile.displayName} a message to get started.`,
-        variant: 'success',
+        title: request.status === 'declined' ? 'Interest request declined' : 'Interest request sent',
+        description: request.status === 'declined'
+          ? 'This member has already declined the request.'
+          : `${profile.displayName} must accept before you can message.`,
+        variant: request.status === 'declined' ? 'info' : 'success',
       })
     } catch (error) {
       showToast({
@@ -300,10 +310,29 @@ export function ProfileDetailPage() {
                       key={video.url}
                       type="button"
                       onClick={() => setUnlockTarget(video)}
-                      className="group relative flex aspect-square w-full cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl bg-ink-800 text-white"
+                      aria-label={`Unlock ${profile.displayName}'s video for ${formatNaira(video.priceNaira ?? 0)}`}
+                      className="group relative flex aspect-square w-full cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-ink-800 text-white"
                     >
-                      <Lock className="size-5" aria-hidden="true" />
-                      <span className="text-xs font-semibold">{formatNaira(video.priceNaira ?? 0)}</span>
+                      {video.previewImage ? (
+                        <img
+                          src={video.previewImage}
+                          alt=""
+                          className="absolute inset-0 size-full scale-110 object-cover blur-xl"
+                        />
+                      ) : photos?.[0] ? (
+                        <img
+                          src={photos[0]}
+                          alt=""
+                          className="absolute inset-0 size-full scale-110 object-cover blur-xl"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 bg-gradient-to-br from-primary-800 via-ink-800 to-ink-900" />
+                      )}
+                      <span className="absolute inset-0 bg-black/35 transition-colors group-hover:bg-black/45" />
+                      <span className="relative flex flex-col items-center gap-2 rounded-full bg-black/45 px-4 py-3 backdrop-blur-sm">
+                        <Lock className="size-5" aria-hidden="true" />
+                        <span className="text-xs font-semibold">{formatNaira(video.priceNaira ?? 0)}</span>
+                      </span>
                     </button>
                   ) : (
                     <VideoThumbnail key={video.url} src={video.url} onClick={() => setPlayingVideo(video.url)} />
@@ -329,19 +358,26 @@ export function ProfileDetailPage() {
           <div className="mt-6 flex flex-wrap gap-3">
             {!locked && (
               <>
-                <Button
-                  variant={interested ? 'secondary' : 'accent'}
-                  onClick={handleShowInterest}
-                  disabled={interested}
-                >
-                  <Heart className="size-4" aria-hidden="true" /> {interested ? 'Interest sent' : 'Show interest'}
-                </Button>
-                {chatThreadId && (
-                  <Link to={`/messages/${chatThreadId}`} className={cn(buttonVariants({ variant: 'accent' }))}>
+                {ownProfile?.identity === 'man' && profile.identity === 'woman' && !chatThread && (
+                  <Button
+                    variant={interestStatus === 'idle' ? 'accent' : 'secondary'}
+                    onClick={handleShowInterest}
+                    disabled={interestStatus !== 'idle'}
+                  >
+                    <Heart className="size-4" aria-hidden="true" />
+                    {interestStatus === 'pending'
+                      ? 'Interest sent'
+                      : interestStatus === 'declined'
+                        ? 'Request declined'
+                        : 'Show interest'}
+                  </Button>
+                )}
+                {chatThread && (
+                  <Link to={`/messages/${encodeURIComponent(chatThread.id)}`} className={cn(buttonVariants({ variant: 'accent' }))}>
                     <MessageCircle className="size-4" aria-hidden="true" /> Chat
                   </Link>
                 )}
-                {ownProfile?.identity === 'man' && profile.identity === 'woman' && (
+                {ownProfile?.identity === 'man' && profile.identity === 'woman' && chatThread && (
                   <Button variant="outline" onClick={() => setPaymentOpen(true)}>
                     <HeartHandshake className="size-4" aria-hidden="true" /> Propose a payment
                   </Button>

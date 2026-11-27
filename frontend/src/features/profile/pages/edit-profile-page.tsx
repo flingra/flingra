@@ -10,7 +10,7 @@ import { PageSpinner } from '@/components/ui/spinner'
 import { EmptyState, ErrorState } from '@/components/ui/state-message'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/toast'
-import { VideoThumbnail } from '@/components/ui/video-thumbnail'
+import { createBlurredVideoPreview, VideoThumbnail } from '@/components/ui/video-thumbnail'
 import { VideoPlayerDialog } from '@/components/ui/video-player-dialog'
 import { getOwnProfile, saveOwnProfile, uploadPhoto, uploadVideo } from '@/lib/api/profiles'
 import { resolveMediaUrl } from '@/lib/api/client'
@@ -65,8 +65,18 @@ export function EditProfilePage() {
     if (!file) return
     setUploadingVideo(true)
     try {
+      let previewImage: string | undefined
+      try {
+        previewImage = await createBlurredVideoPreview(file)
+      } catch {
+        showToast({
+          title: 'Video preview unavailable',
+          description: 'The video can still be uploaded, but it will not have a blurred preview.',
+          variant: 'info',
+        })
+      }
       const url = await uploadVideo(file)
-      setVideos((current) => [...current, { url }])
+      setVideos((current) => [...current, { url, ...(previewImage ? { previewImage } : {}) }])
       setDirty(true)
     } finally {
       setUploadingVideo(false)
@@ -174,7 +184,7 @@ export function EditProfilePage() {
                 data?.identity === 'woman' ? (
                   <div key={video.url} className="rounded-2xl border border-ink-100 p-2">
                     <div className="relative aspect-square w-full">
-                      <VideoThumbnail src={video.url} onClick={() => setPlayingVideo(video.url)} />
+                      <VideoThumbnail src={resolveMediaUrl(video.url)} onClick={() => setPlayingVideo(resolveMediaUrl(video.url))} />
                       <button
                         type="button"
                         onClick={() => removeVideo(index)}
@@ -207,7 +217,7 @@ export function EditProfilePage() {
                   </div>
                 ) : (
                   <div key={video.url} className="relative size-20">
-                    <VideoThumbnail src={video.url} onClick={() => setPlayingVideo(video.url)} />
+                    <VideoThumbnail src={resolveMediaUrl(video.url)} onClick={() => setPlayingVideo(resolveMediaUrl(video.url))} />
                     <button
                       type="button"
                       onClick={() => removeVideo(index)}

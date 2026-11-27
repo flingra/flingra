@@ -1,4 +1,4 @@
-import { apiRequest, ensureCsrfHeaders } from './client'
+import { apiRequest, ensureCsrfHeaders, mediaPath, resolveMediaUrl } from './client'
 import { type GiftType, type MeetupPayment, type OwnedGift, type ReceivedGift, type WalletTransaction } from './types'
 
 export const GIFT_CATALOG: GiftType[] = []
@@ -131,10 +131,11 @@ export async function unlockVideo(url: string): Promise<{ url: string; unlocked:
   return apiRequest('/videos/unlock', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url: mediaPath(url) }),
   })
 }
 
 export async function listUnlockedVideos(): Promise<string[]> {
-  return apiRequest<string[]>('/videos/unlocks')
+  const urls = await apiRequest<string[]>('/videos/unlocks')
+  return urls.map(resolveMediaUrl)
 }

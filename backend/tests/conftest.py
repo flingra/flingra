@@ -195,6 +195,16 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
         )
         connection.exec_driver_sql(
             """
+            CREATE TABLE chat_interest_requests (
+                id TEXT PRIMARY KEY, sender_id TEXT NOT NULL, recipient_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, decided_at DATETIME,
+                UNIQUE (sender_id, recipient_id)
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
             CREATE TABLE chat_messages (
                 id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, author_id TEXT NOT NULL,
                 message_text TEXT NOT NULL DEFAULT '', attachment_json TEXT, attachment_media_id TEXT,

@@ -369,12 +369,12 @@ def test_expired_vip_is_treated_as_free_for_profile_and_chat_access(api_client, 
     assert profile.status_code == 200
     assert profile.json()["subscriptionTier"] == "free"
 
-    thread = client.post(
-        "/chat/threads",
+    interest = client.post(
+        "/chat/interests",
         headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
-        json={"otherId": target_id},
+        json={"targetId": target_id},
     )
-    assert thread.status_code == 201
+    assert interest.status_code == 201
 
 
 def test_expired_vip_viewer_cannot_access_active_vip_chat(api_client, monkeypatch) -> None:
@@ -414,9 +414,9 @@ def test_expired_vip_viewer_cannot_access_active_vip_chat(api_client, monkeypatc
         generator.close()
 
     response = client.post(
-        "/chat/threads",
+        "/chat/interests",
         headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
-        json={"otherId": target_id},
+        json={"targetId": target_id},
     )
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "VIP_REQUIRED"

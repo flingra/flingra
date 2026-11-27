@@ -49,6 +49,13 @@ def test_call_credit_purchase_and_server_billed_call_lifecycle(api_client, monke
     db, generator = _session(client)
     try:
         db.execute(
+            text("UPDATE profiles SET photos = :photos WHERE account_id = :account_id"),
+            {
+                "photos": json.dumps(["/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]),
+                "account_id": caller_id,
+            },
+        )
+        db.execute(
             text("INSERT INTO wallet_accounts (account_id, balance_kobo) VALUES (:id, 500000)"),
             {"id": caller_id},
         )
@@ -90,7 +97,13 @@ def test_call_credit_purchase_and_server_billed_call_lifecycle(api_client, monke
 
     callee = _login_as_candidate(client, callee_id)
     try:
-        assert callee.get("/calls/incoming").json()[0]["callId"] == call_id
+        incoming = callee.get("/calls/incoming").json()[0]
+        assert incoming["callId"] == call_id
+        assert incoming["status"] == "ringing"
+        assert incoming["callerId"] == caller_id
+        assert incoming["callerName"] == "Viewer"
+        assert incoming["callerIdentity"] == "man"
+        assert incoming["callerPhoto"] == "/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         callee_csrf = callee.cookies["flingra_csrf"]
         accepted = callee.post(
             f"/calls/{call_id}/accept",

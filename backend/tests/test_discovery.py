@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -214,10 +215,37 @@ def test_profile_detail_only_returns_discoverable_verified_profiles(api_client, 
     _create_viewer(client, monkeypatch)
     visible_id = _create_candidate(client)
     hidden_id = _create_candidate(client, document_status="pending")
+    preview_image = "data:image/jpeg;base64,AA=="
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text("UPDATE profiles SET videos = :videos WHERE account_id = :account_id"),
+            {
+                "videos": json.dumps(
+                    [
+                        {
+                            "url": "/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                            "locked": True,
+                            "priceNaira": 500,
+                            "previewImage": preview_image,
+                        }
+                    ]
+                ),
+                "account_id": visible_id,
+            },
+        )
+        db.commit()
+    finally:
+        generator.close()
 
     visible = client.get(f"/profiles/{visible_id}")
     assert visible.status_code == 200
     assert visible.json()["id"] == visible_id
+    assert visible.json()["videos"][0]["previewImage"] == preview_image
+
+    discovery = client.get("/discovery").json()["items"]
+    visible_feed_profile = next(profile for profile in discovery if profile["id"] == visible_id)
+    assert visible_feed_profile["videos"][0]["previewImage"] is None
 
     hidden = client.get(f"/profiles/{hidden_id}")
     assert hidden.status_code == 404

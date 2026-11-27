@@ -126,6 +126,13 @@ class ProfileVideo(BaseModel):
 
     url: str = Field(min_length=1, max_length=2048)
     locked: bool | None = None
+    preview_image: str | None = Field(
+        default=None,
+        validation_alias="previewImage",
+        serialization_alias="previewImage",
+        max_length=24_000,
+        pattern=r"^data:image/jpeg;base64,[A-Za-z0-9+/]+={0,2}$",
+    )
     price_naira: int | None = Field(
         default=None,
         validation_alias="priceNaira",

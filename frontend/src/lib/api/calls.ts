@@ -1,4 +1,4 @@
-import { apiRequest, ensureCsrfHeaders } from './client'
+import { apiRequest, ensureCsrfHeaders, resolveMediaUrl } from './client'
 import { type CoinPackage } from './types'
 
 export interface CallSession {
@@ -10,6 +10,17 @@ export interface CallSession {
   liveKitUrl: string | null
   token: string | null
   creditBalance: number | null
+}
+
+export interface IncomingCall {
+  callId: string
+  callerId: string
+  callerName: string
+  callerPhoto: string | null
+  callerIdentity: 'man' | 'woman' | 'private'
+  callType: 'audio' | 'video'
+  status: 'ringing'
+  createdAt: string
 }
 
 export const CALL_CREDIT_COST_PER_MINUTE = 1
@@ -56,8 +67,12 @@ export async function startCall(targetId: string, callType: 'audio' | 'video' = 
   })
 }
 
-export async function listIncomingCalls(): Promise<CallSession[]> {
-  return apiRequest<CallSession[]>('/calls/incoming')
+export async function listIncomingCalls(): Promise<IncomingCall[]> {
+  const calls = await apiRequest<IncomingCall[]>('/calls/incoming')
+  return calls.map((call) => ({
+    ...call,
+    callerPhoto: call.callerPhoto ? resolveMediaUrl(call.callerPhoto) : null,
+  }))
 }
 
 export async function acceptCall(callId: string): Promise<CallSession> {
