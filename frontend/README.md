@@ -21,6 +21,16 @@ VITE_GOOGLE_MAPS_MAP_ID=your-map-id-here
 - `VITE_GOOGLE_MAPS_MAP_ID` (optional): Google Cloud Console → Maps → Map
   Management → create a map ID if you want to apply a cloud-based map style.
 
+## Vercel API routing
+
+`vercel.json` forwards `/api/*` requests to the Render backend. Set
+`VITE_API_URL` to `/api` in the Vercel deployments serving both
+`dev.flingra.com` and `flingra.com`, then redeploy. Keep
+`FLINGRA_ALLOWED_ORIGINS` on the backend set to the exact frontend origins,
+for example `["https://dev.flingra.com","https://flingra.com"]`, for origin and
+CSRF validation. Local development should continue using the direct backend
+URL, such as `http://localhost:8000`.
+
 Onboarding maps use Google Maps. Place search and approximate reverse geocoding
 are handled by the backend with a separate server-side key; configure
 `FLINGRA_GOOGLE_MAPS_SERVER_API_KEY` in `backend/.env` and your production
