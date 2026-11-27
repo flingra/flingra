@@ -1111,33 +1111,50 @@ def end_admin_live_stream(
     admin: SafetyManager,
 ) -> dict[str, str]:
     stream = db.execute(
-        text("SELECT host_account_id, room_name, status FROM live_streams WHERE id = :id"),
+        text(
+            "SELECT host_account_id, room_name, status, room_closed_at FROM live_streams "
+            "WHERE id = :id"
+            + (" FOR UPDATE" if db.get_bind().dialect.name != "sqlite" else "")
+        ),
         {"id": stream_id},
     ).mappings().first()
     if stream is None:
         raise ApiException("LIVE_STREAM_NOT_FOUND", "This live stream is unavailable.", 404)
-    if stream["status"] != "live":
+    cleanup_pending = stream["status"] == "ended" and stream["room_closed_at"] is None
+    if stream["status"] != "live" and not cleanup_pending:
         raise ApiException("LIVE_STREAM_NOT_ACTIVE", "This live stream has already ended.", 409)
+    if stream["status"] == "live":
+        now = _now()
+        db.execute(
+            text(
+                """
+                UPDATE live_streams SET status = 'ended', ended_at = :now
+                WHERE id = :id AND status = 'live'
+                """
+            ),
+            {"id": stream_id, "now": now},
+        )
+        record_audit_event(
+            db,
+            request,
+            event_type="admin.live_stream.ended",
+            actor_type="admin",
+            actor_id=admin.admin_id,
+            subject_account_id=str(stream["host_account_id"]),
+            outcome="success",
+            metadata={"streamId": stream_id},
+        )
+        db.commit()
+
     delete_room(request.app.state.settings, str(stream["room_name"]))
-    now = _now()
     db.execute(
         text(
             """
-            UPDATE live_streams SET status = 'ended', ended_at = :now, room_closed_at = :now
-            WHERE id = :id AND status = 'live'
+            UPDATE live_streams SET room_closed_at = :now
+            WHERE id = :id AND status = 'ended' AND room_closed_at IS NULL
             """
         ),
-        {"id": stream_id, "now": now},
-    )
-    record_audit_event(
-        db,
-        request,
-        event_type="admin.live_stream.ended",
-        actor_type="admin",
-        actor_id=admin.admin_id,
-        subject_account_id=str(stream["host_account_id"]),
-        outcome="success",
-        metadata={"streamId": stream_id},
+        {"id": stream_id, "now": _now()},
     )
     db.commit()
     return {"streamId": stream_id, "status": "ended"}

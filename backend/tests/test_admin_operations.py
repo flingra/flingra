@@ -5,6 +5,7 @@ from sqlalchemy import text
 
 from app.routes import admin_operations
 from app.dependencies import db_session
+from app.errors import ServiceUnavailable
 from app.security import hash_password
 
 
@@ -332,3 +333,67 @@ def test_safety_admin_can_end_live_stream_and_remove_content(api_client, monkeyp
     assert "admin.live_stream.ended" in event_types
     assert "admin.content.post_removed" in event_types
     assert admin_id
+
+
+def test_admin_live_stream_end_retries_room_cleanup_after_provider_failure(
+    api_client, monkeypatch
+) -> None:
+    client, _ = api_client
+    seed_admin(client, "safety_admin")
+    account_id = seed_user(client)
+    stream_id = uuid.uuid4().hex
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO live_streams (id, host_account_id, room_name, title, status)
+                VALUES (:id, :account_id, 'retry-room', 'Retry stream', 'live')
+                """
+            ),
+            {"id": stream_id, "account_id": account_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    attempts = 0
+
+    def close_room(*_args) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ServiceUnavailable("simulated LiveKit outage")
+
+    monkeypatch.setattr(admin_operations, "delete_room", close_room)
+    csrf = {"X-CSRF-Token": client.cookies["flingra_admin_csrf"]}
+
+    failed_end = client.post(f"/admin/live-streams/{stream_id}/end", headers=csrf)
+    assert failed_end.status_code == 503
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        state = db.execute(
+            text("SELECT status, room_closed_at FROM live_streams WHERE id = :id"),
+            {"id": stream_id},
+        ).one()
+        assert state.status == "ended"
+        assert state.room_closed_at is None
+    finally:
+        generator.close()
+
+    retried_end = client.post(f"/admin/live-streams/{stream_id}/end", headers=csrf)
+    assert retried_end.status_code == 200
+    assert retried_end.json() == {"streamId": stream_id, "status": "ended"}
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        state = db.execute(
+            text("SELECT status, room_closed_at FROM live_streams WHERE id = :id"),
+            {"id": stream_id},
+        ).one()
+        assert state.status == "ended"
+        assert state.room_closed_at is not None
+    finally:
+        generator.close()
