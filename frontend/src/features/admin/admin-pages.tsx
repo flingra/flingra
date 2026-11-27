@@ -8,6 +8,7 @@ import { formatNaira } from '@/lib/utils'
 import { adminApi, type AdminRole, type MeetupDisputeItem, type ReviewItem, type SafetyReviewItem } from '@/lib/api/admin'
 import { ApiError } from '@/lib/api/types'
 import { useAdminStore } from '@/lib/stores/admin-store'
+import { auditEventLabel, auditMetadataEntries, formatDate, humanize } from './admin-ui'
 
 export function AdminLoginPage() {
   const setSession = useAdminStore((state) => state.setSession)
@@ -22,6 +23,7 @@ export function AdminLoginPage() {
 }
 
 export function AdminReviewsPage() {
+  const adminRole = useAdminStore((state) => state.session?.role)
   const [items, setItems] = useState<ReviewItem[]>([])
   const [error, setError] = useState<string | null>(null)
   const [documentUrl, setDocumentUrl] = useState<string | null>(null)
@@ -30,22 +32,19 @@ export function AdminReviewsPage() {
   const [profilePhotoError, setProfilePhotoError] = useState<string | null>(null)
   const [selectedReview, setSelectedReview] = useState<Awaited<ReturnType<typeof adminApi.getReview>> | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
-  const [documentLoading, setDocumentLoading] = useState(false)
   const [decisionLoading, setDecisionLoading] = useState(false)
   const detailsRequest = useRef(0)
   const load = () => adminApi.reviews().then((result) => setItems(result.items)).catch((e) => setError(e instanceof ApiError ? e.message : 'Unable to load reviews.'))
   useEffect(() => { void load() }, [])
 
   useEffect(() => () => {
-    if (documentUrl) URL.revokeObjectURL(documentUrl)
-  }, [documentUrl])
-  useEffect(() => () => profilePhotoUrls.forEach((url) => URL.revokeObjectURL(url)), [profilePhotoUrls])
+    detailsRequest.current += 1
+  }, [])
 
   function closeReview() {
     detailsRequest.current += 1
     setSelectedReview(null)
     setDetailsLoading(false)
-    setDocumentLoading(false)
     setDocumentUrl(null)
     setDocumentError(null)
     setProfilePhotoUrls([])
@@ -61,31 +60,12 @@ export function AdminReviewsPage() {
       const details = await adminApi.getReview(reviewId)
       if (requestId !== detailsRequest.current) return
       setSelectedReview(details)
-      setDocumentLoading(true)
-      try {
-        const document = await adminApi.reviewDocumentBlob(reviewId)
-        if (requestId === detailsRequest.current) setDocumentUrl(URL.createObjectURL(document))
-      } catch (e) {
-        if (requestId === detailsRequest.current) {
-          setDocumentError(e instanceof ApiError ? e.message : 'Unable to load the identity document.')
-        }
-      } finally {
-        if (requestId === detailsRequest.current) setDocumentLoading(false)
-      }
-
-      const photoIds = details.photos
-        .map((photo) => /^\/media\/([0-9a-f]{32})$/.exec(photo)?.[1] ?? null)
-        .filter((mediaId): mediaId is string => mediaId !== null)
-      const photoResults = await Promise.allSettled(
-        photoIds.map((mediaId) => adminApi.reviewProfilePhotoBlob(reviewId, mediaId)),
-      )
-      if (requestId === detailsRequest.current) {
-        setProfilePhotoUrls(
-          photoResults.flatMap((result) => result.status === 'fulfilled' ? [URL.createObjectURL(result.value)] : []),
-        )
-        if (photoResults.some((result) => result.status === 'rejected')) {
-          setProfilePhotoError('One or more profile photos could not be loaded.')
-        }
+      if (adminRole === 'super_admin') {
+        setDocumentUrl(adminApi.reviewDocumentUrl(reviewId))
+        const photoIds = details.photos
+          .map((photo) => /^\/media\/([0-9a-f]{32})$/.exec(photo)?.[1] ?? null)
+          .filter((mediaId): mediaId is string => mediaId !== null)
+        setProfilePhotoUrls(photoIds.map((mediaId) => adminApi.reviewProfilePhotoUrl(reviewId, mediaId)))
       }
     } catch (e) {
       if (requestId === detailsRequest.current) {
@@ -163,28 +143,36 @@ export function AdminReviewsPage() {
                 <p className="mt-4 whitespace-pre-wrap text-sm text-ink-700">{selectedReview.bio || 'No bio provided.'}</p>
                 <p className="mt-2 text-sm text-ink-500">Area: {selectedReview.area || 'Not provided'}</p>
                 <p className="mt-1 break-all text-xs text-ink-400">Account ID: {selectedReview.accountId}</p>
-                {profilePhotoUrls.length > 0 && (
+                {adminRole === 'super_admin' && profilePhotoUrls.length > 0 && (
                   <div className="mt-4">
                     <h4 className="mb-2 text-sm font-medium text-ink-700">Profile photos</h4>
                     <div className="flex flex-wrap gap-2">
                       {profilePhotoUrls.map((url) => (
-                        <img key={url} src={url} alt="Member profile" className="size-24 rounded-xl object-cover" />
+                        <img key={url} src={url} alt="Member profile" className="size-24 rounded-xl object-cover" onError={() => setProfilePhotoError('One or more profile photos could not be loaded.')} />
                       ))}
                     </div>
                   </div>
                 )}
+                {adminRole !== 'super_admin' && <p className="mt-4 text-sm text-ink-500">Sensitive uploads are available to super admins only.</p>}
                 {profilePhotoError && <p className="mt-2 text-sm text-danger">{profilePhotoError}</p>}
               </div>
               <div>
                 <h3 className="mb-3 font-semibold text-ink-900">Submitted identity document</h3>
-                {documentLoading && <p className="text-sm text-ink-500">Loading document…</p>}
                 {documentError && <p className="text-sm text-danger">{documentError}</p>}
-                {documentUrl && (
+                {documentUrl && selectedReview.contentType.startsWith('image/') && (
                   <img
                     src={documentUrl}
                     alt={`Submitted ${selectedReview.documentType ?? 'identity'} document`}
                     className="max-h-[50vh] w-full rounded-xl bg-ink-50 object-contain"
+                    onError={() => setDocumentError('Unable to display the identity document.')}
                   />
+                )}
+                {documentUrl && selectedReview.contentType === 'application/pdf' && (
+                  <iframe title="Submitted identity document" src={documentUrl} className="h-[50vh] w-full rounded-xl border border-ink-100" />
+                )}
+                {adminRole !== 'super_admin' && <p className="text-sm text-ink-500">The identity document is available to super admins only.</p>}
+                {documentUrl && !selectedReview.contentType.startsWith('image/') && selectedReview.contentType !== 'application/pdf' && (
+                  <p className="text-sm text-ink-500">This document format cannot be previewed in the admin panel.</p>
                 )}
                 <p className="mt-2 text-xs text-ink-500">
                   Submitted {new Date(selectedReview.documentSubmittedAt).toLocaleString()} · {selectedReview.sizeBytes.toLocaleString()} bytes
@@ -236,10 +224,54 @@ export function AdminAccountsPage() {
     try { await adminApi.updateAccount(id, body); await load() }
     catch (e) { setError(e instanceof ApiError ? e.message : 'Unable to update admin account.') }
   }
-  return <section><h1 className="mb-6 text-3xl font-bold">Admin accounts</h1><Card className="mb-6"><form className="grid gap-3 md:grid-cols-4" onSubmit={async (e) => { e.preventDefault(); try { await adminApi.createAccount({ email, password, role }); setEmail(''); setPassword(''); await load() } catch (e) { setError(e instanceof ApiError ? e.message : 'Unable to create admin.') } }}><Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required /><Input type="password" minLength={14} placeholder="Password (14+ characters)" value={password} onChange={(e) => setPassword(e.target.value)} required /><select className="rounded-xl border border-ink-200 px-3" value={role} onChange={(e) => setRole(e.target.value as AdminRole)}><option value="reviewer">Reviewer</option><option value="safety_admin">Safety admin</option><option value="auditor">Auditor</option><option value="super_admin">Super admin</option></select><Button type="submit">Add admin</Button></form>{error && <p className="mt-3 text-sm text-danger">{error}</p>}</Card><div className="space-y-3">{accounts.map((account) => <Card key={account.adminId} className="flex flex-wrap items-center justify-between gap-3"><span>{account.email}</span><div className="flex items-center gap-3"><select aria-label={`Role for ${account.email}`} className="rounded-xl border border-ink-200 px-3 py-2 text-sm" value={account.role} onChange={(e) => void updateAccount(account.adminId, { role: e.target.value as AdminRole })}><option value="reviewer">Reviewer</option><option value="safety_admin">Safety admin</option><option value="auditor">Auditor</option><option value="super_admin">Super admin</option></select><span className="text-sm text-ink-500">{account.disabled ? 'disabled' : 'active'}</span><Button size="sm" variant="outline" onClick={() => void updateAccount(account.adminId, { disabled: !account.disabled })}>{account.disabled ? 'Enable' : 'Disable'}</Button></div></Card>)}</div></section>
+  return <section><h1 className="mb-6 text-3xl font-bold">Admin accounts</h1><Card className="mb-6"><form className="grid gap-3 md:grid-cols-4" onSubmit={async (e) => { e.preventDefault(); try { await adminApi.createAccount({ email, password, role }); setEmail(''); setPassword(''); await load() } catch (e) { setError(e instanceof ApiError ? e.message : 'Unable to create admin.') } }}><Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required /><Input type="password" minLength={14} placeholder="Password (14+ characters)" value={password} onChange={(e) => setPassword(e.target.value)} required /><select className="rounded-xl border border-ink-200 px-3" value={role} onChange={(e) => setRole(e.target.value as AdminRole)}><option value="admin">Admin</option><option value="reviewer">Reviewer</option><option value="safety_admin">Safety admin</option><option value="auditor">Auditor</option><option value="super_admin">Super admin</option></select><Button type="submit">Add admin</Button></form>{error && <p className="mt-3 text-sm text-danger">{error}</p>}</Card><div className="space-y-3">{accounts.map((account) => <Card key={account.adminId} className="flex flex-wrap items-center justify-between gap-3"><span>{account.email}</span><div className="flex items-center gap-3"><select aria-label={`Role for ${account.email}`} className="rounded-xl border border-ink-200 px-3 py-2 text-sm" value={account.role} onChange={(e) => void updateAccount(account.adminId, { role: e.target.value as AdminRole })}><option value="admin">Admin</option><option value="reviewer">Reviewer</option><option value="safety_admin">Safety admin</option><option value="auditor">Auditor</option><option value="super_admin">Super admin</option></select><span className="text-sm text-ink-500">{account.disabled ? 'disabled' : 'active'}</span><Button size="sm" variant="outline" onClick={() => void updateAccount(account.adminId, { disabled: !account.disabled })}>{account.disabled ? 'Enable' : 'Disable'}</Button></div></Card>)}</div></section>
 }
 
 export function AdminAuditPage() {
-  const [accountId, setAccountId] = useState(''); const [events, setEvents] = useState<Array<{ eventType: string; outcome: string; createdAt: string }>>([]); const [error, setError] = useState<string | null>(null)
-  return <section><h1 className="mb-6 text-3xl font-bold">User audit history</h1><Card><form className="flex gap-3" onSubmit={async (e) => { e.preventDefault(); try { setError(null); const result = await adminApi.audit(accountId); setEvents(result.items) } catch (e) { setError(e instanceof ApiError ? e.message : 'Unable to load audit history.') } }}><Input placeholder="Account ID" value={accountId} onChange={(e) => setAccountId(e.target.value)} required /><Button type="submit">View audit</Button></form></Card>{error && <p className="mt-4 text-danger">{error}</p>}<div className="mt-6 space-y-3">{events.map((event, index) => <Card key={`${event.eventType}-${index}`}><div className="flex justify-between"><strong>{event.eventType}</strong><span className="text-sm text-ink-500">{event.outcome}</span></div><p className="text-sm text-ink-500">{event.createdAt}</p></Card>)}</div></section>
+  const [accountId, setAccountId] = useState('')
+  const [events, setEvents] = useState<Array<{ eventType: string; outcome: string; createdAt: string; metadata: unknown }>>([])
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <section>
+      <h1 className="mb-2 text-3xl font-bold">Member activity</h1>
+      <p className="mb-6 text-sm text-ink-500">A readable history of security, account, and moderation activity for one member.</p>
+      <Card>
+        <form className="flex gap-3" onSubmit={async (event) => {
+          event.preventDefault()
+          try {
+            setError(null)
+            const result = await adminApi.audit(accountId)
+            setEvents(result.items)
+          } catch (e) {
+            setError(e instanceof ApiError ? e.message : 'Unable to load member activity.')
+          }
+        }}>
+          <Input aria-label="Member account ID" placeholder="Member account ID" value={accountId} onChange={(event) => setAccountId(event.target.value)} required />
+          <Button type="submit">View activity</Button>
+        </form>
+      </Card>
+      {error && <p className="mt-4 text-danger">{error}</p>}
+      <div className="mt-6 space-y-3">
+        {events.map((event, index) => {
+          const metadata = auditMetadataEntries(event.metadata)
+          return (
+            <Card key={`${event.eventType}-${index}`}>
+              <div className="flex flex-wrap justify-between gap-2">
+                <strong>{auditEventLabel(event.eventType)}</strong>
+                <span className="text-sm text-ink-500">{humanize(event.outcome)}</span>
+              </div>
+              <p className="mt-1 text-sm text-ink-500">{formatDate(event.createdAt)}</p>
+              {metadata.length > 0 && (
+                <dl className="mt-3 grid gap-x-6 gap-y-2 rounded-lg bg-ink-50 p-3 text-sm sm:grid-cols-2">
+                  {metadata.map((entry) => (
+                    <div key={entry.label}><dt className="text-ink-500">{entry.label}</dt><dd className="break-words text-ink-900">{entry.value}</dd></div>
+                  ))}
+                </dl>
+              )}
+            </Card>
+          )
+        })}
+      </div>
+    </section>
+  )
 }

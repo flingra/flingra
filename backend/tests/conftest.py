@@ -39,11 +39,13 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
                 id TEXT PRIMARY KEY, email TEXT UNIQUE, identifier TEXT UNIQUE NOT NULL,
                 identifier_type TEXT NOT NULL, password_hash TEXT NOT NULL,
                 date_of_birth DATE NOT NULL, gender TEXT NOT NULL, referred_by_code TEXT,
+                emergency_contact_name TEXT, emergency_contact_phone_e164 TEXT,
                 terms_version TEXT NOT NULL, privacy_version TEXT NOT NULL,
                 email_verified BOOLEAN NOT NULL, account_state TEXT NOT NULL,
                 google_sub TEXT UNIQUE,
                 login_failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until DATETIME,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
         )

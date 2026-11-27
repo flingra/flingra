@@ -9,6 +9,49 @@ export function humanize(value: string) {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
+const AUDIT_EVENT_LABELS: Record<string, string> = {
+  'admin.live_stream.ended': 'Live stream ended',
+  'admin.live_stream.monitor_started': 'Live stream monitoring started',
+  'admin.live_stream.warning_issued': 'Live stream warning sent',
+  'admin.user.details_viewed': 'Member profile viewed',
+  'admin.user.media_listed': 'Member uploads opened',
+  'admin.user.media_viewed': 'Member upload viewed',
+  'admin.user.wallet_viewed': 'Member wallet history viewed',
+  'admin.user.status_active': 'Member access restored',
+  'admin.user.status_banned': 'Member banned',
+  'admin.user.status_suspended': 'Member suspended',
+}
+
+export function auditEventLabel(eventType: string) {
+  return AUDIT_EVENT_LABELS[eventType] ?? humanize(eventType.replace(/^admin\./, '').replace(/\./g, '_'))
+}
+
+export function auditMetadataEntries(metadata: unknown): Array<{ label: string; value: string }> {
+  let value = metadata
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value) as unknown
+    } catch {
+      return value ? [{ label: 'Details', value: String(value) }] : []
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+
+  return Object.entries(value)
+    .filter(([key, item]) => !/(?:id|ids)$/i.test(key) && !(typeof item === 'string' && /^[0-9a-f]{24,}$/i.test(item)))
+    .flatMap(([key, item]) => {
+      if (item === null || typeof item === 'object') return []
+      const label = humanize(key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase())
+      let formatted = String(item)
+      if (typeof item === 'boolean') formatted = item ? 'Yes' : 'No'
+      else if (/(?:status|decision|type|outcome)$/i.test(key)) formatted = humanize(formatted)
+      else if (/kobo$/i.test(key) && Number.isFinite(Number(item))) {
+        formatted = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'NGN' }).format(Number(item) / 100)
+      }
+      return [{ label, value: formatted }]
+    })
+}
+
 export function formatDate(value?: string | null) {
   if (!value) return '—'
   const date = new Date(value)

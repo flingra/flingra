@@ -8,7 +8,7 @@ AccountStage = Literal["needs-verification", "needs-onboarding", "active"]
 AudiencePreference = Literal["men", "women", "everyone"]
 VerificationStatus = Literal["unverified", "pending", "verified", "rejected"]
 VerificationDocumentType = Literal["NIN", "BVN", "voters-card"]
-AdminRole = Literal["super_admin", "reviewer", "safety_admin", "auditor"]
+AdminRole = Literal["super_admin", "admin", "reviewer", "safety_admin", "auditor"]
 
 
 class ApiErrorBody(BaseModel):

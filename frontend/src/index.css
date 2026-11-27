@@ -165,6 +165,28 @@
     @apply bg-ink-50 text-ink-900 font-sans antialiased;
   }
 
+  .admin-layout,
+  .admin-layout * {
+    scrollbar-color: #ffffff #ffffff;
+  }
+
+  .admin-layout::-webkit-scrollbar,
+  .admin-layout *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .admin-layout::-webkit-scrollbar-track,
+  .admin-layout *::-webkit-scrollbar-track {
+    background: #ffffff;
+  }
+
+  .admin-layout::-webkit-scrollbar-thumb,
+  .admin-layout *::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: #ffffff;
+  }
+
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-primary-500;
   }

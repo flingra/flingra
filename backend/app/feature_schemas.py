@@ -230,7 +230,7 @@ class LiveStreamMessageResponse(BaseModel):
     stream_id: str = Field(serialization_alias="streamId")
     author_id: str = Field(serialization_alias="authorId")
     author_name: str = Field(serialization_alias="authorName")
-    kind: Literal["message", "gift", "join"]
+    kind: Literal["message", "gift", "join", "warning"]
     text: str
     gift_id: str | None = Field(default=None, serialization_alias="giftId")
     created_at: datetime = Field(serialization_alias="createdAt")

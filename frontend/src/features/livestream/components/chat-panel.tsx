@@ -38,7 +38,13 @@ export function ChatPanel({
           return (
             <p key={message.id} className="break-words text-sm leading-snug drop-shadow-sm">
               <span className="font-semibold text-white">{message.authorName}</span>{' '}
-              <span className={cn(message.kind === 'gift' ? 'font-semibold text-amber-300' : 'text-white/90')}>
+              <span className={cn(
+                message.kind === 'gift'
+                  ? 'font-semibold text-amber-300'
+                  : message.kind === 'warning'
+                    ? 'font-semibold text-red-300'
+                    : 'text-white/90',
+              )}>
                 {message.text}
               </span>
             </p>

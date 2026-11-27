@@ -3,7 +3,7 @@ import { ApiError } from './types'
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '')
 let csrfToken: string | null = null
 
-export type AdminRole = 'super_admin' | 'reviewer' | 'safety_admin' | 'auditor'
+export type AdminRole = 'super_admin' | 'admin' | 'reviewer' | 'safety_admin' | 'auditor'
 export interface AdminSession { adminId: string; email: string; role: AdminRole }
 export interface AdminAccount { adminId: string; email: string; role: AdminRole; disabled: boolean; createdAt: string }
 export interface ReviewItem {
@@ -72,6 +72,54 @@ export interface AdminUser {
   createdAt: string
 }
 
+export interface AdminUserDetails extends AdminUser {
+  contact: string
+  identifierType: string
+  dateOfBirth: string
+  gender: string
+  emergencyContactName: string
+  emergencyContactPhone: string
+  termsVersion: string
+  privacyVersion: string
+  username: string | null
+  bio: string
+  ageRange: string
+  area: string
+  interests: string[]
+  identity: string
+  showIdentity: boolean | null
+  discoverableBy: string
+  wantsToDiscover: string
+  onboardingComplete: boolean | null
+  documentType: string | null
+  subscriptionTier: string | null
+  vipExpiresAt: string | null
+  updatedAt: string
+}
+
+export interface AdminUserWallet {
+  walletBalanceKobo: number
+  callCreditBalance: number
+  walletSpentKobo: number
+  callCreditsSpent: number
+  transactions: Array<{
+    ledger: 'wallet' | 'call credits'
+    transactionType: string
+    amount: number
+    description: string
+    status: string
+    createdAt: string
+  }>
+}
+
+export interface AdminUserMedia {
+  mediaId: string
+  purpose: string
+  contentType: string
+  sizeBytes: number
+  createdAt: string
+}
+
 export interface AdminSafetyReport {
   reportId: string
   reporterId: string
@@ -116,6 +164,18 @@ export interface AdminAuditEvent {
   requestId: string
   metadata: unknown
   createdAt: string
+  actorName?: string | null
+  accountName?: string | null
+}
+
+export interface AdminSignupDay {
+  date: string
+  count: number
+}
+
+export interface AdminDashboardSummary {
+  [key: string]: number | AdminSignupDay[] | undefined
+  memberSignupsByDay?: AdminSignupDay[]
 }
 
 function csrfHeaders(): HeadersInit {
@@ -144,12 +204,9 @@ export async function adminRequest<T>(path: string, init: RequestInit = {}, retr
   return (await response.json()) as T
 }
 
-/** For the one admin endpoint that returns a raw file (the verification document image), not JSON. */
-export async function adminRequestBlob(path: string): Promise<Blob> {
+export function adminMediaUrl(path: string): string {
   if (!API_BASE_URL) throw new ApiError('API_NOT_CONFIGURED', 'The frontend API URL is not configured.')
-  const response = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include', headers: { Accept: '*/*' } })
-  if (!response.ok) throw new ApiError('REQUEST_FAILED', 'Could not load the document.')
-  return response.blob()
+  return `${API_BASE_URL}${path}`
 }
 
 export const adminApi = {
@@ -170,9 +227,9 @@ export const adminApi = {
   updateAccount: (id: string, body: { role?: AdminRole; disabled?: boolean }) => adminRequest<AdminAccount>(`/admin/admins/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   reviews: () => adminRequest<{ items: ReviewItem[]; nextOffset: number | null }>('/admin/reviews'),
   getReview: (id: string) => adminRequest<ReviewDetails>(`/admin/reviews/${id}`),
-  reviewDocumentBlob: (id: string) => adminRequestBlob(`/admin/reviews/${id}/document`),
-  reviewProfilePhotoBlob: (reviewId: string, mediaId: string) =>
-    adminRequestBlob(`/admin/reviews/${reviewId}/profile-photos/${mediaId}`),
+  reviewDocumentUrl: (id: string) => adminMediaUrl(`/admin/reviews/${id}/document`),
+  reviewProfilePhotoUrl: (reviewId: string, mediaId: string) =>
+    adminMediaUrl(`/admin/reviews/${reviewId}/profile-photos/${mediaId}`),
   decide: (id: string, decision: 'approved' | 'rejected', reason: string) => adminRequest(`/admin/reviews/${id}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, reason }) }),
   audit: (accountId: string) => adminRequest<{ items: Array<{ eventType: string; outcome: string; createdAt: string; metadata: unknown }> }>(`/admin/users/${accountId}/audit`),
   safetyReviews: async (status: 'open' | 'reviewed' | 'dismissed' | 'all' = 'open') => {
@@ -199,6 +256,13 @@ export const adminApi = {
   resolveMeetupDispute: (id: string, resolution: 'release' | 'refund', reason: string) =>
     adminRequest(`/admin/meetup-payments/${id}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resolution, reason }) }),
   users: (search = '') => adminRequest<{ items: AdminUser[]; nextOffset: number | null }>(`/admin/users${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  userDetails: (accountId: string) => adminRequest<AdminUserDetails>(`/admin/users/${encodeURIComponent(accountId)}`),
+  userWallet: (accountId: string) => adminRequest<AdminUserWallet>(`/admin/users/${encodeURIComponent(accountId)}/wallet`),
+  userMedia: (accountId: string) => adminRequest<{ items: AdminUserMedia[] }>(`/admin/users/${encodeURIComponent(accountId)}/media`),
+  userMediaUrl: (accountId: string, mediaId: string) =>
+    adminMediaUrl(`/admin/users/${encodeURIComponent(accountId)}/media/${encodeURIComponent(mediaId)}`),
+  removeUserMedia: (accountId: string, mediaId: string, reason: string) =>
+    adminRequest(`/admin/users/${encodeURIComponent(accountId)}/media/${encodeURIComponent(mediaId)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) }),
   setUserStatus: (accountId: string, status: 'active' | 'suspended' | 'banned', reason: string) =>
     adminRequest(`/admin/users/${accountId}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, reason }) }),
   adjustWallet: (accountId: string, amountKobo: number, reason: string) =>
@@ -206,7 +270,7 @@ export const adminApi = {
   adjustCallCredits: (accountId: string, amount: number, reason: string) =>
     adminRequest<{ accountId: string; balance: number }>(`/admin/users/${accountId}/call-credit-adjustments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount, reason }) }),
   dashboard: () =>
-    adminRequest<Record<string, number>>('/admin/dashboard'),
+    adminRequest<AdminDashboardSummary>('/admin/dashboard'),
   revokeUserSessions: (accountId: string) =>
     adminRequest<{ revokedCount: number }>(`/admin/users/${accountId}/sessions/revoke`, { method: 'POST' }),
   safetyReports: (status: 'open' | 'reviewed' | 'dismissed' | 'all' = 'open') =>
@@ -235,14 +299,18 @@ export const adminApi = {
     adminRequest(`/admin/users/${accountId}/subscription`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier, expires_at: expiresAt, reason }) }),
   liveStreams: () =>
     adminRequest<{ items: Array<{ streamId: string; hostId: string; hostName: string | null; title: string; status: string; startedAt: string }> }>('/admin/live-streams'),
+  liveMonitorToken: (streamId: string) =>
+    adminRequest<{ url: string; token: string }>(`/admin/live-streams/${encodeURIComponent(streamId)}/monitor-token`, { method: 'POST' }),
+  warnLiveStream: (streamId: string, severity: 'warning' | 'violation', reason: string) =>
+    adminRequest(`/admin/live-streams/${encodeURIComponent(streamId)}/warnings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ severity, reason }) }),
   endLiveStream: (streamId: string) =>
     adminRequest(`/admin/live-streams/${streamId}/end`, { method: 'POST' }),
   contentPosts: () =>
-    adminRequest<{ items: Array<{ postId: string; authorId: string; authorName: string | null; caption: string | null; createdAt: string }> }>('/admin/content/posts'),
+    adminRequest<{ items: Array<{ postId: string; authorId: string; authorName: string | null; caption: string | null; createdAt: string; photos?: string[]; videoUrl?: string | null }> }>('/admin/content/posts'),
   removePost: (postId: string) =>
     adminRequest(`/admin/content/posts/${postId}`, { method: 'DELETE' }),
   contentStatuses: () =>
-    adminRequest<{ items: Array<{ statusId: string; authorId: string; authorName: string | null; mediaKind: string; createdAt: string; expiresAt: string }> }>('/admin/content/statuses'),
+    adminRequest<{ items: Array<{ statusId: string; authorId: string; authorName: string | null; mediaKind: string; createdAt: string; expiresAt: string; mediaUrl?: string }> }>('/admin/content/statuses'),
   removeStatus: (statusId: string) =>
     adminRequest(`/admin/content/statuses/${statusId}`, { method: 'DELETE' }),
   auditEvents: (params: { eventType?: string; outcome?: string; accountId?: string } = {}) => {

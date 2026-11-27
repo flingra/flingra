@@ -13,7 +13,7 @@ from app.database import get_engine
 from app.security import hash_password
 
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-ADMIN_ROLES = ("super_admin", "reviewer", "safety_admin", "auditor")
+ADMIN_ROLES = ("super_admin", "admin", "reviewer", "safety_admin", "auditor")
 
 
 def main() -> None:
@@ -37,6 +37,15 @@ def main() -> None:
             admin_count = db.execute(text("SELECT COUNT(*) FROM admin_users")).scalar_one()
             if admin_count == 0 and args.role not in {None, "super_admin"}:
                 raise SystemExit("The first admin account must have the super_admin role.")
+            if args.role == "super_admin":
+                active_super_admins = db.execute(
+                    text(
+                        "SELECT COUNT(*) FROM admin_users "
+                        "WHERE role = 'super_admin' AND disabled_at IS NULL"
+                    )
+                ).scalar_one()
+                if active_super_admins >= 1:
+                    raise SystemExit("Only one active super admin account is allowed.")
             role = args.role or ("super_admin" if admin_count == 0 else "reviewer")
             admin_id = uuid.uuid4().hex
             db.execute(

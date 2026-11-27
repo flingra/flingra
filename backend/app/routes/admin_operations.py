@@ -1,8 +1,10 @@
+import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -10,18 +12,22 @@ from sqlalchemy.orm import Session
 
 from app.audit import record_audit_event
 from app.dependencies import db_session
-from app.errors import ApiException
+from app.errors import ApiException, ServiceUnavailable
 from app.routes.admin import AdminAccount, require_admin_csrf, require_admin_roles
-from app.livekit import delete_room
+from app.routes.livestreams import _broadcast_stream_event
+from app.livekit import create_room_token, delete_room
+from app.storage import ObjectStorage, get_object_storage
 from app.wallet import credit_wallet, debit_wallet
 
 router = APIRouter(prefix="/admin", tags=["admin operations"])
 DbSession = Annotated[Session, Depends(db_session)]
-Manager = Annotated[AdminAccount, Depends(require_admin_roles("super_admin"))]
+Manager = Annotated[AdminAccount, Depends(require_admin_roles("super_admin", "admin"))]
 SafetyManager = Annotated[
     AdminAccount,
-    Depends(require_admin_roles("super_admin", "safety_admin")),
+    Depends(require_admin_roles("super_admin", "admin", "safety_admin")),
 ]
+SuperManager = Annotated[AdminAccount, Depends(require_admin_roles("super_admin"))]
+StorageDependency = Annotated[ObjectStorage, Depends(get_object_storage)]
 
 
 def _now() -> datetime:
@@ -73,6 +79,15 @@ class UserSubscriptionRequest(BaseModel):
     tier: Literal["free", "vip"]
     expires_at: datetime | None = None
     reason: str = Field(min_length=1, max_length=1000)
+
+
+class LiveStreamWarningRequest(BaseModel):
+    severity: Literal["warning", "violation"] = "warning"
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AdminMediaRemovalRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
 
 
 @router.get("/users")
@@ -148,10 +163,15 @@ def get_user(
     row = db.execute(
         text(
             """
-            SELECT a.id, a.email, a.identifier_type, a.account_state, a.email_verified,
-                   a.created_at, a.updated_at, p.display_name, p.moderation_status,
-                   p.document_verification, p.document_type, p.subscription_tier,
-                   p.vip_expires_at
+            SELECT a.id, a.email, a.identifier, a.identifier_type, a.account_state,
+                   a.email_verified, a.date_of_birth, a.gender,
+                   a.emergency_contact_name, a.emergency_contact_phone_e164,
+                   a.terms_version, a.privacy_version, a.created_at, a.updated_at,
+                   p.username, p.display_name, p.bio, p.age_range,
+                   p.area, p.interests, p.identity, p.show_identity, p.discoverable_by,
+                   p.wants_to_discover, p.onboarding_complete, p.moderation_status,
+                   p.document_verification, p.document_type,
+                   p.subscription_tier, p.vip_expires_at
             FROM accounts a
             LEFT JOIN profiles p ON p.account_id = a.id
             WHERE a.id = :account_id
@@ -174,10 +194,27 @@ def get_user(
     return {
         "accountId": str(row["id"]),
         "email": row["email"],
+        "contact": row["identifier"],
         "identifierType": row["identifier_type"],
         "accountStatus": row["account_state"],
         "emailVerified": bool(row["email_verified"]),
+        "dateOfBirth": row["date_of_birth"],
+        "gender": row["gender"],
+        "emergencyContactName": row["emergency_contact_name"],
+        "emergencyContactPhone": row["emergency_contact_phone_e164"],
+        "termsVersion": row["terms_version"],
+        "privacyVersion": row["privacy_version"],
+        "username": row["username"],
         "displayName": row["display_name"],
+        "bio": row["bio"],
+        "ageRange": row["age_range"],
+        "area": row["area"],
+        "interests": json.loads(row["interests"]) if isinstance(row["interests"], str) else row["interests"],
+        "identity": row["identity"],
+        "showIdentity": bool(row["show_identity"]) if row["show_identity"] is not None else None,
+        "discoverableBy": row["discoverable_by"],
+        "wantsToDiscover": row["wants_to_discover"],
+        "onboardingComplete": bool(row["onboarding_complete"]) if row["onboarding_complete"] is not None else None,
         "moderationStatus": row["moderation_status"],
         "documentVerification": row["document_verification"],
         "documentType": row["document_type"],
@@ -186,6 +223,309 @@ def get_user(
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+
+
+@router.get("/users/{account_id}/wallet")
+def get_admin_user_wallet(
+    account_id: str,
+    request: Request,
+    db: DbSession,
+    admin: Manager,
+) -> dict[str, object]:
+    if db.execute(text("SELECT 1 FROM accounts WHERE id = :id"), {"id": account_id}).first() is None:
+        raise ApiException("USER_NOT_FOUND", "This member is unavailable.", 404)
+
+    wallet = db.execute(
+        text("SELECT balance_kobo FROM wallet_accounts WHERE account_id = :id"),
+        {"id": account_id},
+    ).scalar_one_or_none()
+    call_credits = db.execute(
+        text("SELECT balance FROM call_credit_accounts WHERE account_id = :id"),
+        {"id": account_id},
+    ).scalar_one_or_none()
+    wallet_spent = db.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(-amount_kobo), 0)
+            FROM wallet_transactions
+            WHERE account_id = :id AND amount_kobo < 0 AND status = 'completed'
+            """
+        ),
+        {"id": account_id},
+    ).scalar_one()
+    credits_spent = db.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(-amount), 0)
+            FROM call_credit_transactions
+            WHERE account_id = :id AND amount < 0
+            """
+        ),
+        {"id": account_id},
+    ).scalar_one()
+    transactions = db.execute(
+        text(
+            """
+            SELECT 'wallet' AS ledger, transaction_type, amount_kobo AS amount,
+                   description, status, created_at
+            FROM wallet_transactions
+            WHERE account_id = :id
+            UNION ALL
+            SELECT 'call credits' AS ledger, transaction_type, amount,
+                   description, 'completed' AS status, created_at
+            FROM call_credit_transactions
+            WHERE account_id = :id
+            ORDER BY created_at DESC
+            LIMIT 100
+            """
+        ),
+        {"id": account_id},
+    ).mappings().all()
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.user.wallet_viewed",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=account_id,
+        outcome="success",
+        metadata={"transactionCount": len(transactions)},
+    )
+    db.commit()
+    return {
+        "walletBalanceKobo": int(wallet or 0),
+        "callCreditBalance": int(call_credits or 0),
+        "walletSpentKobo": int(wallet_spent or 0),
+        "callCreditsSpent": int(credits_spent or 0),
+        "transactions": [
+            {
+                "ledger": row["ledger"],
+                "transactionType": row["transaction_type"],
+                "amount": int(row["amount"]),
+                "description": row["description"],
+                "status": row["status"],
+                "createdAt": row["created_at"],
+            }
+            for row in transactions
+        ],
+    }
+
+
+@router.get("/users/{account_id}/media")
+def list_admin_user_media(
+    account_id: str,
+    request: Request,
+    db: DbSession,
+    admin: SuperManager,
+) -> dict[str, list[dict[str, object]]]:
+    if db.execute(text("SELECT 1 FROM accounts WHERE id = :id"), {"id": account_id}).first() is None:
+        raise ApiException("USER_NOT_FOUND", "This member is unavailable.", 404)
+    rows = db.execute(
+        text(
+            """
+            SELECT id, purpose, content_type, size_bytes, created_at
+            FROM media_objects
+            WHERE account_id = :account_id
+            ORDER BY created_at DESC, id DESC
+            """
+        ),
+        {"account_id": account_id},
+    ).mappings().all()
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.user.media_listed",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=account_id,
+        outcome="success",
+        metadata={"mediaCount": len(rows)},
+    )
+    db.commit()
+    return {
+        "items": [
+            {
+                "mediaId": str(row["id"]),
+                "purpose": row["purpose"],
+                "contentType": row["content_type"],
+                "sizeBytes": int(row["size_bytes"]),
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+    }
+
+
+@router.get("/users/{account_id}/media/{media_id}")
+def get_admin_user_media(
+    account_id: str,
+    media_id: str,
+    request: Request,
+    db: DbSession,
+    admin: SuperManager,
+    storage: StorageDependency,
+) -> RedirectResponse:
+    row = db.execute(
+        text(
+            """
+            SELECT object_key, purpose, content_type
+            FROM media_objects
+            WHERE id = :media_id AND account_id = :account_id
+            """
+        ),
+        {"media_id": media_id, "account_id": account_id},
+    ).mappings().first()
+    if row is None:
+        raise ApiException("MEDIA_NOT_FOUND", "This upload is unavailable.", 404)
+    try:
+        signed_url = storage.get_url(str(row["object_key"]), str(row["content_type"]))
+    except ServiceUnavailable:
+        record_audit_event(
+            db,
+            request,
+            event_type="admin.user.media_viewed",
+            actor_type="admin",
+            actor_id=admin.admin_id,
+            subject_account_id=account_id,
+            outcome="failure",
+            metadata={"purpose": row["purpose"], "reason": "storage_unavailable"},
+        )
+        db.commit()
+        raise
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.user.media_viewed",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=account_id,
+        outcome="success",
+        metadata={"purpose": row["purpose"], "contentType": row["content_type"]},
+    )
+    db.commit()
+    return RedirectResponse(
+        signed_url,
+        status_code=307,
+        headers={"Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer"},
+    )
+
+
+@router.delete(
+    "/users/{account_id}/media/{media_id}",
+    dependencies=[Depends(require_admin_csrf)],
+)
+def remove_admin_user_media(
+    account_id: str,
+    media_id: str,
+    body: AdminMediaRemovalRequest,
+    request: Request,
+    db: DbSession,
+    admin: SuperManager,
+    storage: StorageDependency,
+) -> dict[str, str]:
+    reason = body.reason.strip()
+    if not reason:
+        raise ApiException("MEDIA_REMOVAL_REASON_REQUIRED", "Enter a reason for removing this upload.", 400)
+    media = db.execute(
+        text(
+            """
+            SELECT object_key, purpose, content_type
+            FROM media_objects
+            WHERE id = :media_id AND account_id = :account_id
+            """
+        ),
+        {"media_id": media_id, "account_id": account_id},
+    ).mappings().first()
+    if media is None:
+        raise ApiException("MEDIA_NOT_FOUND", "This upload is unavailable.", 404)
+    if media["purpose"] == "identity-document" or not str(media["content_type"]).startswith(("image/", "video/")):
+        raise ApiException("MEDIA_REMOVAL_FORBIDDEN", "This type of upload cannot be removed from this screen.", 403)
+
+    media_url = f"/media/{media_id}"
+    profile = db.execute(
+        text("SELECT photos, videos FROM profiles WHERE account_id = :id"),
+        {"id": account_id},
+    ).mappings().first()
+    if profile is not None:
+        photos = json.loads(profile["photos"]) if isinstance(profile["photos"], str) else profile["photos"]
+        videos = json.loads(profile["videos"]) if isinstance(profile["videos"], str) else profile["videos"]
+        updated_photos = [photo for photo in photos or [] if photo != media_url]
+        updated_videos = [
+            video for video in videos or []
+            if not isinstance(video, dict) or video.get("url") != media_url
+        ]
+        if updated_photos != (photos or []) or updated_videos != (videos or []):
+            db.execute(
+                text("UPDATE profiles SET photos = :photos, videos = :videos WHERE account_id = :id"),
+                {
+                    "photos": json.dumps(updated_photos, separators=(",", ":")),
+                    "videos": json.dumps(updated_videos, separators=(",", ":")),
+                    "id": account_id,
+                },
+            )
+
+    posts = db.execute(
+        text("SELECT id, photos, video_url FROM member_posts WHERE author_id = :id"),
+        {"id": account_id},
+    ).mappings().all()
+    for post in posts:
+        photos = json.loads(post["photos"]) if isinstance(post["photos"], str) else post["photos"]
+        updated_photos = [photo for photo in photos or [] if photo != media_url]
+        if updated_photos != (photos or []):
+            db.execute(
+                text("UPDATE member_posts SET photos = :photos WHERE id = :id"),
+                {"photos": json.dumps(updated_photos, separators=(",", ":")), "id": post["id"]},
+            )
+        if post["video_url"] == media_url:
+            db.execute(
+                text("UPDATE member_posts SET video_url = NULL WHERE id = :id"),
+                {"id": post["id"]},
+            )
+    db.execute(
+        text("DELETE FROM member_statuses WHERE author_id = :id AND media_url = :url"),
+        {"id": account_id, "url": media_url},
+    )
+    db.execute(
+        text(
+            """
+            UPDATE chat_messages SET attachment_media_id = NULL, attachment_json = NULL
+            WHERE attachment_media_id = :media_id
+            """
+        ),
+        {"media_id": media_id},
+    )
+    try:
+        storage.delete(str(media["object_key"]), str(media["content_type"]))
+    except ServiceUnavailable:
+        db.rollback()
+        record_audit_event(
+            db,
+            request,
+            event_type="admin.user.media_removed",
+            actor_type="admin",
+            actor_id=admin.admin_id,
+            subject_account_id=account_id,
+            outcome="failure",
+            metadata={"purpose": media["purpose"], "reason": reason, "failure": "storage_unavailable"},
+        )
+        db.commit()
+        raise
+    db.execute(
+        text("DELETE FROM media_objects WHERE id = :id AND account_id = :account_id"),
+        {"id": media_id, "account_id": account_id},
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.user.media_removed",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=account_id,
+        outcome="success",
+        metadata={"purpose": media["purpose"], "reason": reason},
+    )
+    db.commit()
+    return {"mediaId": media_id, "status": "removed"}
 
 
 @router.post(
@@ -670,10 +1010,118 @@ def get_admin_dashboard(
     db: DbSession,
     admin: Annotated[
         AdminAccount,
-        Depends(require_admin_roles("super_admin", "reviewer", "safety_admin", "auditor")),
+        Depends(require_admin_roles("super_admin", "admin", "reviewer", "safety_admin", "auditor")),
     ],
-) -> dict[str, int]:
+) -> dict[str, object]:
+    now = _now()
+    signup_since = datetime.combine(now.date() - timedelta(days=29), datetime.min.time())
+    active_since = now - timedelta(days=30)
+    member_totals = db.execute(
+        text(
+            """
+            SELECT COUNT(*) AS registered_members,
+                   SUM(CASE WHEN account_state = 'active' THEN 1 ELSE 0 END) AS active_members,
+                   SUM(CASE WHEN created_at >= :signup_since THEN 1 ELSE 0 END) AS new_members
+            FROM accounts
+            WHERE account_state NOT IN ('deletion_requested', 'deleted')
+            """
+        ),
+        {"signup_since": signup_since},
+    ).mappings().one()
+    active_members = db.execute(
+        text(
+            """
+            SELECT COUNT(DISTINCT s.account_id)
+            FROM sessions s
+            JOIN accounts a ON a.id = s.account_id
+            WHERE a.account_state = 'active'
+              AND COALESCE(s.last_active_at, s.created_at) >= :active_since
+            """
+        ),
+        {"active_since": active_since},
+    ).scalar_one()
+    vip_members = db.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM profiles p
+            JOIN accounts a ON a.id = p.account_id
+            WHERE a.account_state = 'active'
+              AND p.subscription_tier = 'vip'
+              AND p.vip_expires_at > :now
+            """
+        ),
+        {"now": now},
+    ).scalar_one()
+    signup_rows = db.execute(
+        text(
+            """
+            SELECT DATE(created_at) AS signup_date, COUNT(*) AS signup_count
+            FROM accounts
+            WHERE account_state NOT IN ('deletion_requested', 'deleted')
+              AND created_at >= :signup_since
+            GROUP BY DATE(created_at)
+            """
+        ),
+        {"signup_since": signup_since},
+    ).mappings().all()
+    signup_counts = {
+        (now.date() - timedelta(days=days_ago)).isoformat(): 0
+        for days_ago in range(29, -1, -1)
+    }
+    for row in signup_rows:
+        signup_counts[str(row["signup_date"])[:10]] = int(row["signup_count"])
+    post_count = db.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM member_posts p
+            JOIN accounts a ON a.id = p.author_id
+            WHERE p.created_at >= :since
+              AND a.account_state NOT IN ('deletion_requested', 'deleted')
+            """
+        ),
+        {"since": signup_since},
+    ).scalar_one()
+    active_status_count = db.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM member_statuses s
+            JOIN accounts a ON a.id = s.author_id
+            WHERE s.expires_at > :now
+              AND a.account_state NOT IN ('deletion_requested', 'deleted')
+            """
+        ),
+        {"now": now},
+    ).scalar_one()
+    if admin.role == "super_admin":
+        wallet_funding = db.execute(
+            text(
+                """
+                SELECT COALESCE(SUM(amount_kobo), 0)
+                FROM wallet_payment_intents
+                WHERE status = 'settled' AND settled_at >= :since
+                """
+            ),
+            {"since": signup_since},
+        ).scalar_one()
+    else:
+        wallet_funding = None
+
     counts = {
+        "registeredMembers": int(member_totals["registered_members"] or 0),
+        "activeAccounts": int(member_totals["active_members"] or 0),
+        "newMembersLast30Days": int(member_totals["new_members"] or 0),
+        "activeMembersLast30Days": int(active_members or 0),
+        "activeVipMembers": int(vip_members or 0),
+        "postsLast30Days": int(post_count or 0),
+        "activeStatuses": int(active_status_count or 0),
+        **(
+            {"walletFundingLast30DaysKobo": int(wallet_funding or 0)}
+            if wallet_funding is not None
+            else {}
+        ),
         "pendingAccountVerifications": int(
             db.execute(
                 text(
@@ -741,7 +1189,13 @@ def get_admin_dashboard(
     db.commit()
     if admin.role == "reviewer":
         return {"pendingAccountVerifications": counts["pendingAccountVerifications"]}
-    return counts
+    return {
+        **counts,
+        "memberSignupsByDay": [
+            {"date": signup_date, "count": signup_count}
+            for signup_date, signup_count in signup_counts.items()
+        ],
+    }
 
 
 @router.get("/gift-catalog")
@@ -1101,6 +1555,114 @@ def list_admin_live_streams(
 
 
 @router.post(
+    "/live-streams/{stream_id}/monitor-token",
+    dependencies=[Depends(require_admin_csrf)],
+)
+def create_admin_live_monitor_token(
+    stream_id: str,
+    request: Request,
+    db: DbSession,
+    admin: SafetyManager,
+) -> dict[str, str]:
+    stream = db.execute(
+        text("SELECT room_name, host_account_id FROM live_streams WHERE id = :id AND status = 'live'"),
+        {"id": stream_id},
+    ).mappings().first()
+    if stream is None:
+        raise ApiException("LIVE_STREAM_NOT_ACTIVE", "This live stream is no longer active.", 409)
+    url, token = create_room_token(
+        request.app.state.settings,
+        room_name=str(stream["room_name"]),
+        identity=f"admin-{admin.admin_id}",
+        can_publish=False,
+        ttl_seconds=1800,
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.live_stream.monitor_started",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=str(stream["host_account_id"]),
+        outcome="success",
+        metadata={"streamId": stream_id},
+    )
+    db.commit()
+    return {"url": url, "token": token}
+
+
+@router.post(
+    "/live-streams/{stream_id}/warnings",
+    dependencies=[Depends(require_admin_csrf)],
+)
+def issue_admin_live_warning(
+    stream_id: str,
+    body: LiveStreamWarningRequest,
+    request: Request,
+    db: DbSession,
+    admin: SafetyManager,
+) -> dict[str, str]:
+    reason = body.reason.strip()
+    if not reason:
+        raise ApiException("LIVE_WARNING_REQUIRED", "Enter a warning for the streamer.", 400)
+    stream = db.execute(
+        text("SELECT host_account_id, status FROM live_streams WHERE id = :id"),
+        {"id": stream_id},
+    ).mappings().first()
+    if stream is None:
+        raise ApiException("LIVE_STREAM_NOT_FOUND", "This live stream is unavailable.", 404)
+    if stream["status"] != "live":
+        raise ApiException("LIVE_STREAM_NOT_ACTIVE", "This live stream has already ended.", 409)
+    message_id = uuid.uuid4().hex
+    now = _now()
+    warning_label = "Violation warning" if body.severity == "violation" else "Moderator warning"
+    warning_text = f"{warning_label}: {reason}"
+    db.execute(
+        text(
+            """
+            INSERT INTO live_stream_messages
+                (id, stream_id, author_id, kind, message_text, created_at)
+            VALUES (:id, :stream_id, :host_id, 'warning', :message, :created_at)
+            """
+        ),
+        {
+            "id": message_id,
+            "stream_id": stream_id,
+            "host_id": str(stream["host_account_id"]),
+            "message": warning_text,
+            "created_at": now,
+        },
+    )
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.live_stream.warning_issued",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=str(stream["host_account_id"]),
+        outcome="success",
+        metadata={"streamId": stream_id, "severity": body.severity, "reason": reason},
+    )
+    _broadcast_stream_event(
+        db,
+        stream_id,
+        "livestream.message",
+        {
+            "id": message_id,
+            "streamId": stream_id,
+            "authorId": str(stream["host_account_id"]),
+            "authorName": "Flingra moderation",
+            "kind": "warning",
+            "text": warning_text,
+            "giftId": None,
+            "createdAt": now.isoformat(),
+        },
+    )
+    db.commit()
+    return {"streamId": stream_id, "status": "warning_issued"}
+
+
+@router.post(
     "/live-streams/{stream_id}/end",
     dependencies=[Depends(require_admin_csrf)],
 )
@@ -1171,7 +1733,8 @@ def list_admin_posts(
     rows = db.execute(
         text(
             """
-            SELECT post.id, post.author_id, profile.display_name, post.caption, post.created_at
+            SELECT post.id, post.author_id, profile.display_name, post.photos,
+                   post.video_url, post.caption, post.created_at
             FROM member_posts post
             LEFT JOIN profiles profile ON profile.account_id = post.author_id
             ORDER BY post.created_at DESC, post.id
@@ -1181,16 +1744,22 @@ def list_admin_posts(
         {"limit": limit + 1, "offset": offset},
     ).mappings().all()
     has_more = len(rows) > limit
-    items = [
-        {
+    items = []
+    for row in rows[:limit]:
+        photos = row["photos"]
+        if isinstance(photos, str):
+            photos = json.loads(photos)
+        item: dict[str, object] = {
             "postId": str(row["id"]),
             "authorId": str(row["author_id"]),
             "authorName": row["display_name"],
             "caption": row["caption"],
             "createdAt": row["created_at"],
         }
-        for row in rows[:limit]
-    ]
+        if admin.role == "super_admin":
+            item["photos"] = photos
+            item["videoUrl"] = row["video_url"]
+        items.append(item)
     record_audit_event(
         db,
         request,
@@ -1247,7 +1816,7 @@ def list_admin_statuses(
     rows = db.execute(
         text(
             """
-            SELECT status.id, status.author_id, profile.display_name, status.media_kind,
+            SELECT status.id, status.author_id, profile.display_name, status.media_url, status.media_kind,
                    status.created_at, status.expires_at
             FROM member_statuses status
             LEFT JOIN profiles profile ON profile.account_id = status.author_id
@@ -1258,8 +1827,9 @@ def list_admin_statuses(
         {"limit": limit + 1, "offset": offset},
     ).mappings().all()
     has_more = len(rows) > limit
-    items = [
-        {
+    items = []
+    for row in rows[:limit]:
+        item: dict[str, object] = {
             "statusId": str(row["id"]),
             "authorId": str(row["author_id"]),
             "authorName": row["display_name"],
@@ -1267,8 +1837,9 @@ def list_admin_statuses(
             "createdAt": row["created_at"],
             "expiresAt": row["expires_at"],
         }
-        for row in rows[:limit]
-    ]
+        if admin.role == "super_admin":
+            item["mediaUrl"] = row["media_url"]
+        items.append(item)
     record_audit_event(
         db,
         request,
@@ -1318,7 +1889,7 @@ def remove_admin_status(
 def list_audit_events(
     request: Request,
     db: DbSession,
-    admin: Annotated[AdminAccount, Depends(require_admin_roles("super_admin", "auditor"))],
+    admin: Annotated[AdminAccount, Depends(require_admin_roles("super_admin", "admin", "auditor"))],
     event_type: str | None = Query(default=None, alias="eventType", max_length=80),
     outcome: Literal["success", "failure", "denied"] | None = None,
     account_id: str | None = Query(default=None, alias="accountId", max_length=64),
@@ -1328,13 +1899,24 @@ def list_audit_events(
     rows = db.execute(
         text(
             """
-            SELECT id, event_type, actor_type, actor_id, subject_account_id, outcome,
-                   request_id, metadata, created_at
-            FROM platform_audit_events
-            WHERE (:event_type IS NULL OR event_type = :event_type)
-              AND (:outcome IS NULL OR outcome = :outcome)
-              AND (:account_id IS NULL OR subject_account_id = :account_id)
-            ORDER BY created_at DESC, id DESC
+            SELECT event.id, event.event_type, event.actor_type, event.actor_id,
+                   event.subject_account_id, event.outcome, event.request_id,
+                   event.metadata, event.created_at,
+                   COALESCE(actor_profile.display_name, actor_account.email, actor_admin.email) AS actor_name,
+                   COALESCE(subject_profile.display_name, subject_account.email) AS account_name
+            FROM platform_audit_events event
+            LEFT JOIN accounts actor_account
+                ON event.actor_type = 'user' AND actor_account.id = event.actor_id
+            LEFT JOIN profiles actor_profile
+                ON actor_profile.account_id = actor_account.id
+            LEFT JOIN admin_users actor_admin
+                ON event.actor_type = 'admin' AND actor_admin.id = event.actor_id
+            LEFT JOIN accounts subject_account ON subject_account.id = event.subject_account_id
+            LEFT JOIN profiles subject_profile ON subject_profile.account_id = subject_account.id
+            WHERE (:event_type IS NULL OR event.event_type = :event_type)
+              AND (:outcome IS NULL OR event.outcome = :outcome)
+              AND (:account_id IS NULL OR event.subject_account_id = :account_id)
+            ORDER BY event.created_at DESC, event.id DESC
             LIMIT :limit OFFSET :offset
             """
         ),
@@ -1370,6 +1952,8 @@ def list_audit_events(
                 "requestId": row["request_id"],
                 "metadata": row["metadata"],
                 "createdAt": row["created_at"],
+                "actorName": row["actor_name"],
+                "accountName": row["account_name"],
             }
             for row in rows[:limit]
         ],

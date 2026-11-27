@@ -8,13 +8,14 @@ import {
 import { Button } from '@/components/ui/button'
 import { useAdminStore } from '@/lib/stores/admin-store'
 
-type AdminRole = 'super_admin' | 'reviewer' | 'safety_admin' | 'auditor'
+type AdminRole = 'super_admin' | 'admin' | 'reviewer' | 'safety_admin' | 'auditor'
 type NavItem = { to: string; label: string; icon: LucideIcon; roles: AdminRole[]; end?: boolean }
 type NavGroup = { label?: string; items: NavItem[] }
 
-const EVERYONE: AdminRole[] = ['super_admin', 'reviewer', 'safety_admin', 'auditor']
+const EVERYONE: AdminRole[] = ['super_admin', 'admin', 'reviewer', 'safety_admin', 'auditor']
 const SUPER: AdminRole[] = ['super_admin']
-const SAFETY: AdminRole[] = ['super_admin', 'safety_admin']
+const ADMIN: AdminRole[] = ['super_admin', 'admin']
+const SAFETY: AdminRole[] = ['super_admin', 'admin', 'safety_admin']
 
 const NAV: NavGroup[] = [
   {
@@ -26,7 +27,7 @@ const NAV: NavGroup[] = [
   {
     label: 'Moderation',
     items: [
-      { to: '/admin/reviews', label: 'Reviews', icon: ClipboardCheck, roles: ['super_admin', 'reviewer'] },
+      { to: '/admin/reviews', label: 'Reviews', icon: ClipboardCheck, roles: ['super_admin', 'admin', 'reviewer'] },
       { to: '/admin/safety-reviews', label: 'Safety reviews', icon: ShieldAlert, roles: SAFETY },
       { to: '/admin/safety-reports', label: 'Safety reports', icon: FileText, roles: SAFETY },
       { to: '/admin/content', label: 'Content', icon: Newspaper, roles: SAFETY },
@@ -37,7 +38,7 @@ const NAV: NavGroup[] = [
   {
     label: 'People',
     items: [
-      { to: '/admin/users', label: 'Members', icon: UserRound, roles: SUPER },
+      { to: '/admin/users', label: 'Members', icon: UserRound, roles: ADMIN },
       { to: '/admin/admins', label: 'Admins', icon: Users, roles: SUPER },
       { to: '/admin/privacy-requests', label: 'Privacy requests', icon: LockKeyhole, roles: SUPER },
     ],
@@ -196,7 +197,7 @@ export function AdminLayout() {
   )
 
   return (
-    <div className="min-h-screen bg-ink-50 text-ink-900 lg:pl-64">
+    <div className="admin-layout min-h-screen bg-ink-50 text-ink-900 lg:pl-64">
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-ink-100 bg-white lg:flex">{sidebar}</aside>
 
       {drawerOpen && (

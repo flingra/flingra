@@ -137,7 +137,7 @@ export interface StreamMessage {
   streamId: string
   authorId: string
   authorName: string
-  kind: 'message' | 'gift' | 'join'
+  kind: 'message' | 'gift' | 'join' | 'warning'
   text: string
   giftId?: string
   createdAt: string

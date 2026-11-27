@@ -287,6 +287,248 @@ def test_call_credit_adjustments_and_dashboard_summary(api_client) -> None:
     assert dashboard.json()["activeLiveStreams"] == 0
     assert dashboard.json()["pendingAccountVerifications"] == 0
     assert "pendingPayouts" in dashboard.json()
+    assert dashboard.json()["registeredMembers"] == 1
+    assert dashboard.json()["activeAccounts"] == 1
+    assert dashboard.json()["activeMembersLast30Days"] == 1
+    assert dashboard.json()["newMembersLast30Days"] == 1
+    assert dashboard.json()["activeVipMembers"] == 0
+    assert dashboard.json()["postsLast30Days"] == 0
+    assert dashboard.json()["activeStatuses"] == 0
+    assert len(dashboard.json()["memberSignupsByDay"]) == 30
+    assert sum(day["count"] for day in dashboard.json()["memberSignupsByDay"]) == 1
+    assert dashboard.json()["walletFundingLast30DaysKobo"] == 0
+
+
+def test_member_details_and_wallet_history_are_readable_and_audited(api_client) -> None:
+    client, _ = api_client
+    seed_admin(client)
+    account_id = seed_user(client)
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        db.execute(
+            text("INSERT INTO wallet_accounts (account_id, balance_kobo) VALUES (:id, 2500)"),
+            {"id": account_id},
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO wallet_transactions
+                    (id, account_id, transaction_type, amount_kobo, description, status)
+                VALUES
+                    (:credit_id, :account_id, 'top-up', 5000, 'Wallet funding', 'completed'),
+                    (:spend_id, :account_id, 'video-unlock', -2500, 'Unlocked a member video', 'completed')
+                """
+            ),
+            {"credit_id": uuid.uuid4().hex, "spend_id": uuid.uuid4().hex, "account_id": account_id},
+        )
+        db.execute(
+            text("INSERT INTO call_credit_accounts (account_id, balance) VALUES (:id, 6)"),
+            {"id": account_id},
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO call_credit_transactions
+                    (id, account_id, transaction_type, amount, description)
+                VALUES (:id, :account_id, 'call-minute', -2, 'Call minutes used')
+                """
+            ),
+            {"id": uuid.uuid4().hex, "account_id": account_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    details = client.get(f"/admin/users/{account_id}")
+    assert details.status_code == 200
+    assert details.json()["displayName"] == "Test member"
+    assert details.json()["email"] == f"{account_id}@example.test"
+    assert details.json()["gender"] == "woman"
+
+    wallet = client.get(f"/admin/users/{account_id}/wallet")
+    assert wallet.status_code == 200
+    assert wallet.json()["walletBalanceKobo"] == 2500
+    assert wallet.json()["walletSpentKobo"] == 2500
+    assert wallet.json()["callCreditBalance"] == 6
+    assert wallet.json()["callCreditsSpent"] == 2
+    assert len(wallet.json()["transactions"]) == 3
+
+
+def test_private_member_media_is_super_admin_only_and_opened_in_admin_context(api_client) -> None:
+    client, _ = api_client
+    seed_admin(client, "safety_admin")
+    account_id = seed_user(client)
+    media_id = uuid.uuid4().hex
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO media_objects (
+                    id, account_id, purpose, object_key, content_type, size_bytes, sha256
+                )
+                VALUES (:id, :account_id, 'profile-video', :key, 'video/mp4', 42, :sha)
+                """
+            ),
+            {
+                "id": media_id,
+                "account_id": account_id,
+                "key": f"accounts/{account_id}/profile-videos/{media_id}",
+                "sha": "a" * 64,
+            },
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    forbidden = client.get(f"/admin/users/{account_id}/media")
+    assert forbidden.status_code == 403
+
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        db.execute(text("UPDATE admin_users SET role = 'super_admin'"))
+        db.commit()
+    finally:
+        generator.close()
+
+    listed = client.get(f"/admin/users/{account_id}/media")
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["contentType"] == "video/mp4"
+    opened = client.get(
+        f"/admin/users/{account_id}/media/{media_id}",
+        follow_redirects=False,
+    )
+    assert opened.status_code == 307
+    assert opened.headers["location"].endswith(f"profile-videos/{media_id}")
+    removed = client.request(
+        "DELETE",
+        f"/admin/users/{account_id}/media/{media_id}",
+        headers={"X-CSRF-Token": client.cookies["flingra_admin_csrf"]},
+        json={"reason": "Confirmed AI-generated impersonation"},
+    )
+    assert removed.status_code == 200
+    assert removed.json() == {"mediaId": media_id, "status": "removed"}
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        assert db.execute(
+            text("SELECT COUNT(*) FROM media_objects WHERE id = :id"),
+            {"id": media_id},
+        ).scalar_one() == 0
+    finally:
+        generator.close()
+
+
+def test_admin_can_send_audited_violation_warning_into_live_room(api_client) -> None:
+    client, _ = api_client
+    seed_admin(client, "safety_admin")
+    account_id = seed_user(client)
+    stream_id = uuid.uuid4().hex
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO live_streams (id, host_account_id, room_name, title, status)
+                VALUES (:id, :account_id, 'moderated-room', 'Live test', 'live')
+                """
+            ),
+            {"id": stream_id, "account_id": account_id},
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO live_stream_participants (stream_id, account_id, role)
+                VALUES (:stream_id, :account_id, 'host')
+                """
+            ),
+            {"stream_id": stream_id, "account_id": account_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    warning = client.post(
+        f"/admin/live-streams/{stream_id}/warnings",
+        headers={"X-CSRF-Token": client.cookies["flingra_admin_csrf"]},
+        json={"severity": "violation", "reason": "Stop showing prohibited content"},
+    )
+    assert warning.status_code == 200
+    assert warning.json()["status"] == "warning_issued"
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        message = db.execute(
+            text("SELECT kind, message_text FROM live_stream_messages WHERE stream_id = :id"),
+            {"id": stream_id},
+        ).one()
+        assert message.kind == "warning"
+        assert message.message_text == "Violation warning: Stop showing prohibited content"
+        assert db.execute(
+            text("SELECT COUNT(*) FROM realtime_events WHERE recipient_id = :id"),
+            {"id": account_id},
+        ).scalar_one() == 1
+        assert db.execute(
+            text("SELECT COUNT(*) FROM platform_audit_events WHERE event_type = 'admin.live_stream.warning_issued'")
+        ).scalar_one() == 1
+    finally:
+        generator.close()
+
+
+def test_admin_live_monitor_token_is_read_only(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    seed_admin(client, "safety_admin")
+    account_id = seed_user(client)
+    stream_id = uuid.uuid4().hex
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO live_streams (id, host_account_id, room_name, title, status)
+                VALUES (:id, :account_id, 'monitor-room', 'Live test', 'live')
+                """
+            ),
+            {"id": stream_id, "account_id": account_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    token_args: dict[str, object] = {}
+
+    def create_token(_settings, **kwargs):
+        token_args.update(kwargs)
+        return "wss://live.example.test", "read-only-token"
+
+    monkeypatch.setattr(admin_operations, "create_room_token", create_token)
+    response = client.post(
+        f"/admin/live-streams/{stream_id}/monitor-token",
+        headers={"X-CSRF-Token": client.cookies["flingra_admin_csrf"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"url": "wss://live.example.test", "token": "read-only-token"}
+    assert token_args["room_name"] == "monitor-room"
+    assert token_args["can_publish"] is False
+
+
+def test_admin_role_can_access_platform_dashboard_without_wallet_funding(api_client) -> None:
+    client, _ = api_client
+    seed_admin(client, role="admin")
+    seed_user(client)
+
+    dashboard = client.get("/admin/dashboard")
+
+    assert dashboard.status_code == 200
+    assert dashboard.json()["registeredMembers"] == 1
+    assert dashboard.json()["memberSignupsByDay"]
+    assert "walletFundingLast30DaysKobo" not in dashboard.json()
 
 
 def test_safety_admin_can_end_live_stream_and_remove_content(api_client, monkeypatch) -> None:

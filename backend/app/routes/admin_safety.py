@@ -15,7 +15,7 @@ router = APIRouter(prefix="/admin/safety", tags=["admin safety"])
 DbSession = Annotated[Session, Depends(db_session)]
 SafetyAdmin = Annotated[
     AdminAccount,
-    Depends(require_admin_roles("super_admin", "safety_admin", "reviewer")),
+    Depends(require_admin_roles("super_admin", "admin", "safety_admin", "reviewer")),
 ]
 
 

@@ -1,18 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import type { RemoteTrack, Room as LiveKitRoom } from 'livekit-client'
 import {
   ClipboardCheck, Gift, HeartHandshake, KeyRound, LockKeyhole, Newspaper, Phone, Radio, ScrollText,
   Search, ShieldAlert, UserRound, Users, Wallet, type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { formatNaira } from '@/lib/utils'
-import { adminApi, type AdminAuditEvent, type AdminPayout, type AdminPrivacyRequest, type AdminSafetyReport, type AdminUser } from '@/lib/api/admin'
+import { adminApi, type AdminAuditEvent, type AdminDashboardSummary, type AdminPayout, type AdminPrivacyRequest, type AdminSafetyReport, type AdminUser, type AdminUserDetails, type AdminUserMedia, type AdminUserWallet } from '@/lib/api/admin'
 import { useAdminStore } from '@/lib/stores/admin-store'
 import {
   Async, Badge, CopyButton, EmptyState, Field, PageHeader, Panel, Segmented, Select, StatusBadge, Table, Td,
-  formatDate, humanize, useConfirm, useFeedback,
+  auditEventLabel, auditMetadataEntries, formatDate, humanize, useConfirm, useFeedback,
 } from './admin-ui'
 
 /* ------------------------------------------------------------------ Members */
@@ -24,10 +26,21 @@ const USER_STATUS_REASONS = {
 } as const
 
 export function AdminUsersPage() {
+  const role = useAdminStore((state) => state.session?.role)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null)
+  const [memberDetails, setMemberDetails] = useState<AdminUserDetails | null>(null)
+  const [wallet, setWallet] = useState<AdminUserWallet | null>(null)
+  const [media, setMedia] = useState<AdminUserMedia[]>([])
+  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [detailsError, setDetailsError] = useState<string | null>(null)
+  const [mediaErrors, setMediaErrors] = useState<Record<string, string>>({})
+  const [mediaReasons, setMediaReasons] = useState<Record<string, string>>({})
+  const [pendingMediaRemoval, setPendingMediaRemoval] = useState<string | null>(null)
+  const detailsRequest = useRef(0)
   const { error, clear, notify, fail, banner } = useFeedback()
   const { confirm, dialog } = useConfirm()
 
@@ -43,6 +56,64 @@ export function AdminUsersPage() {
   }
 
   useEffect(() => { void load() }, [])
+
+  async function viewDetails(user: AdminUser) {
+    const requestId = ++detailsRequest.current
+    setSelectedUser(user)
+    setMemberDetails(null)
+    setWallet(null)
+    setMedia([])
+    setDetailsError(null)
+    setMediaErrors({})
+    setMediaReasons({})
+    setPendingMediaRemoval(null)
+    setDetailsLoading(true)
+    try {
+      const [details, walletResult, mediaResult] = await Promise.all([
+        adminApi.userDetails(user.accountId),
+        adminApi.userWallet(user.accountId),
+        role === 'super_admin' ? adminApi.userMedia(user.accountId) : Promise.resolve({ items: [] }),
+      ])
+      if (requestId !== detailsRequest.current) return
+      setMemberDetails(details)
+      setWallet(walletResult)
+      setMedia(mediaResult.items)
+    } catch (e) {
+      if (requestId === detailsRequest.current) {
+        setDetailsError(e instanceof Error ? e.message : 'Unable to load member details.')
+      }
+    } finally {
+      if (requestId === detailsRequest.current) setDetailsLoading(false)
+    }
+  }
+
+  function closeDetails() {
+    detailsRequest.current += 1
+    setSelectedUser(null)
+    setDetailsLoading(false)
+  }
+
+  async function removeUpload(item: AdminUserMedia) {
+    if (!memberDetails) return
+    const reason = mediaReasons[item.mediaId]?.trim()
+    if (!reason) {
+      setDetailsError('Enter why this upload should be removed.')
+      return
+    }
+    if (pendingMediaRemoval !== item.mediaId) {
+      setPendingMediaRemoval(item.mediaId)
+      return
+    }
+    try {
+      await adminApi.removeUserMedia(memberDetails.accountId, item.mediaId, reason)
+      setMedia((current) => current.filter((upload) => upload.mediaId !== item.mediaId))
+      setPendingMediaRemoval(null)
+      setMediaReasons((current) => ({ ...current, [item.mediaId]: '' }))
+      setDetailsError(null)
+    } catch (e) {
+      setDetailsError(e instanceof Error ? e.message : 'Unable to remove this upload.')
+    }
+  }
 
   async function changeStatus(user: AdminUser, status: keyof typeof USER_STATUS_REASONS) {
     const name = user.displayName || user.email || user.accountId
@@ -112,6 +183,7 @@ export function AdminUsersPage() {
                   <Td><StatusBadge status={user.documentVerification} /></Td>
                   <Td right>
                     <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="outline" onClick={() => void viewDetails(user)}>View details</Button>
                       <Button size="sm" variant="outline" onClick={() => void revokeSessions(user)}>Revoke sessions</Button>
                       {manageable && (active
                         ? <Button size="sm" variant="outline" onClick={() => void changeStatus(user, 'suspended')}>Suspend</Button>
@@ -125,6 +197,148 @@ export function AdminUsersPage() {
           </Table>
         </Panel>
       </Async>
+      <Dialog
+        open={selectedUser !== null}
+        onClose={closeDetails}
+        title={memberDetails?.displayName || selectedUser?.displayName || 'Member details'}
+        description="Account, profile, wallet history, and moderation context."
+        className="max-w-6xl"
+      >
+        {detailsLoading && <p className="text-sm text-ink-500">Loading member details…</p>}
+        {detailsError && <p role="alert" className="text-sm text-danger">{detailsError}</p>}
+        {memberDetails && (
+          <div className="space-y-6">
+            <section>
+              <h3 className="mb-3 text-sm font-semibold text-ink-900">Account and profile</h3>
+              <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                {[
+                  ['Email', memberDetails.email],
+                  ['Contact', memberDetails.contact],
+                  ['Username', memberDetails.username],
+                  ['Account status', memberDetails.accountStatus],
+                  ['Email verified', memberDetails.emailVerified ? 'Yes' : 'No'],
+                  ['Date of birth', memberDetails.dateOfBirth],
+                  ['Gender', memberDetails.gender],
+                  ['Identity', memberDetails.identity],
+                  ['Age range', memberDetails.ageRange],
+                  ['Location', memberDetails.area],
+                  ['Interests', memberDetails.interests?.join(', ')],
+                  ['Profile review', memberDetails.moderationStatus],
+                  ['Identity check', memberDetails.documentVerification],
+                  ['Document type', memberDetails.documentType],
+                  ['Subscription', memberDetails.subscriptionTier],
+                  ['VIP expires', formatDate(memberDetails.vipExpiresAt)],
+                  ['Profile complete', memberDetails.onboardingComplete === null ? null : memberDetails.onboardingComplete ? 'Yes' : 'No'],
+                  ['Discoverable by', memberDetails.discoverableBy],
+                  ['Interested in', memberDetails.wantsToDiscover],
+                  ['Identity visible', memberDetails.showIdentity === null ? null : memberDetails.showIdentity ? 'Yes' : 'No'],
+                  ['Joined', formatDate(memberDetails.createdAt)],
+                  ['Last account update', formatDate(memberDetails.updatedAt)],
+                  ['Terms accepted', memberDetails.termsVersion],
+                  ['Privacy policy', memberDetails.privacyVersion],
+                  ['Emergency contact', memberDetails.emergencyContactName],
+                  ['Emergency phone', memberDetails.emergencyContactPhone],
+                ].filter((field): field is [string, string] => typeof field[1] === 'string' && field[1].length > 0).map(([label, value]) => (
+                  <div key={label} className="min-w-0">
+                    <dt className="text-ink-500">{label}</dt>
+                    <dd className="break-words font-medium text-ink-900">{label === 'Account status' || label.endsWith('check') || label === 'Subscription' ? humanize(value) : value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {memberDetails.bio && (
+                <div className="mt-4">
+                  <p className="text-sm text-ink-500">About</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-ink-900">{memberDetails.bio}</p>
+                </div>
+              )}
+            </section>
+
+            {wallet && (
+              <section>
+                <h3 className="mb-3 text-sm font-semibold text-ink-900">Wallet and spending</h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    ['Wallet balance', formatNaira(wallet.walletBalanceKobo / 100)],
+                    ['Wallet spent', formatNaira(wallet.walletSpentKobo / 100)],
+                    ['Call-credit balance', `${wallet.callCreditBalance.toLocaleString()} coins`],
+                    ['Call credits spent', `${wallet.callCreditsSpent.toLocaleString()} coins`],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-lg bg-ink-50 p-3">
+                      <p className="text-xs text-ink-500">{label}</p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums text-ink-900">{value}</p>
+                    </div>
+                  ))}
+                </div>
+                <h4 className="mb-2 mt-4 text-sm font-medium text-ink-800">Recent transactions</h4>
+                {wallet.transactions.length ? (
+                  <ul className="max-h-64 divide-y divide-ink-100 overflow-y-auto rounded-lg border border-ink-100">
+                    {wallet.transactions.map((transaction, index) => {
+                      const spent = transaction.amount < 0
+                      const amount = transaction.ledger === 'wallet'
+                        ? formatNaira(Math.abs(transaction.amount) / 100)
+                        : `${Math.abs(transaction.amount).toLocaleString()} coins`
+                      return (
+                        <li key={`${transaction.createdAt}-${transaction.transactionType}-${index}`} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm">
+                          <div>
+                            <p className="font-medium text-ink-900">{transaction.description}</p>
+                            <p className="text-xs text-ink-500">{humanize(transaction.ledger)} · {humanize(transaction.transactionType)} · {formatDate(transaction.createdAt)}</p>
+                          </div>
+                          <p className={`font-semibold tabular-nums ${spent ? 'text-red-700' : 'text-emerald-700'}`}>{spent ? '−' : '+'}{amount}</p>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : <p className="text-sm text-ink-500">No wallet or call-credit transactions yet.</p>}
+              </section>
+            )}
+
+            {role === 'super_admin' && (
+              <section>
+                <h3 className="mb-3 text-sm font-semibold text-ink-900">Private uploads</h3>
+                <p className="mb-3 text-xs text-ink-500">Access is restricted to super admins and each opened upload is recorded in the audit history.</p>
+                {media.length ? (
+                  <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {media.map((item) => {
+                      const src = adminApi.userMediaUrl(memberDetails.accountId, item.mediaId)
+                      return (
+                        <li key={item.mediaId} className="overflow-hidden rounded-lg border border-ink-100">
+                          {item.contentType.startsWith('image/') && <img src={src} alt={`${humanize(item.purpose)} upload`} className="aspect-video w-full bg-ink-50 object-contain" loading="lazy" onError={() => setMediaErrors((current) => ({ ...current, [item.mediaId]: 'Preview could not be loaded.' }))} />}
+                          {item.contentType.startsWith('video/') && <video src={src} controls playsInline preload="metadata" className="aspect-video w-full bg-ink-900" onError={() => setMediaErrors((current) => ({ ...current, [item.mediaId]: 'Video could not be loaded.' }))} />}
+                          {item.contentType === 'application/pdf' && <iframe title={`${humanize(item.purpose)} document`} src={src} className="aspect-video w-full bg-ink-50" />}
+                          {!item.contentType.startsWith('image/') && !item.contentType.startsWith('video/') && item.contentType !== 'application/pdf' && (
+                            <div className="grid aspect-video place-items-center bg-ink-50 px-4 text-center text-sm text-ink-500">Preview unavailable for {item.contentType}</div>
+                          )}
+                          <div className="p-3">
+                            <p className="font-medium text-ink-900">{humanize(item.purpose)}</p>
+                            <p className="mt-1 text-xs text-ink-500">{formatDate(item.createdAt)} · {(item.sizeBytes / 1024).toFixed(0)} KB</p>
+                            {mediaErrors[item.mediaId] && <p role="alert" className="mt-1 text-xs text-danger">{mediaErrors[item.mediaId]}</p>}
+                            {item.contentType.startsWith('image/') || item.contentType.startsWith('video/') ? (
+                              <div className="mt-3 space-y-2">
+                                <Input
+                                  aria-label={`Removal reason for ${humanize(item.purpose)}`}
+                                  placeholder="Reason for removal"
+                                  value={mediaReasons[item.mediaId] ?? ''}
+                                  onChange={(event) => setMediaReasons((current) => ({ ...current, [item.mediaId]: event.target.value }))}
+                                />
+                                <div className="flex gap-2">
+                                  <Button size="sm" variant="destructive" onClick={() => void removeUpload(item)}>
+                                    {pendingMediaRemoval === item.mediaId ? 'Confirm removal' : 'Remove upload'}
+                                  </Button>
+                                  {pendingMediaRemoval === item.mediaId && <Button size="sm" variant="outline" onClick={() => setPendingMediaRemoval(null)}>Cancel</Button>}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : <p className="text-sm text-ink-500">No stored uploads are available for this member.</p>}
+              </section>
+            )}
+          </div>
+        )}
+      </Dialog>
       {dialog}
     </section>
   )
@@ -309,12 +523,6 @@ export function AdminPayoutsPage() {
 
 /* ------------------------------------------------------------- Platform audit */
 
-function formatMetadata(metadata: unknown) {
-  if (metadata == null || metadata === '') return ''
-  const text = typeof metadata === 'string' ? metadata : JSON.stringify(metadata, null, 2)
-  return text === '{}' ? '' : text
-}
-
 export function AdminAuditEventsPage() {
   const [events, setEvents] = useState<AdminAuditEvent[]>([])
   const [accountId, setAccountId] = useState('')
@@ -355,26 +563,29 @@ export function AdminAuditEventsPage() {
           <Panel flush title={`${events.length} ${events.length === 1 ? 'event' : 'events'}`}>
             <ul className="divide-y divide-ink-100">
               {events.map((event) => {
-                const metadata = formatMetadata(event.metadata)
+                const metadata = auditMetadataEntries(event.metadata)
                 return (
                   <li key={event.id} className="px-5 py-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-sm font-medium text-ink-900">{event.eventType}</span>
+                        <span className="text-sm font-medium text-ink-900">{auditEventLabel(event.eventType)}</span>
                         <StatusBadge status={event.outcome} />
                       </div>
                       <span className="text-sm text-ink-500">{formatDate(event.createdAt)}</span>
                     </div>
-                    <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-                      <div className="min-w-0"><dt className="text-ink-500">Actor</dt><dd className="truncate text-ink-900">{event.actorType} {event.actorId || ''}</dd></div>
-                      <div className="min-w-0"><dt className="text-ink-500">Account</dt><dd className="truncate font-mono text-xs text-ink-900">{event.accountId || '—'}</dd></div>
-                      <div className="min-w-0"><dt className="text-ink-500">Request</dt><dd className="truncate font-mono text-xs text-ink-900">{event.requestId}</dd></div>
+                    <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                      <div className="min-w-0"><dt className="text-ink-500">Who</dt><dd className="truncate text-ink-900">{event.actorName || humanize(event.actorType)}</dd></div>
+                      <div className="min-w-0"><dt className="text-ink-500">Member</dt><dd className="truncate text-ink-900">{event.accountName || (event.accountId ? 'Member account' : 'Platform')}</dd></div>
                     </dl>
-                    {metadata && (
-                      <details className="mt-3 text-sm">
-                        <summary className="cursor-pointer text-primary-700">View metadata</summary>
-                        <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-ink-50 p-3 text-xs text-ink-900">{metadata}</pre>
-                      </details>
+                    {metadata.length > 0 && (
+                      <dl className="mt-3 grid gap-x-6 gap-y-2 rounded-lg bg-ink-50 p-3 text-sm sm:grid-cols-2">
+                        {metadata.map((entry) => (
+                          <div key={entry.label}>
+                            <dt className="text-ink-500">{entry.label}</dt>
+                            <dd className="break-words text-ink-900">{entry.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
                     )}
                   </li>
                 )
@@ -562,8 +773,8 @@ export function AdminWalletAdjustmentsPage() {
 
 type Stat = { key: string; label: string; icon: LucideIcon; to?: string; roles?: string[] }
 
-const REVIEW = ['super_admin', 'reviewer']
-const SAFETY = ['super_admin', 'safety_admin']
+const REVIEW = ['super_admin', 'admin', 'reviewer']
+const SAFETY = ['super_admin', 'admin', 'safety_admin']
 const SUPER = ['super_admin']
 
 const ATTENTION: Stat[] = [
@@ -581,51 +792,204 @@ const LIVE: Stat[] = [
   { key: 'activeCalls', label: 'Active calls', icon: Phone },
 ]
 
-function StatCard({ stat, value, linked, live }: { stat: Stat; value?: number; linked: boolean; live?: boolean }) {
-  const Icon = stat.icon
-  const count = value ?? 0
-  const body = (
-    <>
-      <div className="flex items-center justify-between">
-        <div className="grid size-9 place-items-center rounded-lg bg-ink-100 text-ink-600"><Icon className="size-4" /></div>
-        {count > 0 && <span aria-hidden className={`size-2 rounded-full ${live ? 'bg-emerald-500' : 'bg-amber-500'}`} />}
-      </div>
-      <p className={`mt-4 text-3xl font-semibold tabular-nums ${count > 0 ? 'text-ink-900' : 'text-ink-400'}`}>{value === undefined ? '–' : count}</p>
-      <p className="mt-1 text-sm text-ink-600">{stat.label}</p>
-    </>
-  )
-  const base = 'block rounded-xl border border-ink-100 bg-white p-5'
-  return linked && stat.to
-    ? <Link to={stat.to} className={`${base} outline-none transition-colors hover:border-ink-200 hover:bg-ink-50 focus-visible:ring-2 focus-visible:ring-primary-500`}>{body}</Link>
-    : <div className={base}>{body}</div>
+const OVERVIEW_METRICS: {
+  key: string
+  label: string
+  format?: (value: number) => string
+  roles?: string[]
+}[] = [
+  { key: 'registeredMembers', label: 'Total members' },
+  { key: 'activeAccounts', label: 'Active accounts' },
+  { key: 'activeMembersLast30Days', label: 'Active in last 30 days' },
+  { key: 'newMembersLast30Days', label: 'New members · 30 days' },
+  { key: 'activeVipMembers', label: 'Active VIP members' },
+  {
+    key: 'walletFundingLast30DaysKobo',
+    label: 'Wallet funding · 30 days',
+    format: (kobo) => formatNaira(kobo / 100),
+    roles: SUPER,
+  },
+]
+
+function dashboardCount(summary: AdminDashboardSummary | null, key: string) {
+  const value = summary?.[key]
+  return typeof value === 'number' ? value : undefined
 }
 
 export function AdminDashboardPage() {
   const role = useAdminStore((state) => state.session?.role) ?? ''
-  const [counts, setCounts] = useState<Record<string, number> | null>(null)
+  const [summary, setSummary] = useState<AdminDashboardSummary | null>(null)
   const { fail, banner } = useFeedback()
 
   useEffect(() => {
-    adminApi.dashboard().then(setCounts).catch((e) => fail(e, 'Unable to load admin dashboard.'))
+    adminApi.dashboard().then(setSummary).catch((e) => fail(e, 'Unable to load admin dashboard.'))
   }, [])
 
-  const group = (title: string, stats: Stat[], live?: boolean) => (
-    <div className="space-y-3">
-      <h2 className="text-sm font-semibold text-ink-900">{title}</h2>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => (
-          <StatCard key={stat.key} stat={stat} value={counts ? counts[stat.key] ?? 0 : undefined} live={live} linked={(stat.roles ?? []).includes(role)} />
-        ))}
-      </div>
-    </div>
+  const overviewMetrics = OVERVIEW_METRICS.filter(
+    (metric) =>
+      (!metric.roles || metric.roles.includes(role)) &&
+      (summary === null || dashboardCount(summary, metric.key) !== undefined),
   )
+  const attentionStats = ATTENTION.filter(
+    (stat) => summary === null || dashboardCount(summary, stat.key) !== undefined,
+  )
+  const totalAttention = summary
+    ? attentionStats.reduce((total, stat) => total + (dashboardCount(summary, stat.key) ?? 0), 0)
+    : undefined
+  const largestQueue = Math.max(
+    1,
+    ...attentionStats.map((stat) => dashboardCount(summary, stat.key) ?? 0),
+  )
+  const activityMetrics = [
+    { key: 'postsLast30Days', label: 'Posts · last 30 days' },
+    { key: 'activeStatuses', label: 'Active statuses' },
+    ...LIVE.map(({ key, label }) => ({ key, label })),
+  ].filter((metric) => summary === null || dashboardCount(summary, metric.key) !== undefined)
+  const signupTrend = summary?.memberSignupsByDay ?? []
+  const signupPeak = Math.max(0, ...signupTrend.map((day) => day.count))
+  const signupTotal = signupTrend.reduce((total, day) => total + day.count, 0)
 
   return (
     <section className="space-y-8">
-      <PageHeader title="Operations dashboard" description="Queues that need a decision, and what’s happening on the platform right now." />
+      <PageHeader title="Platform overview" description="Membership, growth, engagement, and operational work across Flingra." />
       {banner}
-      {group('Needs attention', ATTENTION)}
-      {group('Happening now', LIVE, true)}
+      {overviewMetrics.length > 0 && (
+        <section aria-labelledby="admin-membership-heading" className="space-y-3">
+          <h2 id="admin-membership-heading" className="text-lg font-semibold text-ink-900">Membership</h2>
+          <div className="grid grid-cols-2 border-y border-ink-200 sm:grid-cols-3 xl:grid-cols-6">
+            {overviewMetrics.map((metric) => {
+              const value = dashboardCount(summary, metric.key)
+              return (
+                <div key={metric.key} className="border-l border-ink-100 px-4 py-4 first:border-l-0">
+                  <p className="text-2xl font-semibold tabular-nums text-ink-900">
+                    {value === undefined ? '—' : metric.format?.(value) ?? value.toLocaleString()}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-ink-500">{metric.label}</p>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-xs text-ink-400">
+            Total members excludes accounts requested for deletion; active members are based on recorded session activity.
+          </p>
+        </section>
+      )}
+
+      {signupTrend.length > 0 && (
+        <section aria-labelledby="admin-signups-heading" className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <h2 id="admin-signups-heading" className="text-lg font-semibold text-ink-900">Member growth</h2>
+              <p className="mt-1 text-sm text-ink-500">New account registrations per day · last 30 days.</p>
+            </div>
+            <p className="text-sm font-medium tabular-nums text-ink-700">
+              {signupTotal.toLocaleString()} signups
+              {signupPeak > 0 && <span className="ml-2 text-ink-400">· peak {signupPeak}/day</span>}
+            </p>
+          </div>
+          <div
+            className="flex h-36 items-end gap-1 border-b border-ink-200 px-1"
+            role="img"
+            aria-label={`Daily member signups for the last 30 days, ${signupTotal} total`}
+          >
+            {signupTrend.map((day) => (
+              <div
+                key={day.date}
+                className="flex h-full min-w-0 flex-1 items-end"
+                title={`${new Date(`${day.date}T00:00:00`).toLocaleDateString()}: ${day.count} signups`}
+              >
+                <span
+                  className="w-full rounded-t-sm bg-primary-500/80"
+                  style={{ height: signupPeak === 0 ? '0%' : `${Math.max((day.count / signupPeak) * 100, day.count > 0 ? 3 : 0)}%` }}
+                />
+              </div>
+            ))}
+          </div>
+          {signupTrend.length > 0 && (
+            <div className="flex justify-between text-xs text-ink-400">
+              <span>{new Date(`${signupTrend[0].date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+              <span>{new Date(`${signupTrend[signupTrend.length - 1].date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+            </div>
+          )}
+        </section>
+      )}
+
+      {activityMetrics.length > 0 && (
+        <section aria-labelledby="admin-activity-heading" className="space-y-3">
+          <h2 id="admin-activity-heading" className="text-lg font-semibold text-ink-900">Engagement & live activity</h2>
+          <div className="grid grid-cols-2 border-y border-ink-200 sm:grid-cols-4">
+            {activityMetrics.map((metric) => {
+              const value = dashboardCount(summary, metric.key)
+              return (
+                <div key={metric.key} className="border-l border-ink-100 px-4 py-4 first:border-l-0">
+                  <p className="text-2xl font-semibold tabular-nums text-ink-900">
+                    {value === undefined ? '—' : value.toLocaleString()}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-ink-500">{metric.label}</p>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      <section aria-labelledby="admin-queues-heading" className="space-y-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h2 id="admin-queues-heading" className="text-lg font-semibold text-ink-900">Needs attention</h2>
+            <p className="mt-1 text-sm text-ink-500">Work waiting in each operational queue.</p>
+          </div>
+          <span className="text-sm text-ink-500">
+            {totalAttention === undefined ? '—' : totalAttention.toLocaleString()} open items · {attentionStats.length} queues
+          </span>
+        </div>
+        <div className="divide-y divide-ink-100 border-y border-ink-100">
+          {attentionStats.map((stat) => {
+            const Icon = stat.icon
+            const value = dashboardCount(summary, stat.key)
+            const content = (
+              <>
+                <span className="flex min-w-0 items-center gap-3">
+                  <Icon className="size-4 shrink-0 text-ink-400" aria-hidden="true" />
+                  <span className="truncate font-medium text-ink-800">{stat.label}</span>
+                </span>
+                <span className="flex items-center gap-4">
+                  <span
+                    className="hidden h-1.5 w-28 overflow-hidden rounded-full bg-ink-100 sm:block"
+                    role="progressbar"
+                    aria-label={`${stat.label} relative queue size`}
+                    aria-valuemin={0}
+                    aria-valuemax={largestQueue}
+                    aria-valuenow={value ?? 0}
+                  >
+                    <span
+                      className="block h-full rounded-full bg-primary-500"
+                      style={{ width: `${((value ?? 0) / largestQueue) * 100}%` }}
+                    />
+                  </span>
+                  <span className="w-10 text-right font-semibold tabular-nums text-ink-900">
+                    {value === undefined ? '—' : value.toLocaleString()}
+                  </span>
+                </span>
+              </>
+            )
+            const href = (stat.roles ?? []).includes(role) ? stat.to : undefined
+            return href ? (
+              <Link
+                key={stat.key}
+                to={href}
+                className="flex min-h-14 items-center justify-between gap-4 px-2 outline-none transition-colors hover:bg-ink-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500"
+              >
+                {content}
+              </Link>
+            ) : (
+              <div key={stat.key} className="flex min-h-14 items-center justify-between gap-4 px-2">
+                {content}
+              </div>
+            )
+          })}
+        </div>
+      </section>
     </section>
   )
 }
@@ -823,15 +1187,97 @@ export function AdminSubscriptionsPage() {
 
 /* ------------------------------------------------------------- Live streams */
 
+function AdminLiveMonitor({ streamId }: { streamId: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLDivElement>(null)
+  const [videoTrack, setVideoTrack] = useState<RemoteTrack | null>(null)
+  const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'failed'>('connecting')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    let room: LiveKitRoom | null = null
+
+    async function connect() {
+      try {
+        const [{ Room, RoomEvent, Track }, credentials] = await Promise.all([
+          import('livekit-client'),
+          adminApi.liveMonitorToken(streamId),
+        ])
+        if (cancelled) return
+        room = new Room({ adaptiveStream: true, dynacast: true })
+        room.on(RoomEvent.TrackSubscribed, (track) => {
+          if (track.kind === Track.Kind.Video) {
+            setVideoTrack(track)
+          } else if (track.kind === Track.Kind.Audio) {
+            const element = track.attach()
+            if (element instanceof HTMLAudioElement && audioRef.current) {
+              element.autoplay = true
+              audioRef.current.appendChild(element)
+            }
+          }
+        })
+        room.on(RoomEvent.TrackUnsubscribed, (track) => {
+          track.detach().forEach((element) => element.remove())
+          if (track.kind === Track.Kind.Video) setVideoTrack(null)
+        })
+        room.on(RoomEvent.Disconnected, () => {
+          if (!cancelled) {
+            setConnectionState('failed')
+            setError('The live media connection ended.')
+          }
+        })
+        await room.connect(credentials.url, credentials.token)
+        if (!cancelled) setConnectionState('connected')
+      } catch (e) {
+        if (!cancelled) {
+          setConnectionState('failed')
+          setError(e instanceof Error ? e.message : 'Unable to connect to the live stream.')
+        }
+        room?.removeAllListeners()
+        await room?.disconnect()
+      }
+    }
+
+    void connect()
+    return () => {
+      cancelled = true
+      room?.removeAllListeners()
+      void room?.disconnect()
+    }
+  }, [streamId])
+
+  useEffect(() => {
+    if (!videoTrack || !videoRef.current) return
+    videoTrack.attach(videoRef.current)
+    return () => { videoTrack.detach(videoRef.current!) }
+  }, [videoTrack])
+
+  return (
+    <div className="space-y-2">
+      <div className="relative aspect-video overflow-hidden rounded-xl bg-ink-950">
+        <video ref={videoRef} autoPlay playsInline className="size-full object-contain" />
+        {connectionState === 'connecting' && <p className="absolute inset-0 grid place-items-center text-sm text-white">Connecting to live video…</p>}
+        {connectionState === 'connected' && !videoTrack && <p className="absolute inset-0 grid place-items-center text-sm text-white">Waiting for the streamer’s camera…</p>}
+        {error && <p role="alert" className="absolute inset-x-0 bottom-0 bg-red-950/90 p-3 text-sm text-white">{error}</p>}
+      </div>
+      <div ref={audioRef} className="hidden" aria-hidden="true" />
+      <p className="text-xs text-ink-500">Live monitor · read-only</p>
+    </div>
+  )
+}
+
 export function AdminLiveStreamsPage() {
   const [streams, setStreams] = useState<Awaited<ReturnType<typeof adminApi.liveStreams>>['items']>([])
   const [loading, setLoading] = useState(true)
+  const [monitoring, setMonitoring] = useState<string | null>(null)
+  const [warningReasons, setWarningReasons] = useState<Record<string, string>>({})
   const { error, clear, notify, fail, banner } = useFeedback()
   const { confirm, dialog } = useConfirm()
 
-  async function load() {
+  async function load(showLoading = true) {
     try {
-      clear()
+      if (showLoading) clear()
       setStreams((await adminApi.liveStreams()).items)
     } catch (e) {
       fail(e, 'Unable to load live streams.')
@@ -840,7 +1286,11 @@ export function AdminLiveStreamsPage() {
     }
   }
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => {
+    void load()
+    const timer = window.setInterval(() => { void load(false) }, 5000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   async function end(streamId: string, title: string) {
     const ok = await confirm({ title: `End “${title}”?`, description: 'The LiveKit room closes and everyone watching is disconnected. The action is audited.', confirmLabel: 'End stream', tone: 'danger' })
@@ -854,30 +1304,80 @@ export function AdminLiveStreamsPage() {
     }
   }
 
+  async function sendWarning(streamId: string, severity: 'warning' | 'violation') {
+    const reason = warningReasons[streamId]?.trim()
+    if (!reason) {
+      fail(null, 'Enter a reason before sending a warning.')
+      return
+    }
+    try {
+      await adminApi.warnLiveStream(streamId, severity, reason)
+      setWarningReasons((current) => ({ ...current, [streamId]: '' }))
+      notify(`${severity === 'violation' ? 'Violation warning' : 'Warning'} sent to the live room.`)
+    } catch (e) {
+      fail(e, 'Unable to send the live warning.')
+    }
+  }
+
+  async function changeHostStatus(stream: { streamId: string; hostId: string; hostName: string | null; title: string }, status: 'suspended' | 'banned') {
+    const name = stream.hostName || 'this member'
+    const action = status === 'banned' ? 'ban' : 'suspend'
+    const ok = await confirm({
+      title: `${status === 'banned' ? 'Ban' : 'Suspend'} ${name}?`,
+      description: `This will end “${stream.title || 'Untitled stream'}” and ${action} the host’s account.`,
+      confirmLabel: status === 'banned' ? 'End and ban' : 'End and suspend',
+      tone: 'danger',
+    })
+    if (!ok) return
+    try {
+      await adminApi.endLiveStream(stream.streamId)
+      await adminApi.setUserStatus(stream.hostId, status, `Live stream moderation: ${status} by administrator`)
+      setMonitoring((current) => current === stream.streamId ? null : current)
+      await load()
+      notify(`${name} was ${status} and their stream was ended.`)
+    } catch (e) {
+      fail(e, `Unable to ${action} the host.`)
+    }
+  }
+
   return (
     <section className="space-y-6">
-      <PageHeader title="Live streams" description="Ending a stream closes the LiveKit room and records an audited moderation action." />
+      <PageHeader title="Live streams" description="Monitor live video and audio, send warnings into the room, or take account action. The list refreshes automatically." />
       {banner}
       <Async loading={loading} count={streams.length} failed={!!error} empty={<EmptyState icon={Radio} title="No active streams" description="Streams that are live right now will appear here." />}>
-        <Panel flush title={`${streams.length} live now`}>
-          <ul className="divide-y divide-ink-100">
+        <div className="space-y-4">
             {streams.map((stream) => {
               const title = stream.title || 'Untitled stream'
               return (
-                <li key={stream.streamId} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <Badge tone="danger">Live</Badge>
-                      <p className="truncate font-medium text-ink-900">{title}</p>
+                <Panel key={stream.streamId} flush title={`${stream.hostName || 'Member'} · ${title}`} actions={<Badge tone="danger">Live now</Badge>}>
+                  <div className="space-y-4 p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm text-ink-500">Started {formatDate(stream.startedAt)}</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setMonitoring((current) => current === stream.streamId ? null : stream.streamId)}>
+                          {monitoring === stream.streamId ? 'Stop monitoring' : 'Monitor live'}
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => void end(stream.streamId, title)}>End stream</Button>
+                        <Button size="sm" variant="outline" onClick={() => void changeHostStatus(stream, 'suspended')}>Suspend host</Button>
+                        <Button size="sm" variant="destructive" onClick={() => void changeHostStatus(stream, 'banned')}>Ban host</Button>
+                      </div>
                     </div>
-                    <p className="mt-1 text-sm text-ink-500">Hosted by {stream.hostName || stream.hostId}, started {formatDate(stream.startedAt)}</p>
+                    {monitoring === stream.streamId && <AdminLiveMonitor streamId={stream.streamId} />}
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        aria-label={`Warning reason for ${stream.hostName || 'stream'}`}
+                        placeholder="Describe the issue for the streamer"
+                        value={warningReasons[stream.streamId] ?? ''}
+                        onChange={(event) => setWarningReasons((current) => ({ ...current, [stream.streamId]: event.target.value }))}
+                      />
+                      <Button size="sm" variant="outline" onClick={() => void sendWarning(stream.streamId, 'warning')}>Send warning</Button>
+                      <Button size="sm" variant="destructive" onClick={() => void sendWarning(stream.streamId, 'violation')}>Violation warning</Button>
+                    </div>
                   </div>
-                  <Button size="sm" variant="destructive" onClick={() => void end(stream.streamId, title)}>End stream</Button>
-                </li>
+                </Panel>
               )
             })}
-          </ul>
-        </Panel>
+        </div>
       </Async>
       {dialog}
     </section>
@@ -887,6 +1387,7 @@ export function AdminLiveStreamsPage() {
 /* ------------------------------------------------------------------ Content */
 
 export function AdminContentPage() {
+  const role = useAdminStore((state) => state.session?.role)
   const [posts, setPosts] = useState<Awaited<ReturnType<typeof adminApi.contentPosts>>['items']>([])
   const [statuses, setStatuses] = useState<Awaited<ReturnType<typeof adminApi.contentStatuses>>['items']>([])
   const [tab, setTab] = useState<'posts' | 'statuses'>('posts')
@@ -946,6 +1447,18 @@ export function AdminContentPage() {
                     <p className="font-medium text-ink-900">{post.authorName || post.authorId}</p>
                     <p className="mt-0.5 line-clamp-2 text-sm text-ink-600">{post.caption || 'No caption'}</p>
                     <p className="mt-1 text-xs text-ink-500">{formatDate(post.createdAt)}</p>
+                    {role === 'super_admin' && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(post.photos ?? []).map((photo) => {
+                          const mediaId = /^\/media\/([0-9a-f]{32})$/.exec(photo)?.[1]
+                          return mediaId ? <img key={mediaId} src={adminApi.userMediaUrl(post.authorId, mediaId)} alt="Post upload" className="size-24 rounded-lg bg-ink-50 object-cover" loading="lazy" /> : null
+                        })}
+                        {post.videoUrl && (() => {
+                          const mediaId = /^\/media\/([0-9a-f]{32})$/.exec(post.videoUrl)?.[1]
+                          return mediaId ? <video key={mediaId} src={adminApi.userMediaUrl(post.authorId, mediaId)} controls playsInline preload="metadata" className="aspect-video w-48 rounded-lg bg-ink-900" /> : null
+                        })()}
+                      </div>
+                    )}
                   </div>
                   <Button size="sm" variant="destructive" onClick={() => void remove('post', post.postId)}>Remove post</Button>
                 </li>
@@ -965,6 +1478,14 @@ export function AdminContentPage() {
                       <Badge>{humanize(status.mediaKind)}</Badge>
                     </div>
                     <p className="mt-1 text-xs text-ink-500">Expires {formatDate(status.expiresAt)}</p>
+                    {role === 'super_admin' && status.mediaUrl && (() => {
+                      const mediaId = /^\/media\/([0-9a-f]{32})$/.exec(status.mediaUrl)?.[1]
+                      if (!mediaId) return null
+                      const src = adminApi.userMediaUrl(status.authorId, mediaId)
+                      return status.mediaKind === 'video'
+                        ? <video src={src} controls playsInline preload="metadata" className="mt-3 aspect-video w-64 rounded-lg bg-ink-900" />
+                        : <img src={src} alt="Status upload" className="mt-3 size-36 rounded-lg bg-ink-50 object-cover" loading="lazy" />
+                    })()}
                   </div>
                   <Button size="sm" variant="destructive" onClick={() => void remove('status', status.statusId)}>Remove status</Button>
                 </li>

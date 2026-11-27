@@ -281,7 +281,7 @@ Admin calls use the separate `flingra_admin_csrf` token and admin session cookie
 | `POST /admin/safety/reports/{report_id}/decision` | `{decision: "reviewed" \| "dismissed", reason}` + admin CSRF | updated report |
 | `GET /admin/users/{account_id}/audit` | optional `eventType`, `outcome`, `limit`, `offset` | `{items, nextOffset}` |
 | `GET /admin/audit/events?eventType=&outcome=&accountId=&limit=&offset=` | Query | platform audit stream |
-| `GET /admin/dashboard` | — | operational queue and service counts |
+| `GET /admin/dashboard` | — | membership and engagement metrics, 30-day signup trend, and operational queue counts |
 | `GET /admin/privacy/requests?status=&limit=&offset=` | Query | `{items, nextOffset}` |
 | `POST /admin/privacy/requests/{request_id}/retry` | — + admin CSRF | requeued failed request |
 | `GET /admin/payouts?status=&limit=&offset=` | Query | `{items, nextOffset}` |
@@ -305,11 +305,14 @@ store it only in the administrator's authenticator app.
 | `GET /admin/meetup-payments/disputes?limit=` | Query | dispute queue |
 | `POST /admin/meetup-payments/{payment_id}/resolve` | `{resolution: "release" \| "refund", reason}` + admin CSRF | updated payment |
 
-The admin console exposes the member, safety report/review, privacy request,
-payout, audit, staff-account, review, meetup-dispute, and call-credit pricing
-surfaces. Payout operations are read-only: provider retries and manual
-settlement are deliberately not exposed because they can create duplicate
-transfers or ledger adjustments.
+The admin console exposes member profiles and wallet history, safety
+report/review, privacy request, payout, audit, staff-account, review,
+meetup-dispute, and call-credit pricing surfaces. Super admins can preview and
+remove private member uploads in-panel; each upload access and removal is
+audited. Safety admins can monitor live streams, send room warnings, end streams,
+or suspend/ban a host. Payout operations are read-only: provider retries and
+manual settlement are deliberately not exposed because they can create
+duplicate transfers or ledger adjustments.
 
 ### Health and provider callbacks (not browser feature APIs)
 

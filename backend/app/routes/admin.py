@@ -786,6 +786,19 @@ def create_admin_account(
     email = body.email.strip().lower()
     if not EMAIL_PATTERN.fullmatch(email):
         raise ApiException("INVALID_ADMIN_EMAIL", "Enter a valid admin email address.")
+    if body.role == "super_admin":
+        active_super_admins = db.execute(
+            text(
+                "SELECT COUNT(*) FROM admin_users "
+                "WHERE role = 'super_admin' AND disabled_at IS NULL"
+            )
+        ).scalar_one()
+        if active_super_admins >= 1:
+            raise ApiException(
+                "SUPER_ADMIN_EXISTS",
+                "Only one active super admin account is allowed.",
+                409,
+            )
     admin_id = uuid.uuid4().hex
     try:
         db.execute(
@@ -860,6 +873,31 @@ def update_admin_account(
         if body.disabled is False
         else target["disabled_at"]
     )
+    becomes_active_super_admin = (
+        role == "super_admin"
+        and disabled_at is None
+        and (target["role"] != "super_admin" or target["disabled_at"] is not None)
+    )
+    if becomes_active_super_admin:
+        active_super_admins = db.execute(
+            text(
+                "SELECT COUNT(*) FROM admin_users "
+                "WHERE role = 'super_admin' AND disabled_at IS NULL"
+            )
+        ).scalar_one()
+        if active_super_admins >= 1:
+            _record_admin_account_denial(
+                db,
+                request,
+                admin,
+                target_admin_id=target_admin_id,
+                reason="super_admin_exists",
+            )
+            raise ApiException(
+                "SUPER_ADMIN_EXISTS",
+                "Only one active super admin account is allowed.",
+                409,
+            )
     removes_active_super_admin = (
         target["role"] == "super_admin"
         and target["disabled_at"] is None
@@ -953,7 +991,7 @@ def list_reviews(
     db: DbSession,
     admin: Annotated[
         AdminAccount,
-        Depends(require_admin_roles("super_admin", "reviewer")),
+        Depends(require_admin_roles("super_admin", "admin", "reviewer")),
     ],
     review_type: Literal["all", "account-verification"] = Query(default="all", alias="type"),
     limit: int = Query(default=50, ge=1, le=100),
@@ -1035,7 +1073,7 @@ def get_user_audit_history(
     db: DbSession,
     admin: Annotated[
         AdminAccount,
-        Depends(require_admin_roles("super_admin", "safety_admin", "auditor")),
+        Depends(require_admin_roles("super_admin", "admin", "safety_admin", "auditor")),
     ],
     event_type: str | None = Query(default=None, alias="eventType", min_length=1, max_length=80),
     outcome: Literal["success", "failure", "denied"] | None = None,
@@ -1128,7 +1166,7 @@ def get_review(
     db: DbSession,
     admin: Annotated[
         AdminAccount,
-        Depends(require_admin_roles("super_admin", "reviewer")),
+        Depends(require_admin_roles("super_admin", "admin", "reviewer")),
     ],
 ) -> dict[str, object]:
     review_type, account_id = _review_parts(review_id)
@@ -1203,7 +1241,7 @@ def get_review_document(
     db: DbSession,
     admin: Annotated[
         AdminAccount,
-        Depends(require_admin_roles("super_admin", "reviewer")),
+        Depends(require_admin_roles("super_admin")),
     ],
     storage: StorageDependency,
 ) -> RedirectResponse:
@@ -1211,7 +1249,7 @@ def get_review_document(
     row = db.execute(
         text(
             """
-            SELECT m.account_id, m.object_key
+            SELECT m.account_id, m.object_key, m.content_type
             FROM media_objects m
             JOIN profiles p ON p.account_id = m.account_id
             WHERE m.account_id = :account_id
@@ -1234,7 +1272,7 @@ def get_review_document(
     if row is None:
         raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable.", 404)
     try:
-        signed_url = storage.get_url(row["object_key"])
+        signed_url = storage.get_url(row["object_key"], row["content_type"])
     except ServiceUnavailable:
         record_audit_event(
             db,
@@ -1274,7 +1312,7 @@ def get_review_profile_photo(
     db: DbSession,
     admin: Annotated[
         AdminAccount,
-        Depends(require_admin_roles("super_admin", "reviewer")),
+        Depends(require_admin_roles("super_admin")),
     ],
     storage: StorageDependency,
 ) -> RedirectResponse:
@@ -1282,7 +1320,7 @@ def get_review_profile_photo(
     row = db.execute(
         text(
             """
-            SELECT m.object_key
+            SELECT m.object_key, m.content_type
             FROM media_objects m
             JOIN profiles p ON p.account_id = m.account_id
             WHERE m.id = :media_id
@@ -1311,7 +1349,7 @@ def get_review_profile_photo(
     if row is None:
         raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable.", 404)
     try:
-        signed_url = storage.get_url(row["object_key"])
+        signed_url = storage.get_url(row["object_key"], row["content_type"])
     except ServiceUnavailable:
         record_audit_event(
             db,
@@ -1354,7 +1392,7 @@ def decide_review(
     db: DbSession,
     admin: Annotated[
         AdminAccount,
-        Depends(require_admin_roles("super_admin", "reviewer")),
+        Depends(require_admin_roles("super_admin", "admin", "reviewer")),
     ],
 ) -> dict[str, str]:
     reason = body.reason.strip()

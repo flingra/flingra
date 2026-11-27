@@ -247,7 +247,10 @@ Implemented endpoints:
 - `GET /admin/content/posts`, `DELETE /admin/content/posts/{post_id}`
 - `GET /admin/content/statuses`, `DELETE /admin/content/statuses/{status_id}`
 - `GET /admin/audit/events`
-- `GET /admin/dashboard`
+- `GET /admin/dashboard` — membership totals and growth, recent engagement,
+  active operations, and admin work queues. Super admins also see settled
+  wallet-funding volume for the last 30 days; this is funding, not recognized
+  revenue.
 
 All signup and sign-in paths enforce a minimum age of 21; existing sessions
 belonging to underage accounts are revoked when used. Government ID review is
@@ -453,9 +456,12 @@ reconciliation/retry, livestream participant/chat moderation, and chat-message
 moderation remain unimplemented.
 Apply migration `000028_admin_mfa.sql` before deploying the admin MFA endpoints.
 The payout admin surface is read-only to avoid duplicate provider transfers.
-The admin frontend exposes member account controls, safety reports, privacy
-request retries, payout inspection, content and stream moderation, subscription
-and gift catalog controls, wallet adjustments, and platform audit search.
+The admin frontend exposes member account and wallet history, safety reports,
+privacy request retries, payout inspection, content and stream moderation,
+subscription and gift catalog controls, wallet adjustments, and platform audit
+search. Super admins can inspect and remove private member media; media access
+and removal are audit logged. Safety admins can monitor live media and send
+warnings or end streams.
 User-facing product flows are wired to the backend; external provider settings
 and deployment configuration remain environment-specific.
 

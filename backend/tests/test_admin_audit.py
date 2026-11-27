@@ -444,3 +444,40 @@ def test_super_admin_can_change_roles_and_disable_accounts(api_client) -> None:
         assert "admin.authorization.denied" in audit_events
     finally:
         db_generator.close()
+
+
+def test_admin_role_is_available_and_only_one_super_admin_is_allowed(api_client) -> None:
+    client, _ = api_client
+    owner_id = seed_admin(client, email="owner@example.test")
+    set_admin_role(client, owner_id, "super_admin")
+    target_id = seed_admin(client, email="staff@example.test")
+    assert admin_login(client, email="owner@example.test").status_code == 200
+    csrf_token = client.cookies["flingra_admin_csrf"]
+
+    changed = client.patch(
+        f"/admin/admins/{target_id}",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"role": "admin"},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["role"] == "admin"
+
+    promoted = client.patch(
+        f"/admin/admins/{target_id}",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"role": "super_admin"},
+    )
+    assert promoted.status_code == 409
+    assert promoted.json()["error"]["code"] == "SUPER_ADMIN_EXISTS"
+
+    duplicate = client.post(
+        "/admin/admins",
+        headers={"X-CSRF-Token": csrf_token},
+        json={
+            "email": "second-super@example.test",
+            "password": "a-very-long-admin-password",
+            "role": "super_admin",
+        },
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "SUPER_ADMIN_EXISTS"

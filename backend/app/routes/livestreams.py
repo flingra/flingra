@@ -1040,7 +1040,7 @@ def list_stream_messages(
             id=str(row["id"]),
             stream_id=str(row["stream_id"]),
             author_id=str(row["author_id"]),
-            author_name=row["display_name"],
+            author_name="Flingra moderation" if row["kind"] == "warning" else row["display_name"],
             kind=row["kind"],
             text=row["message_text"],
             gift_id=str(row["gift_id"]) if row["gift_id"] else None,
