@@ -810,7 +810,7 @@ export function DiscoverPage() {
               placeholder={
                 searchMode === 'location'
                   ? 'Search a street, landmark, neighbourhood or city'
-                  : 'Search a username or display name'
+                  : 'Search part of a username or display name'
               }
               className="min-w-0 flex-1 bg-transparent text-sm font-medium text-ink-900 outline-none placeholder:text-ink-400"
             />

@@ -161,6 +161,14 @@ def test_people_search_returns_only_visible_profiles_with_avatar(api_client, mon
     assert by_username.status_code == 200
     assert by_username.json()[0]["id"] == visible_id
 
+    partial_username = client.get("/discovery/search?q=derwo")
+    assert partial_username.status_code == 200
+    assert partial_username.json()[0]["id"] == visible_id
+
+    partial_display_name = client.get("/discovery/search?q=der+Wo")
+    assert partial_display_name.status_code == 200
+    assert partial_display_name.json()[0]["id"] == visible_id
+
 
 def test_discovery_feed_filters_verified_profiles_and_paginates(api_client, monkeypatch) -> None:
     client, _ = api_client
