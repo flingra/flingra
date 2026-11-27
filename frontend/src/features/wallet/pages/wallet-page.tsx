@@ -397,7 +397,7 @@ export function WalletPage() {
           </Field>
           {error && <p role="alert" className="text-sm font-medium text-danger">{error}</p>}
           <Button loading={funding} disabled={!amount || Number(amount) <= 0} onClick={() => handleFund(Number(amount))}>
-            Continue to Paystack
+            Continue
           </Button>
         </div>
       </Dialog>
