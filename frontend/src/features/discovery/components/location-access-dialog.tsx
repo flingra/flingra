@@ -1,6 +1,6 @@
 import { MapPin, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Dialog } from '@/components/ui/dialog'
+import { Drawer } from '@/components/ui/drawer'
 
 interface LocationAccessDialogProps {
   open: boolean
@@ -28,13 +28,13 @@ export function LocationAccessDialog({
   onChooseManually,
 }: LocationAccessDialogProps) {
   return (
-    <Dialog
+    <Drawer
       open={open}
       onClose={onClose}
       title={title}
-      description={description}
     >
       <div className="flex flex-col items-center text-center">
+        <p className="mb-4 text-sm text-ink-500">{description}</p>
         <span className="flex size-16 items-center justify-center rounded-full bg-primary-50 text-primary-600">
           <MapPin className="size-8" aria-hidden="true" />
         </span>
@@ -59,6 +59,6 @@ export function LocationAccessDialog({
           </Button>
         </div>
       </div>
-    </Dialog>
+    </Drawer>
   )
 }
