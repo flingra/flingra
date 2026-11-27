@@ -9,6 +9,7 @@ from app.database import (
     MIGRATION_LOCK_WAIT_SECONDS,
     _apply_admin_mfa_migration,
     _apply_chat_interest_approval_migration,
+    _apply_two_factor_challenge_repair_migration,
     run_migrations,
 )
 from app.migrate import is_database_permission_error
@@ -104,6 +105,29 @@ def test_chat_interest_migration_rejects_unsafe_collation() -> None:
         _apply_chat_interest_approval_migration(connection, migration_path)
 
     connection.exec_driver_sql.assert_not_called()
+
+
+def test_two_factor_challenge_repair_migration_creates_missing_table() -> None:
+    connection = MagicMock()
+    connection.execute.return_value.mappings.return_value.one_or_none.return_value = {
+        "column_type": "varchar(64)",
+        "character_set": "utf8mb4",
+        "collation": "utf8mb4_unicode_ci",
+    }
+    migration_path = (
+        Path(__file__).resolve().parents[1]
+        / "internal"
+        / "migrate"
+        / "migrations"
+        / "000030_repair_two_factor_challenges.sql"
+    )
+
+    _apply_two_factor_challenge_repair_migration(connection, migration_path)
+
+    create_table_sql = connection.exec_driver_sql.call_args_list[0].args[0]
+    assert "CREATE TABLE IF NOT EXISTS two_factor_challenges" in create_table_sql
+    assert "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" in create_table_sql
+    assert len(connection.exec_driver_sql.call_args_list) == 3
 
 
 def test_mysql_create_denied_is_identified_as_permission_error() -> None:

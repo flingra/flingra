@@ -708,7 +708,16 @@ def request_two_factor_code(
         raise
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.error("Email 2FA challenge persistence failed (%s).", type(exc).__name__)
+        database_error_code = (
+            exc.orig.args[0]
+            if exc.orig.args and isinstance(exc.orig.args[0], int)
+            else "unknown"
+        )
+        logger.error(
+            "Email 2FA challenge persistence failed (%s, database error code %s).",
+            type(exc).__name__,
+            database_error_code,
+        )
         raise ServiceUnavailable("Two-factor setup is temporarily unavailable. Check the database migration.") from exc
     return {"status": "sent"}
 
