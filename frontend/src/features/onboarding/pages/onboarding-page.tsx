@@ -30,7 +30,10 @@ import {
   searchLocations,
   type LocationSearchResult,
 } from '@/lib/location'
-import { OpenStreetMapView } from '@/features/discovery/components/open-street-map-view'
+import {
+  GoogleMapView,
+  isGoogleMapsConfigured,
+} from '@/features/discovery/components/google-map-view'
 import { LocationAccessDialog } from '@/features/discovery/components/location-access-dialog'
 
 interface Draft {
@@ -225,11 +228,19 @@ export function OnboardingPage() {
     setLocating(true)
     try {
       const location = await getCurrentLocation()
-      const area = (await getApproximateArea(location)) ?? 'Nearby'
+      let area: string | null = null
+      try {
+        area = await getApproximateArea(location)
+        if (!area) {
+          setLocationError('Google Maps could not identify a nearby area. Enter one manually.')
+        }
+      } catch {
+        setLocationError('We found your location, but Google Maps could not identify the area. Enter one manually.')
+      }
       setDraft((current) => ({
         ...current,
         useBrowserLocation: true,
-        area,
+        area: area ?? 'Nearby',
         latitude: location.latitude,
         longitude: location.longitude,
       }))
@@ -522,14 +533,29 @@ export function OnboardingPage() {
           {locationError && <p className="text-sm text-ink-500" role="status">{locationError}</p>}
 
           <div>
-            <p className="mb-2 text-xs font-medium text-ink-500"></p>
+            <p className="mb-2 text-xs font-medium text-ink-500">Map preview</p>
             <div className="h-52 overflow-hidden rounded-2xl border border-ink-100">
-              <OpenStreetMapView
-                center={draft.latitude !== null && draft.longitude !== null
-                  ? [draft.latitude, draft.longitude]
-                  : [6.4698, 3.5852]}
-                zoom={draft.latitude !== null && draft.longitude !== null ? 13 : 11}
-              />
+              {isGoogleMapsConfigured() ? (
+                <GoogleMapView
+                  profiles={[]}
+                  center={
+                    draft.latitude !== null && draft.longitude !== null
+                      ? { lat: draft.latitude, lng: draft.longitude }
+                      : { lat: 6.4698, lng: 3.5852 }
+                  }
+                  zoom={draft.latitude !== null && draft.longitude !== null ? 13 : 11}
+                  locationLabel={draft.area}
+                  userLocation={
+                    draft.latitude !== null && draft.longitude !== null
+                      ? { latitude: draft.latitude, longitude: draft.longitude }
+                      : null
+                  }
+                />
+              ) : (
+                <div className="flex size-full items-center justify-center bg-ink-50 px-4 text-center text-sm text-ink-500" role="status">
+                  Google Maps is not configured in this environment.
+                </div>
+              )}
             </div>
           </div>
 

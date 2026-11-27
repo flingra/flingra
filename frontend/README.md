@@ -17,12 +17,16 @@ VITE_GOOGLE_MAPS_MAP_ID=your-map-id-here
   other unfinished platform features still use the mock API layer.
 - `VITE_GOOGLE_MAPS_API_KEY`: Google Cloud Console → APIs & Services → Credentials.
   Requires a billing account and the Maps JavaScript API enabled on the project.
-  Restrict the key to the frontend website origin.
+  Restrict this browser key to the frontend website origins and Maps JavaScript API.
 - `VITE_GOOGLE_MAPS_MAP_ID` (optional): Google Cloud Console → Maps → Map
   Management → create a map ID if you want to apply a cloud-based map style.
 
-The onboarding location picker retains its OpenStreetMap fallback. Restart
-`npm run dev` after changing local environment settings.
+Onboarding maps use Google Maps. Place search and approximate reverse geocoding
+are handled by the backend with a separate server-side key; configure
+`FLINGRA_GOOGLE_MAPS_SERVER_API_KEY` in `backend/.env` and your production
+backend environment. Enable Places API (New) and Geocoding API, keep the key
+server-side, and restrict it to those APIs. Do not put this server key in a
+`VITE_` variable. Restart `npm run dev` after changing local environment settings.
 On mobile, Discover uses cooperative map gestures: one finger scrolls the page,
 and two fingers pan or zoom the map.
 Discover requests a fresh browser location when opened and uses it to center

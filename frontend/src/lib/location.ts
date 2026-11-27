@@ -58,12 +58,8 @@ export async function searchLocations(query: string): Promise<LocationSearchResu
 }
 
 export async function getApproximateArea(location: CurrentLocation): Promise<string | null> {
-  try {
-    const result = await apiRequest<{ area: string | null }>(
-      `/location/reverse?latitude=${encodeURIComponent(location.latitude)}&longitude=${encodeURIComponent(location.longitude)}`,
-    )
-    return result.area
-  } catch {
-    return null
-  }
+  const result = await apiRequest<{ area: string | null }>(
+    `/location/reverse?latitude=${encodeURIComponent(location.latitude)}&longitude=${encodeURIComponent(location.longitude)}`,
+  )
+  return result.area
 }

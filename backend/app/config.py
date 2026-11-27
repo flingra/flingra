@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     demo_profiles_enabled: bool = False
     max_request_bytes: int = Field(default=1_048_576, ge=1)
     google_client_id: str | None = None
-    opencage_api_key: SecretStr | None = None
+    google_maps_server_api_key: SecretStr | None = None
     payment_provider: str | None = None
     paystack_secret_key: SecretStr | None = None
     termii_api_key: SecretStr | None = None
