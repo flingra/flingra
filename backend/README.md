@@ -53,10 +53,9 @@ Optional settings include:
 - `FLINGRA_GOOGLE_CLIENT_ID` — Google OAuth Web client ID used to verify
   Google Identity Services ID tokens. Add the frontend origin to this OAuth
   client's Authorized JavaScript origins in Google Cloud Console.
-- `FLINGRA_GOOGLE_MAPS_SERVER_API_KEY` — server-side Google Maps Platform key
-  for Places API (New) location search and Geocoding API reverse geocoding.
-  Keep it server-side and restrict it to those APIs; configure a separate,
-  HTTP-referrer-restricted Maps JavaScript key in the frontend.
+- `FLINGRA_OPENCAGE_API_KEY` — optional server-side OpenCage key for reverse
+  geocoding. Location search uses OpenStreetMap Nominatim with Photon fallback;
+  reverse geocoding falls back to Nominatim when OpenCage is unavailable.
 - `FLINGRA_PAYMENT_PROVIDER` — currently `paystack`.
 - `FLINGRA_PAYSTACK_SECRET_KEY` — Paystack secret key. Keep it server-side;
   Paystack webhook signatures are verified using this key.

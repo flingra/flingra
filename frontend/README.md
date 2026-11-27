@@ -31,12 +31,12 @@ for example `["https://dev.flingra.com","https://flingra.com"]`, for origin and
 CSRF validation. Local development should continue using the direct backend
 URL, such as `http://localhost:8000`.
 
-Onboarding maps use Google Maps. Place search and approximate reverse geocoding
-are handled by the backend with a separate server-side key; configure
-`FLINGRA_GOOGLE_MAPS_SERVER_API_KEY` in `backend/.env` and your production
-backend environment. Enable Places API (New) and Geocoding API, keep the key
-server-side, and restrict it to those APIs. Do not put this server key in a
-`VITE_` variable. Restart `npm run dev` after changing local environment settings.
+Onboarding maps use Google Maps. Location search uses OpenStreetMap Nominatim
+with Photon as a fallback and does not require a Google server key. Approximate
+reverse geocoding optionally uses the backend's `FLINGRA_OPENCAGE_API_KEY` and
+falls back to Nominatim. The browser Maps JavaScript key above is still required
+to display interactive maps. Restart `npm run dev` after changing local
+environment settings.
 On mobile, Discover uses cooperative map gestures: one finger scrolls the page,
 and two fingers pan or zoom the map.
 Discover requests a fresh browser location when opened and uses it to center

@@ -16,32 +16,19 @@ from app.routes.auth import CurrentAccount, get_app_settings
 
 router = APIRouter(prefix="/location", tags=["location"])
 
-GOOGLE_PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
-GOOGLE_GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json"
-GOOGLE_PLACES_FIELD_MASK = (
-    "places.displayName,places.formattedAddress,places.location,places.addressComponents"
-)
-
-NIGERIA_COUNTRY_NAMES = frozenset({"ng", "nigeria"})
-AREA_COMPONENT_TYPES = (
-    "neighborhood",
-    "sublocality_level_1",
-    "sublocality",
-    "locality",
-    "administrative_area_level_2",
-    "administrative_area_level_1",
-)
-CITY_COMPONENT_TYPES = ("locality", "postal_town", "administrative_area_level_2")
+NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
+NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
+PHOTON_SEARCH_URL = "https://photon.komoot.io/api"
+OPENCAGE_REVERSE_URL = "https://api.opencagedata.com/geocode/v1/json"
+NOMINATIM_USER_AGENT = "Flingra/1.0 (+https://dev.flingra.com)"
 SEARCH_RESULT_LIMIT = 15
-SEARCH_BIAS_RADIUS_M = 50_000.0  # Places API maximum
 
 SEARCH_CACHE_TTL_S = 10 * 60
 REVERSE_CACHE_TTL_S = 60 * 60
 CACHE_MAX_ENTRIES = 512
 
 logger = logging.getLogger("uvicorn.error")
-# httpx logs full request URLs at INFO, and the Geocoding API only accepts its key as a
-# query parameter. Keep it out of the logs.
+# OpenCage keys are query parameters; keep them out of HTTP request logs.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
@@ -66,7 +53,7 @@ class ReverseGeocodeResponse(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Tiny in-memory TTL/LRU cache (per process) to cut repeat Google calls
+# Tiny in-memory TTL/LRU cache (per process) to reduce repeat provider calls
 # --------------------------------------------------------------------------- #
 
 _MISS = object()
@@ -105,121 +92,195 @@ _reverse_cache = _TTLCache(max_entries=CACHE_MAX_ENTRIES, ttl_seconds=REVERSE_CA
 # --------------------------------------------------------------------------- #
 
 
-def _google_component_value(components: object, *component_types: str) -> str | None:
-    """First non-empty name for the earliest matching type (handles Places and Geocoding shapes)."""
-    if not isinstance(components, list):
-        return None
-    for component_type in component_types:
-        for component in components:
-            if not isinstance(component, dict):
-                continue
-            types = component.get("types")
-            if not isinstance(types, list) or component_type not in types:
-                continue
-            value = (
-                component.get("longText")
-                or component.get("long_name")
-                or component.get("shortText")
-                or component.get("short_name")
-            )
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return None
-
-
-def _in_nigeria(components: object, *, allow_unknown: bool) -> bool:
-    country = _google_component_value(components, "country")
-    if country is None:
-        return allow_unknown
-    return country.casefold() in NIGERIA_COUNTRY_NAMES
-
-
-def _format_area(components: object) -> str | None:
-    """'Neighbourhood, City' when both exist and differ; otherwise the best single name."""
-    area = _google_component_value(components, *AREA_COMPONENT_TYPES)
-    city = _google_component_value(components, *CITY_COMPONENT_TYPES)
-    suffix = city or _google_component_value(components, "administrative_area_level_1")
-    if area and suffix and area.casefold() != suffix.casefold():
-        return f"{area}, {suffix}"
-    return area
-
-
-def _google_maps_key(settings: Settings) -> str:
-    if settings.google_maps_server_api_key is None:
-        raise ServiceUnavailable("Google Maps location services are not configured.")
-    return settings.google_maps_server_api_key.get_secret_value()
-
-
-async def _google_json(
-    method: str,
+async def _provider_json(
     url: str,
     *,
     service: str,
-    unavailable_message: str,
     timeout: httpx.Timeout,
-    **request_kwargs: Any,
-) -> dict[str, Any]:
-    """Call Google and return a JSON object, translating every failure into ServiceUnavailable."""
+    params: dict[str, str | int | float],
+    headers: dict[str, str] | None = None,
+) -> object | None:
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.request(method, url, **request_kwargs)
+            response = await client.get(url, params=params, headers=headers)
         response.raise_for_status()
-        payload = response.json()
     except httpx.HTTPStatusError as exc:
-        detail = f"HTTP {exc.response.status_code}"
+        logger.warning("%s returned HTTP %d.", service, exc.response.status_code)
+        return None
     except httpx.HTTPError as exc:
-        detail = type(exc).__name__
-    except ValueError:
-        detail = "invalid JSON"
-    else:
-        if isinstance(payload, dict):
-            return payload
-        detail = "unexpected response shape"
-
-    # Never log request params: they can contain the API key or user coordinates.
-    logger.warning("%s failed: %s.", service, detail)
-    raise ServiceUnavailable(unavailable_message)
-
-
-def _coordinates(location: object) -> tuple[float, float] | None:
-    if not isinstance(location, dict):
+        logger.warning("%s failed (%s).", service, type(exc).__name__)
         return None
     try:
-        latitude = float(location["latitude"])
-        longitude = float(location["longitude"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    if not (math.isfinite(latitude) and math.isfinite(longitude)):
-        return None
-    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
-        return None
-    return round(latitude, 6), round(longitude, 6)
-
-
-def _parse_place(place: object) -> LocationResult | None:
-    if not isinstance(place, dict):
-        return None
-    components = place.get("addressComponents")
-    if not _in_nigeria(components, allow_unknown=False):
-        return None
-    coordinates = _coordinates(place.get("location"))
-    if coordinates is None:
+        return response.json()
+    except ValueError:
+        logger.warning("%s returned invalid JSON.", service)
         return None
 
-    display_name = place.get("displayName")
-    name = display_name.get("text") if isinstance(display_name, dict) else None
-    if not isinstance(name, str) or not name.strip():
-        name = place.get("formattedAddress")
-    if not isinstance(name, str) or not name.strip():
-        return None
 
-    latitude, longitude = coordinates
-    return LocationResult(
-        name=name,
-        area=_google_component_value(components, *AREA_COMPONENT_TYPES) or name,
-        latitude=latitude,
-        longitude=longitude,
+def _coordinates(latitude: object, longitude: object) -> tuple[float, float] | None:
+    try:
+        latitude_value = float(latitude)
+        longitude_value = float(longitude)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(latitude_value) and math.isfinite(longitude_value)):
+        return None
+    if not (-90 <= latitude_value <= 90 and -180 <= longitude_value <= 180):
+        return None
+    return round(latitude_value, 6), round(longitude_value, 6)
+
+
+def _first_string(mapping: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _parse_search_results(payload: object) -> list[LocationResult]:
+    if not isinstance(payload, list):
+        raise ServiceUnavailable("Location search is temporarily unavailable.")
+    results: list[LocationResult] = []
+    seen: set[tuple[float, float]] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        coordinates = _coordinates(item.get("lat"), item.get("lon"))
+        name = item.get("display_name")
+        address = item.get("address")
+        if coordinates is None or not isinstance(name, str) or not name.strip():
+            continue
+        address = address if isinstance(address, dict) else {}
+        area = _first_string(
+            address,
+            "area",
+            "building",
+            "park",
+            "amenity",
+            "shop",
+            "road",
+            "quarter",
+            "suburb",
+            "neighbourhood",
+            "neighborhood",
+            "city_district",
+            "town",
+            "city",
+            "village",
+            "municipality",
+            "county",
+            "state",
+        )
+        position = coordinates
+        if position in seen:
+            continue
+        seen.add(position)
+        results.append(
+            LocationResult(
+                name=name.strip(),
+                area=area or name.strip(),
+                latitude=coordinates[0],
+                longitude=coordinates[1],
+            )
+        )
+    return results
+
+
+def _photon_results(payload: object) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("features"), list):
+        raise ServiceUnavailable("Location search is temporarily unavailable.")
+    results: list[dict[str, Any]] = []
+    for feature in payload["features"]:
+        if not isinstance(feature, dict):
+            continue
+        properties = feature.get("properties")
+        geometry = feature.get("geometry")
+        if not isinstance(properties, dict) or not isinstance(geometry, dict):
+            continue
+        country = properties.get("country")
+        if country not in {None, "Nigeria"}:
+            continue
+        coordinates = geometry.get("coordinates")
+        if not isinstance(coordinates, list) or len(coordinates) < 2:
+            continue
+        position = _coordinates(coordinates[1], coordinates[0])
+        if position is None:
+            continue
+        area = _first_string(
+            properties,
+            "name",
+            "district",
+            "suburb",
+            "neighbourhood",
+            "city",
+            "county",
+            "state",
+        )
+        if area is None:
+            continue
+        name_parts = [
+            properties[key]
+            for key in ("name", "street", "district", "suburb", "city", "state", "country")
+            if isinstance(properties.get(key), str) and properties[key].strip()
+        ]
+        results.append(
+            {
+                "display_name": ", ".join(dict.fromkeys(name_parts)),
+                "lat": position[0],
+                "lon": position[1],
+                "address": {"area": area},
+            }
+        )
+    return results
+
+
+def _place_area(components: object) -> str | None:
+    if not isinstance(components, dict):
+        return None
+    country = components.get("country_code")
+    if country not in {None, "ng"}:
+        return None
+    area = _first_string(
+        components,
+        "quarter",
+        "neighbourhood",
+        "neighborhood",
+        "suburb",
+        "city_district",
+        "town",
+        "city",
+        "village",
+        "municipality",
+        "county",
+        "state_district",
+        "state",
     )
+    if area is None:
+        for field in ("formatted", "display_name"):
+            name = components.get(field)
+            if isinstance(name, str) and name.strip():
+                parts = [part.strip() for part in name.split(",") if part.strip()]
+                country_index = next(
+                    (
+                        index
+                        for index, part in enumerate(parts)
+                        if part.casefold() in {"nigeria", "ng"}
+                    ),
+                    len(parts),
+                )
+                useful_parts = parts[:country_index]
+                if useful_parts:
+                    area = useful_parts[-2] if len(useful_parts) >= 2 else useful_parts[0]
+                    break
+    if area is None:
+        return None
+    city = _first_string(components, "city", "town", "village", "municipality", "county")
+    state = _first_string(components, "state", "state_district")
+    suffix = city or state
+    if suffix and area.casefold() != suffix.casefold():
+        return f"{area}, {suffix}"
+    return area
 
 
 # --------------------------------------------------------------------------- #
@@ -230,69 +291,47 @@ def _parse_place(place: object) -> LocationResult | None:
 @router.get("/search", response_model=LocationSearchResponse)
 async def search_locations(
     _: CurrentAccount,
-    settings: Annotated[Settings, Depends(get_app_settings)],
     q: str = Query(min_length=2, max_length=120),
-    latitude: float | None = Query(default=None, ge=-90, le=90),
-    longitude: float | None = Query(default=None, ge=-180, le=180),
 ) -> LocationSearchResponse:
-    """Search Nigerian places. Optional latitude/longitude bias results toward the caller."""
-    key = _google_maps_key(settings)
-
+    """Search Nigerian places using Nominatim, with Photon as a fallback."""
     text = " ".join(q.split())
     if len(text) < 2:
         return LocationSearchResponse(results=[])
     search_query = text if "nigeria" in text.casefold() else f"{text}, Nigeria"
-
-    bias = (round(latitude, 2), round(longitude, 2)) if latitude is not None and longitude is not None else None
-    cache_key = (search_query.casefold(), bias)
+    cache_key = search_query.casefold()
     cached = _search_cache.get(cache_key)
     if cached is not _MISS:
         return LocationSearchResponse(results=cached)
 
-    body: dict[str, Any] = {
-        "textQuery": search_query,
-        "languageCode": "en",
-        "regionCode": "NG",
-        "maxResultCount": SEARCH_RESULT_LIMIT,
+    params: dict[str, str | int | float] = {
+        "q": search_query,
+        "format": "jsonv2",
+        "limit": SEARCH_RESULT_LIMIT,
+        "countrycodes": "ng",
+        "addressdetails": 1,
+        "dedupe": 1,
+        "namedetails": 1,
     }
-    if latitude is not None and longitude is not None:
-        body["locationBias"] = {
-            "circle": {
-                "center": {"latitude": latitude, "longitude": longitude},
-                "radius": SEARCH_BIAS_RADIUS_M,
-            }
-        }
-
-    payload = await _google_json(
-        "POST",
-        GOOGLE_PLACES_SEARCH_URL,
-        service="Google Places search",
-        unavailable_message="Google Maps location search is temporarily unavailable.",
+    headers = {"User-Agent": NOMINATIM_USER_AGENT}
+    payload = await _provider_json(
+        NOMINATIM_SEARCH_URL,
+        service="Nominatim search",
         timeout=httpx.Timeout(10.0, connect=3.0),
-        headers={
-            "X-Goog-Api-Key": key,
-            "X-Goog-FieldMask": GOOGLE_PLACES_FIELD_MASK,
-            "Content-Type": "application/json",
-        },
-        json=body,
+        params=params,
+        headers=headers,
     )
-    places = payload.get("places", [])
-    if not isinstance(places, list):
-        logger.warning("Google Places search failed: unexpected places shape.")
-        raise ServiceUnavailable("Google Maps location search is temporarily unavailable.")
-
-    results: list[LocationResult] = []
-    seen: set[tuple[float, float]] = set()
-    for place in places:
-        match = _parse_place(place)
-        if match is None:
-            continue
-        position = (match.latitude, match.longitude)
-        if position in seen:
-            continue
-        seen.add(position)
-        results.append(match)
-
+    if not isinstance(payload, list):
+        photon_payload = await _provider_json(
+            PHOTON_SEARCH_URL,
+            service="Photon search",
+            timeout=httpx.Timeout(10.0, connect=3.0),
+            params={"q": search_query, "limit": SEARCH_RESULT_LIMIT, "lang": "en"},
+            headers=headers,
+        )
+        raw_results = _photon_results(photon_payload)
+    else:
+        raw_results = payload
+    results = _parse_search_results(raw_results)
     _search_cache.set(cache_key, results)
     return LocationSearchResponse(results=results)
 
@@ -304,39 +343,50 @@ async def reverse_geocode(
     latitude: float = Query(ge=-90, le=90),
     longitude: float = Query(ge=-180, le=180),
 ) -> ReverseGeocodeResponse:
-    """Neighbourhood-level area name for a coordinate. Cached at roughly 100 m resolution."""
-    key = _google_maps_key(settings)
-
+    """Resolve an approximate area with OpenCage, falling back to Nominatim."""
     cache_key = (round(latitude, 3), round(longitude, 3))
     cached = _reverse_cache.get(cache_key)
     if cached is not _MISS:
         return ReverseGeocodeResponse(area=cached)
 
-    payload = await _google_json(
-        "GET",
-        GOOGLE_GEOCODING_URL,
-        service="Google Geocoding",
-        unavailable_message="Google Maps location lookup is temporarily unavailable.",
-        timeout=httpx.Timeout(5.0, connect=2.0),
-        params={
-            "latlng": f"{latitude},{longitude}",
-            "key": key,
-            "language": "en",
-            "region": "ng",
-        },
-    )
-
-    status = payload.get("status")
-    if status not in {"OK", "ZERO_RESULTS"}:
-        logger.warning("Google Geocoding returned status %s.", status)
-        raise ServiceUnavailable("Google Maps location lookup is temporarily unavailable.")
-
     area: str | None = None
-    results = payload.get("results")
-    if status == "OK" and isinstance(results, list) and results and isinstance(results[0], dict):
-        components = results[0].get("address_components")
-        if _in_nigeria(components, allow_unknown=True):
-            area = _format_area(components)
+    if settings.opencage_api_key is not None:
+        payload = await _provider_json(
+            OPENCAGE_REVERSE_URL,
+            service="OpenCage reverse geocoding",
+            timeout=httpx.Timeout(5.0, connect=2.0),
+            params={
+                "q": f"{latitude},{longitude}",
+                "key": settings.opencage_api_key.get_secret_value(),
+                "no_annotations": 1,
+                "limit": 1,
+            },
+        )
+        if isinstance(payload, dict):
+            results = payload.get("results")
+            if isinstance(results, list) and results and isinstance(results[0], dict):
+                components = results[0].get("components")
+                if isinstance(components, dict):
+                    area = _place_area(components)
+
+    if area is None:
+        payload = await _provider_json(
+            NOMINATIM_REVERSE_URL,
+            service="Nominatim reverse geocoding",
+            timeout=httpx.Timeout(5.0, connect=2.0),
+            params={
+                "lat": latitude,
+                "lon": longitude,
+                "format": "jsonv2",
+                "zoom": 18,
+            },
+            headers={"User-Agent": NOMINATIM_USER_AGENT},
+        )
+        if not isinstance(payload, dict):
+            raise ServiceUnavailable("Location lookup is temporarily unavailable.")
+        address = payload.get("address")
+        if isinstance(address, dict):
+            area = _place_area(address)
 
     _reverse_cache.set(cache_key, area)
     return ReverseGeocodeResponse(area=area)

@@ -1,7 +1,4 @@
-import json
-
 import httpx
-import pytest
 
 from app.config import Settings
 from app.routes import auth, location
@@ -9,45 +6,41 @@ from app.routes import auth, location
 
 def authenticated_location_client(api_client):
     client, _ = api_client
-    client.app.state.settings = Settings(google_maps_server_api_key="test-key")
     client.app.dependency_overrides[auth.get_authenticated_account] = lambda: auth.AuthenticatedAccount(
         {"id": "test-account", "email_verified": True, "onboarding_complete": True}
     )
     return client
 
 
-def mock_google_response(monkeypatch, response: httpx.Response) -> list[httpx.Request]:
+def mock_provider_responses(monkeypatch, responses: list[httpx.Response]) -> list[httpx.Request]:
     requests: list[httpx.Request] = []
     original_client = location.httpx.AsyncClient
-    transport = httpx.MockTransport(
-        lambda request: requests.append(request) or response
-    )
-    monkeypatch.setattr(
-        location.httpx,
-        "AsyncClient",
-        lambda **kwargs: original_client(transport=transport, **kwargs),
-    )
+
+    def client_factory(**kwargs):
+        transport = httpx.MockTransport(
+            lambda request: requests.append(request) or responses.pop(0)
+        )
+        return original_client(transport=transport, **kwargs)
+
+    monkeypatch.setattr(location.httpx, "AsyncClient", client_factory)
     return requests
 
 
-def test_location_search_returns_google_places_results(api_client, monkeypatch) -> None:
+def test_location_search_returns_nominatim_results_without_maps_key(api_client, monkeypatch) -> None:
     client = authenticated_location_client(api_client)
     response = httpx.Response(
         200,
-        json={"places": [
+        json=[
             {
-                "displayName": {"text": "Lekki Conservation Centre"},
-                "formattedAddress": "Lekki Conservation Centre, Lagos, Nigeria",
-                "location": {"latitude": 6.436208, "longitude": 3.535577},
-                "addressComponents": [
-                    {"longText": "Lekki", "types": ["neighborhood"]},
-                    {"longText": "Nigeria", "shortText": "NG", "types": ["country"]},
-                ],
+                "display_name": "Lekki Conservation Center, Lagos, Nigeria",
+                "lat": "6.436208",
+                "lon": "3.535577",
+                "address": {"park": "Lekki Conservation Center", "state": "Lagos"},
             }
-        ]},
-        request=httpx.Request("POST", location.GOOGLE_PLACES_SEARCH_URL),
+        ],
+        request=httpx.Request("GET", location.NOMINATIM_SEARCH_URL),
     )
-    requests = mock_google_response(monkeypatch, response)
+    requests = mock_provider_responses(monkeypatch, [response])
 
     result = client.get("/location/search", params={"q": "Lekki Conservation Center"})
 
@@ -55,116 +48,155 @@ def test_location_search_returns_google_places_results(api_client, monkeypatch) 
     assert result.json() == {
         "results": [
             {
-                "name": "Lekki Conservation Centre",
-                "area": "Lekki",
+                "name": "Lekki Conservation Center, Lagos, Nigeria",
+                "area": "Lekki Conservation Center",
                 "latitude": 6.436208,
                 "longitude": 3.535577,
             }
         ]
     }
     assert len(requests) == 1
-    assert str(requests[0].url) == location.GOOGLE_PLACES_SEARCH_URL
-    assert requests[0].headers["X-Goog-Api-Key"] == "test-key"
-    assert requests[0].headers["X-Goog-FieldMask"] == location.GOOGLE_PLACES_FIELD_MASK
-    request_json = json.loads(requests[0].content)
-    assert request_json["textQuery"] == "Lekki Conservation Center, Nigeria"
-    assert request_json["regionCode"] == "NG"
+    assert requests[0].url.host == "nominatim.openstreetmap.org"
+    assert requests[0].headers["User-Agent"] == location.NOMINATIM_USER_AGENT
+    assert requests[0].url.params["countrycodes"] == "ng"
 
 
-def test_location_search_filters_non_nigerian_results(api_client, monkeypatch) -> None:
+def test_location_search_falls_back_to_photon(api_client, monkeypatch) -> None:
     client = authenticated_location_client(api_client)
+    responses = [
+        httpx.Response(
+            503,
+            request=httpx.Request("GET", location.NOMINATIM_SEARCH_URL),
+        ),
+        httpx.Response(
+            200,
+            json={
+                "features": [
+                    {
+                        "properties": {
+                            "name": "Lekki",
+                            "city": "Lagos",
+                            "state": "Lagos",
+                            "country": "Nigeria",
+                        },
+                        "geometry": {"coordinates": [3.535, 6.436]},
+                    }
+                ]
+            },
+            request=httpx.Request("GET", location.PHOTON_SEARCH_URL),
+        ),
+    ]
+    requests = mock_provider_responses(monkeypatch, responses)
+
+    result = client.get("/location/search", params={"q": "Lekki fallback test"})
+
+    assert result.status_code == 200
+    assert result.json()["results"] == [
+        {
+            "name": "Lekki, Lagos, Nigeria",
+            "area": "Lekki",
+            "latitude": 6.436,
+            "longitude": 3.535,
+        }
+    ]
+    assert [request.url.host for request in requests] == [
+        "nominatim.openstreetmap.org",
+        "photon.komoot.io",
+    ]
+
+
+def test_location_search_reports_error_when_both_providers_fail(api_client, monkeypatch) -> None:
+    client = authenticated_location_client(api_client)
+    mock_provider_responses(
+        monkeypatch,
+        [
+            httpx.Response(429, request=httpx.Request("GET", location.NOMINATIM_SEARCH_URL)),
+            httpx.Response(503, request=httpx.Request("GET", location.PHOTON_SEARCH_URL)),
+        ],
+    )
+
+    result = client.get("/location/search", params={"q": "Unavailable location test"})
+
+    assert result.status_code == 503
+    assert result.json()["error"]["message"] == "Location search is temporarily unavailable."
+
+
+def test_reverse_geocode_uses_configured_opencage_key(api_client, monkeypatch) -> None:
+    client = authenticated_location_client(api_client)
+    client.app.state.settings = Settings(opencage_api_key="test-key")
     response = httpx.Response(
         200,
         json={
-            "places": [
+            "results": [
                 {
-                    "displayName": {"text": "Somewhere outside Nigeria"},
-                    "location": {"latitude": 10, "longitude": 20},
-                    "addressComponents": [
-                        {"longText": "Ghana", "types": ["country"]},
-                    ],
+                    "components": {
+                        "suburb": "Lekki",
+                        "city": "Lagos",
+                        "state": "Lagos",
+                        "country_code": "ng",
+                    }
                 }
             ]
         },
-        request=httpx.Request("POST", location.GOOGLE_PLACES_SEARCH_URL),
+        request=httpx.Request("GET", location.OPENCAGE_REVERSE_URL),
     )
-    mock_google_response(monkeypatch, response)
+    requests = mock_provider_responses(monkeypatch, [response])
 
-    result = client.get("/location/search", params={"q": "Somewhere outside Nigeria"})
+    result = client.get("/location/reverse", params={"latitude": 6.453, "longitude": 3.473})
 
     assert result.status_code == 200
-    assert result.json() == {"results": []}
+    assert result.json() == {"area": "Lekki, Lagos"}
+    assert requests[0].url.host == "api.opencagedata.com"
+    assert requests[0].url.params["key"] == "test-key"
 
 
-def test_location_search_reports_provider_outage(api_client, monkeypatch) -> None:
+def test_reverse_geocode_falls_back_to_nominatim(api_client, monkeypatch) -> None:
     client = authenticated_location_client(api_client)
-    response = httpx.Response(
-        429,
-        request=httpx.Request("POST", location.GOOGLE_PLACES_SEARCH_URL),
-    )
-    mock_google_response(monkeypatch, response)
-
-    result = client.get("/location/search", params={"q": "Provider outage check"})
-
-    assert result.status_code == 503
-    assert result.json()["error"]["message"] == "Google Maps location search is temporarily unavailable."
-
-
-def test_location_search_requires_server_key(api_client, monkeypatch) -> None:
-    client = authenticated_location_client(api_client)
-    client.app.state.settings = Settings(google_maps_server_api_key=None)
-    monkeypatch.setattr(
-        location.httpx,
-        "get",
-        lambda *_args, **_kwargs: pytest.fail("Google Geocoding must not be called without a key"),
-    )
-    result = client.get("/location/reverse", params={"latitude": 6.45, "longitude": 3.47})
-    assert result.status_code == 503
-    assert result.json()["error"]["message"] == "Google Maps location services are not configured."
-
-
-def test_reverse_geocode_uses_google_and_returns_approximate_area(api_client, monkeypatch) -> None:
-    client = authenticated_location_client(api_client)
-    requests: list[httpx.Request] = []
-    response = httpx.Response(
-        200,
-        json={
-            "status": "OK",
-            "results": [
-                {
-                    "address_components": [
-                        {"long_name": "Lekki", "types": ["neighborhood"]},
-                        {"long_name": "Lagos", "types": ["locality"]},
-                        {"long_name": "Nigeria", "short_name": "NG", "types": ["country"]},
-                    ]
+    client.app.state.settings = Settings(opencage_api_key="test-key")
+    responses = [
+        httpx.Response(503, request=httpx.Request("GET", location.OPENCAGE_REVERSE_URL)),
+        httpx.Response(
+            200,
+            json={
+                "address": {
+                    "suburb": "Lekki",
+                    "city": "Lagos",
+                    "state": "Lagos",
+                    "country_code": "ng",
                 }
-            ],
-        },
-        request=httpx.Request("GET", location.GOOGLE_GEOCODING_URL),
-    )
-
-    requests = mock_google_response(monkeypatch, response)
+            },
+            request=httpx.Request("GET", location.NOMINATIM_REVERSE_URL),
+        ),
+    ]
+    requests = mock_provider_responses(monkeypatch, responses)
 
     result = client.get("/location/reverse", params={"latitude": 6.45, "longitude": 3.47})
 
     assert result.status_code == 200
     assert result.json() == {"area": "Lekki, Lagos"}
-    assert len(requests) == 1
-    assert str(requests[0].url).startswith(location.GOOGLE_GEOCODING_URL)
-    assert requests[0].url.params["key"] == "test-key"
-    assert requests[0].url.params["region"] == "ng"
+    assert [request.url.host for request in requests] == [
+        "api.opencagedata.com",
+        "nominatim.openstreetmap.org",
+    ]
 
 
-def test_reverse_geocode_returns_no_area_for_zero_results(api_client, monkeypatch) -> None:
+def test_reverse_geocode_uses_nominatim_without_opencage_key(api_client, monkeypatch) -> None:
     client = authenticated_location_client(api_client)
     response = httpx.Response(
         200,
-        json={"status": "ZERO_RESULTS", "results": []},
-        request=httpx.Request("GET", location.GOOGLE_GEOCODING_URL),
+        json={
+            "address": {
+                "neighbourhood": "Lekki",
+                "city": "Lagos",
+                "country_code": "ng",
+            }
+        },
+        request=httpx.Request("GET", location.NOMINATIM_REVERSE_URL),
     )
-    mock_google_response(monkeypatch, response)
+    requests = mock_provider_responses(monkeypatch, [response])
 
-    result = client.get("/location/reverse", params={"latitude": 6.451, "longitude": 3.471})
+    result = client.get("/location/reverse", params={"latitude": 6.452, "longitude": 3.472})
 
     assert result.status_code == 200
-    assert result.json() == {"area": None}
+    assert result.json() == {"area": "Lekki, Lagos"}
+    assert [request.url.host for request in requests] == ["nominatim.openstreetmap.org"]
