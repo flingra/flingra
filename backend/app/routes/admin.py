@@ -39,6 +39,7 @@ REVIEW_ID_PATTERN = re.compile(r"^(profile|document)-([0-9a-f]{32})$")
 MAX_LOGIN_ATTEMPTS = 5
 LOCKOUT_DURATION = timedelta(minutes=15)
 DUMMY_PASSWORD_HASH = hash_password(generate_token())
+ADMIN_COOKIE_PATH = "/"
 
 
 class AdminAccount(dict[str, str]):
@@ -63,14 +64,14 @@ def _clear_admin_cookies(response: Response, settings: Settings) -> None:
     same_site = "none" if settings.session_cookie_secure else "lax"
     response.delete_cookie(
         "flingra_admin_session",
-        path="/admin",
+        path=ADMIN_COOKIE_PATH,
         secure=settings.session_cookie_secure,
         httponly=True,
         samesite=same_site,
     )
     response.delete_cookie(
         "flingra_admin_csrf",
-        path="/admin",
+        path=ADMIN_COOKIE_PATH,
         secure=settings.session_cookie_secure,
         samesite=same_site,
     )
@@ -393,7 +394,7 @@ def admin_login(
         httponly=True,
         secure=settings.session_cookie_secure,
         samesite=same_site,
-        path="/admin",
+        path=ADMIN_COOKIE_PATH,
     )
     response.set_cookie(
         "flingra_admin_csrf",
@@ -402,7 +403,7 @@ def admin_login(
         httponly=False,
         secure=settings.session_cookie_secure,
         samesite=same_site,
-        path="/admin",
+        path=ADMIN_COOKIE_PATH,
     )
     return _admin_session_response(
         AdminAccount({"id": admin["id"], "email": admin["email"], "role": admin["role"]})

@@ -126,6 +126,7 @@ def test_admin_login_is_separate_and_csrf_protected(api_client) -> None:
     cookie_headers = response.headers.get_list("set-cookie")
     assert any("flingra_admin_session=" in header and "HttpOnly" in header for header in cookie_headers)
     assert any("flingra_admin_session=" in header and "SameSite=lax" in header for header in cookie_headers)
+    assert any("flingra_admin_session=" in header and "Path=/" in header for header in cookie_headers)
     session_response = client.get("/admin/auth/session")
     assert session_response.json() == response.json()
     assert session_response.headers["X-CSRF-Token"] == client.cookies["flingra_admin_csrf"]
@@ -141,6 +142,10 @@ def test_admin_login_is_separate_and_csrf_protected(api_client) -> None:
         headers={"X-CSRF-Token": csrf_token},
     )
     assert logged_out.status_code == 204
+    assert any(
+        "flingra_admin_session=" in header and "Path=/" in header and "Max-Age=0" in header
+        for header in logged_out.headers.get_list("set-cookie")
+    )
     assert client.get("/admin/auth/session").json() is None
 
 

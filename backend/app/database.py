@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
@@ -227,6 +228,8 @@ def _apply_migrations(connection: Connection, files: list[Path]) -> list[str]:
         with connection.begin():
             if path.name == "000028_admin_mfa.sql":
                 _apply_admin_mfa_migration(connection)
+            elif path.name == "000029_chat_interest_approval.sql":
+                _apply_chat_interest_approval_migration(connection, path)
             else:
                 statements = [
                     statement.strip()
@@ -241,6 +244,62 @@ def _apply_migrations(connection: Connection, files: list[Path]) -> list[str]:
             )
         newly_applied.append(path.name)
     return newly_applied
+
+
+def _apply_chat_interest_approval_migration(
+    connection: Connection, migration_path: Path
+) -> None:
+    account_id = connection.execute(
+        text(
+            """
+            SELECT
+                COLUMN_TYPE AS column_type,
+                CHARACTER_SET_NAME AS character_set,
+                COLLATION_NAME AS collation
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'accounts'
+                AND COLUMN_NAME = 'id'
+            """
+        )
+    ).mappings().one_or_none()
+    if account_id is None or str(account_id["column_type"]).lower() != "varchar(64)":
+        raise RuntimeError(
+            "Migration 000029 requires accounts.id to be VARCHAR(64) with a "
+            "character set and collation."
+        )
+
+    character_set = account_id["character_set"]
+    collation = account_id["collation"]
+    if not isinstance(character_set, str) or not isinstance(collation, str):
+        raise RuntimeError(
+            "Migration 000029 could not determine the character set and collation "
+            "of accounts.id."
+        )
+    if not re.fullmatch(r"[A-Za-z0-9_]+", character_set) or not re.fullmatch(
+        r"[A-Za-z0-9_]+", collation
+    ):
+        raise RuntimeError(
+            "Migration 000029 found an invalid character set or collation for "
+            "accounts.id."
+        )
+
+    migration_sql = migration_path.read_text()
+    migration_sql, replacements = re.subn(
+        r"VARCHAR\(64\)\s+COLLATE\s+utf8mb4_0900_ai_ci",
+        f"VARCHAR(64) CHARACTER SET {character_set} COLLATE {collation}",
+        migration_sql,
+        flags=re.IGNORECASE,
+    )
+    if replacements != 2:
+        raise RuntimeError(
+            "Migration 000029 expected exactly two sender/recipient account ID "
+            "column definitions."
+        )
+
+    statements = [statement.strip() for statement in migration_sql.split(";") if statement.strip()]
+    for statement in statements:
+        connection.exec_driver_sql(statement)
 
 
 def _apply_admin_mfa_migration(connection: Connection) -> None:
