@@ -101,7 +101,7 @@ def test_location_search_reports_provider_outage(api_client, monkeypatch) -> Non
 
 def test_location_search_requires_server_key(api_client, monkeypatch) -> None:
     client = authenticated_location_client(api_client)
-    client.app.state.settings = Settings()
+    client.app.state.settings = Settings(google_maps_server_api_key=None)
     monkeypatch.setattr(
         location.httpx,
         "get",
