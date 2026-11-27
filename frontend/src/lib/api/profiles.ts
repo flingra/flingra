@@ -17,6 +17,10 @@ export const DEFAULT_FILTERS: DiscoveryFilters = {
   lookingFor: 'everyone',
 }
 
+export interface DiscoveryFeedResult extends PagedResult<MemberProfile> {
+  distanceExpanded?: boolean
+}
+
 function resolveProfileMedia(profile: MemberProfile): MemberProfile {
   return {
     ...profile,
@@ -33,7 +37,7 @@ export async function getDiscoveryFeed(
   cursor = 0,
   origin?: { latitude: number; longitude: number },
   distanceEnabled = false,
-): Promise<PagedResult<MemberProfile>> {
+): Promise<DiscoveryFeedResult> {
   const params = new URLSearchParams({
     minAge: String(filters.minAge),
     maxAge: String(filters.maxAge),
@@ -48,7 +52,7 @@ export async function getDiscoveryFeed(
   }
   filters.interests.forEach((interest) => params.append('interests', interest))
 
-  const result = await apiRequest<PagedResult<MemberProfile>>(`/discovery?${params.toString()}`)
+  const result = await apiRequest<DiscoveryFeedResult>(`/discovery?${params.toString()}`)
   return { ...result, items: result.items.map(resolveProfileMedia) }
 }
 

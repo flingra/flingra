@@ -484,6 +484,11 @@ export function DiscoverPage() {
       {currentLocationMessage && (
         <p className="mt-2 text-xs text-ink-500" role="status">{currentLocationMessage}</p>
       )}
+      {data?.distanceExpanded && (
+        <p className="mt-2 rounded-xl bg-primary-50 px-3 py-2 text-sm text-primary-800" role="status">
+          No eligible profiles are within this distance. Showing verified profiles from other locations, nearest first.
+        </p>
+      )}
       <div className="relative mt-3 h-[54dvh] min-h-[360px] max-h-[480px] w-full overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-sm sm:mt-4 sm:h-[70vh] sm:min-h-[520px] sm:max-h-none">
         <div className="absolute left-1/2 top-3 z-[1200] w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 sm:top-4 sm:w-[calc(100%-2rem)]">
           <form
@@ -557,6 +562,7 @@ export function DiscoverPage() {
             center={{ lat: activeMapCenter[0], lng: activeMapCenter[1] }}
             locationLabel={activeMapLocationLabel}
             userLocation={userLocation}
+            distanceExpanded={data?.distanceExpanded}
           />
         ) : (
           <div className="flex size-full items-center justify-center bg-ink-100 p-6 text-center">

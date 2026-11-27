@@ -211,6 +211,7 @@ class DiscoveryFeedResponse(BaseModel):
 
     items: list[DiscoveryProfileResponse]
     next_cursor: int | None = Field(serialization_alias="nextCursor")
+    distance_expanded: bool = Field(default=False, serialization_alias="distanceExpanded")
 
 
 class OwnProfilePatch(BaseModel):

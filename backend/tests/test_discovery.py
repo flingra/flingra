@@ -144,6 +144,7 @@ def test_discovery_feed_filters_verified_profiles_and_paginates(api_client, monk
     first_payload = first_page.json()
     assert len(first_payload["items"]) == 6
     assert first_payload["nextCursor"] == 6
+    assert first_payload["distanceExpanded"] is False
     assert all(item["id"] in candidate_ids for item in first_payload["items"])
     assert first_payload["items"][0]["photos"] == ["/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
     assert first_payload["items"][0]["videos"][0]["url"] == "https://media.example.test/demo.mp4"
@@ -155,6 +156,35 @@ def test_discovery_feed_filters_verified_profiles_and_paginates(api_client, monk
     assert len(second_page.json()["items"]) == 1
     assert second_page.json()["nextCursor"] is None
     assert first_payload["items"][0]["id"] != second_page.json()["items"][0]["id"]
+
+
+def test_discovery_expands_to_other_locations_when_radius_has_no_profiles(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    _create_viewer(client, monkeypatch)
+    candidate_ids = {
+        _create_candidate(client, latitude=7.0, longitude=3.4)
+        for _ in range(7)
+    }
+
+    params = {
+        "lookingFor": "women",
+        "latitude": 6.5,
+        "longitude": 3.4,
+        "maxDistanceKm": 10,
+    }
+    first_page = client.get("/discovery", params=params)
+    assert first_page.status_code == 200
+    first_payload = first_page.json()
+    assert first_payload["distanceExpanded"] is True
+    assert len(first_payload["items"]) == 6
+    assert first_payload["nextCursor"] == 6
+    assert {item["id"] for item in first_payload["items"]}.issubset(candidate_ids)
+
+    second_page = client.get("/discovery", params={**params, "cursor": 6})
+    assert second_page.status_code == 200
+    assert second_page.json()["distanceExpanded"] is True
+    assert len(second_page.json()["items"]) == 1
+    assert {item["id"] for item in second_page.json()["items"]}.issubset(candidate_ids)
 
 
 def test_discovery_requires_document_verification_and_rejects_live_filter(api_client, monkeypatch) -> None:
@@ -317,4 +347,9 @@ def test_discovery_uses_recent_live_coordinates_and_returns_coarse_location(api_
         },
     )
     assert no_longer_nearby.status_code == 200
-    assert candidate_id not in {item["id"] for item in no_longer_nearby.json()["items"]}
+    fallback_payload = no_longer_nearby.json()
+    assert fallback_payload["distanceExpanded"] is True
+    fallback_candidate = next(item for item in fallback_payload["items"] if item["id"] == candidate_id)
+    assert fallback_candidate["latitude"] == 7.0
+    assert fallback_candidate["longitude"] == 3.4
+    assert fallback_candidate["distanceKm"] > 10

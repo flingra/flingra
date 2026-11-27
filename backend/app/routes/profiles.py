@@ -541,6 +541,7 @@ def get_discovery_feed(
     target_identity = {"men": "man", "women": "woman"}.get(looking_for)
     requested_interests = set(interests)
     candidates: list[DiscoveryProfileResponse] = []
+    all_matching_candidates: list[DiscoveryProfileResponse] = []
     for row in visible_rows:
         if live_host_ids is not None and str(row["id"]) not in live_host_ids:
             continue
@@ -572,14 +573,19 @@ def get_discovery_feed(
             _effective_subscription_tier(row["subscription_tier"], row["vip_expires_at"]) == "vip"
         )
         distance_waived = viewer_is_vip and target_is_vip
+        candidate = _member_profile(row, distance)
+        all_matching_candidates.append(candidate)
         if (
             max_distance_km is not None
             and not distance_waived
             and (distance is None or distance > max_distance_km)
         ):
             continue
-        candidates.append(_member_profile(row, distance))
+        candidates.append(candidate)
 
+    distance_expanded = max_distance_km is not None and not candidates and bool(all_matching_candidates)
+    if distance_expanded:
+        candidates = all_matching_candidates
     if origin_latitude is not None and origin_longitude is not None:
         candidates.sort(key=lambda profile: (profile.distance_km is None, profile.distance_km or 0, profile.id))
 
@@ -600,7 +606,11 @@ def get_discovery_feed(
         metadata={"resultCount": len(page), "cursor": cursor},
     )
     db.commit()
-    return DiscoveryFeedResponse(items=page, next_cursor=next_cursor)
+    return DiscoveryFeedResponse(
+        items=page,
+        next_cursor=next_cursor,
+        distance_expanded=distance_expanded,
+    )
 
 
 @router.get("/{profile_id}", response_model=DiscoveryProfileResponse)

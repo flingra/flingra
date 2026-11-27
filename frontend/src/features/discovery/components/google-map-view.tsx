@@ -98,12 +98,14 @@ export function GoogleMapView({
   center,
   locationLabel,
   userLocation,
+  distanceExpanded = false,
 }: {
   profiles: MemberProfile[]
   highlightedId?: string
   center?: { lat: number; lng: number }
   locationLabel?: string
   userLocation?: { latitude: number; longitude: number } | null
+  distanceExpanded?: boolean
 }) {
   if (!GOOGLE_MAPS_API_KEY) return null
 
@@ -119,7 +121,7 @@ export function GoogleMapView({
         <Map
           mapId={GOOGLE_MAPS_MAP_ID}
           center={mapCenter}
-          zoom={DISCOVERY_MAP_ZOOM}
+          zoom={distanceExpanded ? 1 : DISCOVERY_MAP_ZOOM}
           defaultTilt={0}
           defaultHeading={0}
           gestureHandling="none"
