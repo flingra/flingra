@@ -1,4 +1,5 @@
 from html import escape
+import logging
 from urllib.parse import urlencode
 
 import httpx
@@ -8,6 +9,7 @@ from app.errors import ServiceUnavailable
 
 BREVO_SEND_EMAIL_URL = "https://api.brevo.com/v3/smtp/email"
 EMAIL_TIMEOUT = httpx.Timeout(10.0, connect=3.0)
+logger = logging.getLogger("uvicorn.error")
 
 
 def _html_email(preheader: str, content: str) -> str:
@@ -51,6 +53,7 @@ def _send_email(
     html_content: str,
 ) -> None:
     if not settings.brevo_api_key or not settings.brevo_sender_email:
+        logger.error("Email delivery is not configured; a Brevo API key or sender email is missing.")
         raise ServiceUnavailable("Email delivery is not configured.")
 
     payload = {
@@ -76,7 +79,11 @@ def _send_email(
                 json=payload,
             )
             response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.warning("Brevo email request returned HTTP %d.", exc.response.status_code)
+        raise ServiceUnavailable("Email delivery is temporarily unavailable.") from exc
     except (httpx.HTTPError, OSError) as exc:
+        logger.warning("Brevo email delivery failed (%s).", type(exc).__name__)
         raise ServiceUnavailable("Email delivery is temporarily unavailable.") from exc
 
 

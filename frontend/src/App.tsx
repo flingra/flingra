@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { AppProviders } from './app/providers'
 import { AppRouter } from './app/router'
 import { Preloader } from './components/preloader'
+import { IdentityVerificationPrompt } from './components/layout/identity-verification-prompt'
 import { currentSession, restoreSession } from './lib/api/auth'
 import { useSessionStore } from './lib/stores/session-store'
 import { useAdminStore } from './lib/stores/admin-store'
@@ -25,6 +26,7 @@ export default function App() {
   return (
     <AppProviders>
       <AppRouter />
+      <IdentityVerificationPrompt />
       <Preloader />
     </AppProviders>
   )

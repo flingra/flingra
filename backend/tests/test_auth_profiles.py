@@ -3,6 +3,9 @@ import io
 from PIL import Image
 from sqlalchemy import text
 
+from app.dependencies import db_session
+from sqlalchemy import text
+
 from app.routes import auth
 
 
@@ -94,6 +97,58 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
     assert updated.json()["displayName"] == "Tola"
     assert updated.json()["photos"] == [photo_url]
     assert client.get("/profiles/me").json()["area"] == "Yaba, Lagos"
+
+
+def test_email_two_factor_setup_sends_and_verifies_code(api_client, monkeypatch) -> None:
+    client, delivered_codes = api_client
+    two_factor_codes: list[str] = []
+    monkeypatch.setattr(auth, "send_verification_code", lambda _settings, _recipient, code: delivered_codes.append(code))
+    monkeypatch.setattr(auth, "send_two_factor_code", lambda _settings, _recipient, code: two_factor_codes.append(code))
+
+    created = signup(client)
+    assert created.status_code == 201
+    csrf_token = client.cookies["flingra_csrf"]
+    contact_verified = client.post(
+        "/auth/verify-contact",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"code": delivered_codes[0]},
+    )
+    assert contact_verified.status_code == 200
+
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        db.execute(
+            text(
+                """
+                CREATE TABLE two_factor_challenges (
+                    account_id TEXT PRIMARY KEY,
+                    code_hash TEXT NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    attempt_count INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    sent = client.post("/auth/2fa/email/request", headers={"X-CSRF-Token": csrf_token})
+    assert sent.status_code == 200
+    assert sent.json() == {"status": "sent"}
+    assert len(two_factor_codes) == 1
+
+    verified = client.post(
+        "/auth/2fa/email/verify",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"code": two_factor_codes[0]},
+    )
+    assert verified.status_code == 200
+    assert verified.json() == {"status": "verified"}
+    profile = client.get("/profiles/me")
+    assert profile.json()["twoFactorEnabled"] is True
+    assert profile.json()["twoFactorMethod"] == "email"
 
 
 def test_signup_rejects_terms_email_and_minimum_age(api_client, monkeypatch) -> None:

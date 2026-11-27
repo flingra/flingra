@@ -76,7 +76,7 @@ def test_password_reset_email_uses_frontend_url_and_token(monkeypatch) -> None:
     assert token not in payload["htmlContent"]
 
 
-def test_brevo_failure_is_reported_without_provider_response_details(monkeypatch) -> None:
+def test_brevo_failure_is_reported_without_provider_response_details(monkeypatch, caplog) -> None:
     use_mock_brevo(
         monkeypatch,
         lambda _: httpx.Response(401, json={"message": "invalid api key"}),
@@ -87,6 +87,9 @@ def test_brevo_failure_is_reported_without_provider_response_details(monkeypatch
 
     assert "invalid api key" not in str(error.value)
     assert "test-brevo-key" not in str(error.value)
+    assert "Brevo email request returned HTTP 401." in caplog.text
+    assert "invalid api key" not in caplog.text
+    assert "test-brevo-key" not in caplog.text
 
 
 def test_email_delivery_requires_brevo_key_and_verified_sender() -> None:

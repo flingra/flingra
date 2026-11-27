@@ -2,6 +2,7 @@ import { ApiError } from './types'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '')
 let csrfToken: string | null = null
+export const IDENTITY_VERIFICATION_REQUIRED_EVENT = 'flingra:identity-verification-required'
 
 export function csrfHeaders(): HeadersInit {
   if (csrfToken) return { 'X-CSRF-Token': csrfToken }
@@ -34,6 +35,12 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   if (responseCsrfToken) csrfToken = responseCsrfToken
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null
+    if (
+      body?.error?.code === 'IDENTITY_VERIFICATION_REQUIRED' &&
+      typeof window !== 'undefined'
+    ) {
+      window.dispatchEvent(new Event(IDENTITY_VERIFICATION_REQUIRED_EVENT))
+    }
     throw new ApiError(body?.error?.code ?? 'REQUEST_FAILED', body?.error?.message ?? 'The request could not be completed.')
   }
 
