@@ -1,5 +1,5 @@
 CREATE TABLE wallet_accounts (
-    account_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL PRIMARY KEY,
     balance_kobo BIGINT UNSIGNED NOT NULL DEFAULT 0,
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_wallet_accounts_account
@@ -8,7 +8,7 @@ CREATE TABLE wallet_accounts (
 
 CREATE TABLE wallet_transactions (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    account_id VARCHAR(64) NOT NULL,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     transaction_type VARCHAR(40) NOT NULL,
     amount_kobo BIGINT NOT NULL,
     description VARCHAR(500) NOT NULL,
@@ -34,7 +34,7 @@ INSERT INTO gift_catalog (id, name, emoji, price_kobo, active) VALUES
     ('crown', 'Crown', '👑', 1000000, TRUE);
 
 CREATE TABLE gift_inventory (
-    account_id VARCHAR(64) NOT NULL,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     gift_type_id VARCHAR(40) NOT NULL,
     quantity INT UNSIGNED NOT NULL DEFAULT 0,
     PRIMARY KEY (account_id, gift_type_id),
@@ -46,8 +46,8 @@ CREATE TABLE gift_inventory (
 
 CREATE TABLE received_gifts (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    recipient_id VARCHAR(64) NOT NULL,
-    sender_id VARCHAR(64) NOT NULL,
+    recipient_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    sender_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     gift_type_id VARCHAR(40) NOT NULL,
     value_kobo BIGINT UNSIGNED NOT NULL,
     redeemed BOOLEAN NOT NULL DEFAULT FALSE,

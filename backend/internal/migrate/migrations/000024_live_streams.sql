@@ -1,6 +1,6 @@
 CREATE TABLE live_streams (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    host_account_id VARCHAR(64) NOT NULL,
+    host_account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     room_name VARCHAR(80) NOT NULL,
     title VARCHAR(80) NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'live',

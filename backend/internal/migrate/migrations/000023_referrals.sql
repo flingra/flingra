@@ -1,5 +1,5 @@
 CREATE TABLE referral_codes (
-    account_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL PRIMARY KEY,
     code VARCHAR(16) NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT uq_referral_codes_code UNIQUE (code),
@@ -8,8 +8,8 @@ CREATE TABLE referral_codes (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE referral_rewards (
-    referred_account_id VARCHAR(64) NOT NULL PRIMARY KEY,
-    referrer_account_id VARCHAR(64),
+    referred_account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL PRIMARY KEY,
+    referrer_account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci,
     referral_code VARCHAR(16) NOT NULL,
     bonus_kobo BIGINT UNSIGNED NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

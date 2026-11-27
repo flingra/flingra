@@ -18,7 +18,7 @@ CREATE TABLE call_credit_pricing (
 INSERT INTO call_credit_pricing (id, price_naira) VALUES (1, 50);
 
 CREATE TABLE call_credit_accounts (
-    account_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL PRIMARY KEY,
     balance BIGINT UNSIGNED NOT NULL DEFAULT 0,
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
         ON UPDATE CURRENT_TIMESTAMP(6),
@@ -28,9 +28,9 @@ CREATE TABLE call_credit_accounts (
 
 CREATE TABLE call_sessions (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    caller_id VARCHAR(64) NOT NULL,
-    callee_id VARCHAR(64) NOT NULL,
-    payer_id VARCHAR(64),
+    caller_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    callee_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    payer_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci,
     room_name VARCHAR(80) NOT NULL,
     call_type VARCHAR(12) NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'ringing',
@@ -59,7 +59,7 @@ CREATE TABLE call_sessions (
 
 CREATE TABLE call_credit_transactions (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    account_id VARCHAR(64) NOT NULL,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     call_id CHAR(32),
     tick_number INT UNSIGNED,
     transaction_type VARCHAR(24) NOT NULL,
@@ -78,9 +78,9 @@ CREATE TABLE call_credit_transactions (
 
 CREATE TABLE video_unlocks (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    viewer_id VARCHAR(64) NOT NULL,
-    creator_id VARCHAR(64) NOT NULL,
-    media_id CHAR(32) NOT NULL,
+    viewer_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    creator_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    media_id CHAR(32) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     price_kobo BIGINT UNSIGNED NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_video_unlock_viewer
@@ -96,7 +96,7 @@ CREATE TABLE video_unlocks (
 CREATE TABLE live_stream_join_requests (
     id CHAR(32) NOT NULL PRIMARY KEY,
     stream_id CHAR(32) NOT NULL,
-    requester_id VARCHAR(64) NOT NULL,
+    requester_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'pending',
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     responded_at DATETIME(6),
@@ -113,7 +113,7 @@ ALTER TABLE live_streams
 
 CREATE TABLE live_stream_participants (
     stream_id CHAR(32) NOT NULL,
-    account_id VARCHAR(64) NOT NULL,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     role VARCHAR(12) NOT NULL,
     joined_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_seen_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -128,7 +128,7 @@ CREATE TABLE live_stream_participants (
 CREATE TABLE live_stream_messages (
     id CHAR(32) NOT NULL PRIMARY KEY,
     stream_id CHAR(32) NOT NULL,
-    author_id VARCHAR(64) NOT NULL,
+    author_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     kind VARCHAR(12) NOT NULL DEFAULT 'message',
     message_text VARCHAR(500) NOT NULL,
     gift_id VARCHAR(40),
@@ -144,7 +144,7 @@ CREATE TABLE live_stream_messages (
 
 CREATE TABLE realtime_events (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    recipient_id VARCHAR(64) NOT NULL,
+    recipient_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     event_type VARCHAR(48) NOT NULL,
     payload_json LONGTEXT NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

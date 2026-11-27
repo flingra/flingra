@@ -1,6 +1,6 @@
 CREATE TABLE wallet_payment_intents (
     id VARCHAR(64) NOT NULL PRIMARY KEY,
-    account_id VARCHAR(64) NOT NULL,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     reference VARCHAR(100) NOT NULL,
     amount_kobo BIGINT UNSIGNED NOT NULL,
     currency CHAR(3) NOT NULL DEFAULT 'NGN',

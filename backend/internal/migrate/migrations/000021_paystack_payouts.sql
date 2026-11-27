@@ -1,5 +1,5 @@
 CREATE TABLE payout_bank_accounts (
-    account_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL PRIMARY KEY,
     recipient_code VARCHAR(64) NOT NULL,
     bank_code VARCHAR(16) NOT NULL,
     bank_name VARCHAR(100) NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE payout_bank_accounts (
 
 CREATE TABLE payout_requests (
     id VARCHAR(64) NOT NULL PRIMARY KEY,
-    account_id VARCHAR(64) NOT NULL,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     idempotency_key VARCHAR(128) NOT NULL,
     reference VARCHAR(100) NOT NULL,
     recipient_code VARCHAR(64) NOT NULL,

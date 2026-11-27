@@ -1,6 +1,6 @@
 CREATE TABLE safety_blocks (
-    blocker_id VARCHAR(64) NOT NULL,
-    blocked_id VARCHAR(64) NOT NULL,
+    blocker_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    blocked_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     PRIMARY KEY (blocker_id, blocked_id),
     CONSTRAINT fk_safety_blocks_blocker
@@ -12,8 +12,8 @@ CREATE TABLE safety_blocks (
 
 CREATE TABLE safety_reports (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    reporter_id VARCHAR(64) NOT NULL,
-    target_account_id VARCHAR(64) NOT NULL,
+    reporter_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    target_account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     reason VARCHAR(40) NOT NULL,
     description VARCHAR(2000) NULL,
     status VARCHAR(24) NOT NULL DEFAULT 'open',
@@ -29,8 +29,8 @@ CREATE TABLE safety_reports (
 
 CREATE TABLE moderation_review_requests (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    requester_id VARCHAR(64) NOT NULL,
-    target_account_id VARCHAR(64) NOT NULL,
+    requester_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    target_account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     source_type VARCHAR(24) NOT NULL,
     source_id CHAR(32) NOT NULL,
     reason VARCHAR(2000) NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE moderation_review_requests (
 
 CREATE TABLE emergency_contacts (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    account_id VARCHAR(64) NOT NULL,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     name VARCHAR(100) NOT NULL,
     phone VARCHAR(32) NOT NULL,
     relationship VARCHAR(80) NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE emergency_contacts (
 
 CREATE TABLE safety_check_ins (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    account_id VARCHAR(64) NOT NULL,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     message VARCHAR(1000) NOT NULL,
     location_link VARCHAR(2048) NULL,
     status VARCHAR(24) NOT NULL,
@@ -69,8 +69,8 @@ CREATE TABLE safety_check_ins (
 
 CREATE TABLE chat_threads (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    participant_a_id VARCHAR(64) NOT NULL,
-    participant_b_id VARCHAR(64) NOT NULL,
+    participant_a_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    participant_b_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_message_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT uq_chat_threads_pair UNIQUE (participant_a_id, participant_b_id),
@@ -83,7 +83,7 @@ CREATE TABLE chat_threads (
 CREATE TABLE chat_messages (
     id CHAR(32) NOT NULL PRIMARY KEY,
     thread_id CHAR(32) NOT NULL,
-    author_id VARCHAR(64) NOT NULL,
+    author_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     message_text VARCHAR(5000) NOT NULL DEFAULT '',
     attachment_json JSON NULL,
     attachment_media_id CHAR(32) NULL,
@@ -95,7 +95,7 @@ CREATE TABLE chat_messages (
 
 CREATE TABLE member_posts (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    author_id VARCHAR(64) NOT NULL,
+    author_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     photos JSON NOT NULL,
     video_url VARCHAR(2048) NULL,
     caption VARCHAR(2000) NULL,
@@ -106,7 +106,7 @@ CREATE TABLE member_posts (
 
 CREATE TABLE member_statuses (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    author_id VARCHAR(64) NOT NULL,
+    author_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     media_url VARCHAR(2048) NOT NULL,
     media_kind VARCHAR(12) NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -118,7 +118,7 @@ CREATE TABLE member_statuses (
 
 CREATE TABLE privacy_requests (
     id CHAR(32) NOT NULL PRIMARY KEY,
-    account_id VARCHAR(64) NOT NULL,
+    account_id VARCHAR(64) COLLATE utf8mb4_0900_ai_ci NOT NULL,
     request_type VARCHAR(24) NOT NULL,
     status VARCHAR(24) NOT NULL DEFAULT 'queued',
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
