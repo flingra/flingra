@@ -68,7 +68,10 @@ class ChatAttachment(BaseModel):
 
 
 class ChatThreadCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     other_id: str = Field(alias="otherId", min_length=1, max_length=64)
+    notify_interest: bool = Field(default=False, alias="notifyInterest")
 
 
 class ChatMessageCreateRequest(BaseModel):

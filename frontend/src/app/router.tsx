@@ -16,6 +16,7 @@ import { OnboardingPage } from '@/features/onboarding/pages/onboarding-page'
 import { DiscoverPage } from '@/features/discovery/pages/discover-page'
 import { ProfileDetailPage } from '@/features/discovery/pages/profile-detail-page'
 import { ChatPage } from '@/features/messages/pages/chat-page'
+import { MessagesInboxPage } from '@/features/messages/pages/messages-inbox-page'
 import { EditProfilePage } from '@/features/profile/pages/edit-profile-page'
 import { SettingsPage } from '@/features/settings/pages/settings-page'
 import { VerificationPage } from '@/features/settings/pages/verification-page'
@@ -90,6 +91,14 @@ export function AppRouter() {
           element={
             <ProtectedRoute allow={['active']}>
               <ProfileDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="messages"
+          element={
+            <ProtectedRoute allow={['active']}>
+              <MessagesInboxPage />
             </ProtectedRoute>
           }
         />

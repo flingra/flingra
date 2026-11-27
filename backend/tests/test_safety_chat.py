@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import text
 
 from app.dependencies import db_session
@@ -54,18 +56,36 @@ def test_chat_threads_are_idempotent_and_messages_require_membership(api_client,
     first = client.post(
         "/chat/threads",
         headers={"X-CSRF-Token": csrf},
-        json={"otherId": target_id},
+        json={"otherId": target_id, "notifyInterest": True},
     )
     second = client.post(
         "/chat/threads",
         headers={"X-CSRF-Token": csrf},
-        json={"otherId": target_id},
+        json={"otherId": target_id, "notifyInterest": True},
     )
 
     assert first.status_code == 201
     assert second.status_code == 201
     assert first.json()["id"] == second.json()["id"]
     thread_id = first.json()["id"]
+    db, generator = _session(client)
+    try:
+        events = db.execute(
+            text(
+                """
+                SELECT event_type, payload_json FROM realtime_events
+                WHERE recipient_id = :recipient_id ORDER BY id
+                """
+            ),
+            {"recipient_id": target_id},
+        ).mappings().all()
+        assert [event["event_type"] for event in events] == ["chat.interest"]
+        assert json.loads(events[0]["payload_json"]) == {
+            "threadId": thread_id,
+            "senderName": "Viewer",
+        }
+    finally:
+        generator.close()
 
     sent = client.post(
         f"/chat/threads/{thread_id}/messages",

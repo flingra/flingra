@@ -1,11 +1,14 @@
 import { apiRequest, ensureCsrfHeaders, uploadFile } from './client'
 import { type ChatAttachment, type ChatThread, type DirectMessage, type MeetupPayment } from './types'
 
-export async function getOrCreateThread(otherId: string, _otherName: string, _otherPhoto: string): Promise<ChatThread> {
+export async function getOrCreateThread(
+  otherId: string,
+  options: { notifyInterest?: boolean } = {},
+): Promise<ChatThread> {
   return apiRequest<ChatThread>('/chat/threads', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
-    body: JSON.stringify({ otherId }),
+    body: JSON.stringify({ otherId, ...(options.notifyInterest ? { notifyInterest: true } : {}) }),
   })
 }
 

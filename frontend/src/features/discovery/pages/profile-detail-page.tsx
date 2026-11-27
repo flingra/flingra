@@ -128,7 +128,7 @@ export function ProfileDetailPage() {
     setPaymentError(null)
     setSendingPayment(true)
     try {
-      const thread = await getOrCreateThread(profile.id, profile.displayName, profile.photos[0] ?? '')
+      const thread = await getOrCreateThread(profile.id)
       await proposePaymentInChat(thread.id, profile.id, profile.displayName, Number(paymentAmount))
       showToast({
         title: 'Proposal sent',
@@ -147,7 +147,7 @@ export function ProfileDetailPage() {
   async function handleShowInterest() {
     if (!profile || locked || interested) return
     try {
-      const thread = await getOrCreateThread(profile.id, profile.displayName, profile.photos[0] ?? '')
+      const thread = await getOrCreateThread(profile.id, { notifyInterest: true })
       setChatThreadId(thread.id)
       setInterested(true)
       showToast({

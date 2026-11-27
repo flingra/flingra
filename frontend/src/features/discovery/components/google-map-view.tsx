@@ -19,18 +19,18 @@ export function isGoogleMapsConfigured() {
 function GoogleProfileMarker({
   profile,
   highlighted,
-  center,
   locationLabel,
 }: {
   profile: MemberProfile
   highlighted: boolean
-  center: { lat: number; lng: number }
   locationLabel?: string
 }) {
   const [markerRef, marker] = useAdvancedMarkerRef()
+  const position = geoPosition(profile)
+  if (!position) return null
 
   return (
-    <AdvancedMarker ref={markerRef} position={geoPosition(profile, center)} clickable>
+    <AdvancedMarker ref={markerRef} position={position} clickable>
       <>
         <DetachMarkerBeforeContentRemoval marker={marker} />
         <Link
@@ -112,11 +112,12 @@ export function GoogleMapView({
   if (!GOOGLE_MAPS_API_KEY) return null
 
   const mapCenter = center ?? LAGOS_CENTER
+  const hasUnmappedProfiles = profiles.some((profile) => geoPosition(profile) === null)
 
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
       <div
-        className="size-full"
+        className="relative size-full"
         role="region"
         aria-label="Read-only map showing approximate member locations. Select an avatar to open a profile."
       >
@@ -148,11 +149,15 @@ export function GoogleMapView({
               key={profile.id}
               profile={profile}
               highlighted={profile.id === highlightedId}
-              center={mapCenter}
               locationLabel={locationLabel}
             />
           ))}
         </Map>
+        {hasUnmappedProfiles && (
+          <p className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-full border border-ink-100 bg-white/90 px-3 py-1.5 text-xs font-medium text-ink-600 shadow-sm">
+            Some profiles aren’t pinned because they don’t have location coordinates.
+          </p>
+        )}
       </div>
     </APIProvider>
   )

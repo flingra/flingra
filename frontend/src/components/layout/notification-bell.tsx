@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, Gift, HeartHandshake } from 'lucide-react'
+import { Bell, Gift, HeartHandshake, MessageCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { Drawer } from '@/components/ui/drawer'
 import { useToast } from '@/components/ui/toast'
 import { listRealtimeEvents } from '@/lib/api/realtime'
@@ -12,6 +13,7 @@ type NotificationItem = {
   icon: LucideIcon
   title: string
   body: string
+  href?: string
 }
 
 export function NotificationBell() {
@@ -74,6 +76,19 @@ export function NotificationBell() {
             } else if (event.type === 'chat.message') {
               void queryClient.invalidateQueries({ queryKey: ['chat-threads'] })
               void queryClient.invalidateQueries({ queryKey: ['chat-messages'] })
+            } else if (
+              event.type === 'chat.interest'
+              && typeof event.data.threadId === 'string'
+              && typeof event.data.senderName === 'string'
+            ) {
+              notification = {
+                id: `interest-${event.id}`,
+                icon: MessageCircle,
+                title: 'Someone showed interest',
+                body: `${event.data.senderName} wants to connect with you.`,
+                href: `/messages/${encodeURIComponent(event.data.threadId)}`,
+              }
+              void queryClient.invalidateQueries({ queryKey: ['chat-threads'] })
             }
             if (!notification) continue
 
@@ -134,21 +149,36 @@ export function NotificationBell() {
     }
   }, [open, isMobile])
 
-  const notificationItems = notifications.map(({ id, icon: Icon, title, body }) => (
-    <div
-      key={id}
-      role={isMobile ? undefined : 'menuitem'}
-      className="flex items-start gap-3 px-4 py-3 hover:bg-ink-50"
-    >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
-        <Icon className="size-4" aria-hidden="true" />
-      </span>
-      <div>
-        <p className="text-sm font-semibold text-ink-900">{title}</p>
-        <p className="text-xs text-ink-500">{body}</p>
+  const notificationItems = notifications.map(({ id, icon: Icon, title, body, href }) => {
+    const content = (
+      <>
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
+          <Icon className="size-4" aria-hidden="true" />
+        </span>
+        <span>
+          <span className="block text-sm font-semibold text-ink-900">{title}</span>
+          <span className="block text-xs text-ink-500">{body}</span>
+        </span>
+      </>
+    )
+    const className = 'flex items-start gap-3 px-4 py-3 hover:bg-ink-50'
+
+    return href ? (
+      <Link
+        key={id}
+        to={href}
+        role={isMobile ? undefined : 'menuitem'}
+        onClick={() => setOpen(false)}
+        className={className}
+      >
+        {content}
+      </Link>
+    ) : (
+      <div key={id} role={isMobile ? undefined : 'menuitem'} className={className}>
+        {content}
       </div>
-    </div>
-  ))
+    )
+  })
 
   return (
     <>

@@ -180,7 +180,7 @@ def get_or_create_thread(
 ) -> ChatThreadResponse:
     _require_ready(account)
     _ensure_not_blocked(db, account.account_id, body.other_id)
-    _, target = _discoverable_target(db, account.account_id, settings, body.other_id)
+    viewer, target = _discoverable_target(db, account.account_id, settings, body.other_id)
     left, right = sorted((account.account_id, body.other_id))
     existing = db.execute(
         text(
@@ -229,6 +229,16 @@ def get_or_create_thread(
                 subject_account_id=body.other_id,
                 outcome="success",
             )
+            if body.notify_interest:
+                enqueue_realtime_event(
+                    db,
+                    body.other_id,
+                    "chat.interest",
+                    {
+                        "threadId": thread_id,
+                        "senderName": viewer["display_name"],
+                    },
+                )
             db.commit()
     thread_id = str(existing)
     thread_rows = _list_threads(db, account.account_id)

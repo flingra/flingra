@@ -291,7 +291,7 @@ export function CallScreen({
   async function handleProposePayment() {
     setProposingPayment(true)
     try {
-      const thread = await getOrCreateThread(profile.id, profile.displayName, profile.photos[0] ?? '')
+      const thread = await getOrCreateThread(profile.id)
       await proposePaymentInChat(thread.id, profile.id, profile.displayName, Number(paymentAmount))
       setPaymentDialogOpen(false)
       setPaymentAmount('')
