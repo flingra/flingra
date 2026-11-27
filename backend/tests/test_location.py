@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -14,9 +16,22 @@ def authenticated_location_client(api_client):
     return client
 
 
+def mock_google_response(monkeypatch, response: httpx.Response) -> list[httpx.Request]:
+    requests: list[httpx.Request] = []
+    original_client = location.httpx.AsyncClient
+    transport = httpx.MockTransport(
+        lambda request: requests.append(request) or response
+    )
+    monkeypatch.setattr(
+        location.httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(transport=transport, **kwargs),
+    )
+    return requests
+
+
 def test_location_search_returns_google_places_results(api_client, monkeypatch) -> None:
     client = authenticated_location_client(api_client)
-    request_options = {}
     response = httpx.Response(
         200,
         json={"places": [
@@ -32,13 +47,7 @@ def test_location_search_returns_google_places_results(api_client, monkeypatch) 
         ]},
         request=httpx.Request("POST", location.GOOGLE_PLACES_SEARCH_URL),
     )
-
-    def fake_post(url, **kwargs):
-        request_options["url"] = url
-        request_options.update(kwargs)
-        return response
-
-    monkeypatch.setattr(location.httpx, "post", fake_post)
+    requests = mock_google_response(monkeypatch, response)
 
     result = client.get("/location/search", params={"q": "Lekki Conservation Center"})
 
@@ -53,11 +62,13 @@ def test_location_search_returns_google_places_results(api_client, monkeypatch) 
             }
         ]
     }
-    assert request_options["url"] == location.GOOGLE_PLACES_SEARCH_URL
-    assert request_options["headers"]["X-Goog-Api-Key"] == "test-key"
-    assert request_options["headers"]["X-Goog-FieldMask"] == location.GOOGLE_PLACES_FIELD_MASK
-    assert request_options["json"]["textQuery"] == "Lekki Conservation Center, Nigeria"
-    assert request_options["json"]["regionCode"] == "NG"
+    assert len(requests) == 1
+    assert str(requests[0].url) == location.GOOGLE_PLACES_SEARCH_URL
+    assert requests[0].headers["X-Goog-Api-Key"] == "test-key"
+    assert requests[0].headers["X-Goog-FieldMask"] == location.GOOGLE_PLACES_FIELD_MASK
+    request_json = json.loads(requests[0].content)
+    assert request_json["textQuery"] == "Lekki Conservation Center, Nigeria"
+    assert request_json["regionCode"] == "NG"
 
 
 def test_location_search_filters_non_nigerian_results(api_client, monkeypatch) -> None:
@@ -77,9 +88,9 @@ def test_location_search_filters_non_nigerian_results(api_client, monkeypatch) -
         },
         request=httpx.Request("POST", location.GOOGLE_PLACES_SEARCH_URL),
     )
-    monkeypatch.setattr(location.httpx, "post", lambda *_args, **_kwargs: response)
+    mock_google_response(monkeypatch, response)
 
-    result = client.get("/location/search", params={"q": "Lekki"})
+    result = client.get("/location/search", params={"q": "Somewhere outside Nigeria"})
 
     assert result.status_code == 200
     assert result.json() == {"results": []}
@@ -91,9 +102,9 @@ def test_location_search_reports_provider_outage(api_client, monkeypatch) -> Non
         429,
         request=httpx.Request("POST", location.GOOGLE_PLACES_SEARCH_URL),
     )
-    monkeypatch.setattr(location.httpx, "post", lambda *_args, **_kwargs: response)
+    mock_google_response(monkeypatch, response)
 
-    result = client.get("/location/search", params={"q": "Lekki"})
+    result = client.get("/location/search", params={"q": "Provider outage check"})
 
     assert result.status_code == 503
     assert result.json()["error"]["message"] == "Google Maps location search is temporarily unavailable."
@@ -114,7 +125,7 @@ def test_location_search_requires_server_key(api_client, monkeypatch) -> None:
 
 def test_reverse_geocode_uses_google_and_returns_approximate_area(api_client, monkeypatch) -> None:
     client = authenticated_location_client(api_client)
-    request_options = {}
+    requests: list[httpx.Request] = []
     response = httpx.Response(
         200,
         json={
@@ -132,20 +143,16 @@ def test_reverse_geocode_uses_google_and_returns_approximate_area(api_client, mo
         request=httpx.Request("GET", location.GOOGLE_GEOCODING_URL),
     )
 
-    def fake_get(url, **kwargs):
-        request_options["url"] = url
-        request_options.update(kwargs)
-        return response
-
-    monkeypatch.setattr(location.httpx, "get", fake_get)
+    requests = mock_google_response(monkeypatch, response)
 
     result = client.get("/location/reverse", params={"latitude": 6.45, "longitude": 3.47})
 
     assert result.status_code == 200
     assert result.json() == {"area": "Lekki, Lagos"}
-    assert request_options["url"] == location.GOOGLE_GEOCODING_URL
-    assert request_options["params"]["key"] == "test-key"
-    assert request_options["params"]["region"] == "ng"
+    assert len(requests) == 1
+    assert str(requests[0].url).startswith(location.GOOGLE_GEOCODING_URL)
+    assert requests[0].url.params["key"] == "test-key"
+    assert requests[0].url.params["region"] == "ng"
 
 
 def test_reverse_geocode_returns_no_area_for_zero_results(api_client, monkeypatch) -> None:
@@ -155,9 +162,9 @@ def test_reverse_geocode_returns_no_area_for_zero_results(api_client, monkeypatc
         json={"status": "ZERO_RESULTS", "results": []},
         request=httpx.Request("GET", location.GOOGLE_GEOCODING_URL),
     )
-    monkeypatch.setattr(location.httpx, "get", lambda *_args, **_kwargs: response)
+    mock_google_response(monkeypatch, response)
 
-    result = client.get("/location/reverse", params={"latitude": 6.45, "longitude": 3.47})
+    result = client.get("/location/reverse", params={"latitude": 6.451, "longitude": 3.471})
 
     assert result.status_code == 200
     assert result.json() == {"area": None}
