@@ -779,7 +779,7 @@ export function DiscoverPage() {
                 searchMode === 'people' ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-ink-50'
               }`}
             >
-              Username or name
+              Username
             </button>
           </div>
           <form
