@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { BadgeCheck, Clock3, FileText, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
@@ -33,7 +33,9 @@ const STATUS_CONTENT: Record<VerificationStatus, { title: string; description: s
 
 export function IdentityVerificationPrompt() {
   const [open, setOpen] = useState(false)
+  const { pathname } = useLocation()
   const navigate = useNavigate()
+  const isVerificationPage = pathname === '/settings/verification'
   const { data: profile, isError, isLoading } = useQuery({
     queryKey: ['own-profile'],
     queryFn: getOwnProfile,
@@ -43,10 +45,14 @@ export function IdentityVerificationPrompt() {
   })
 
   useEffect(() => {
+    if (isVerificationPage) {
+      setOpen(false)
+      return
+    }
     const showPrompt = () => setOpen(true)
     window.addEventListener(IDENTITY_VERIFICATION_REQUIRED_EVENT, showPrompt)
     return () => window.removeEventListener(IDENTITY_VERIFICATION_REQUIRED_EVENT, showPrompt)
-  }, [])
+  }, [isVerificationPage])
 
   const status = profile?.documentVerification ?? (isLoading || isError ? null : 'unverified')
   const content = status ? STATUS_CONTENT[status] : null
@@ -54,7 +60,7 @@ export function IdentityVerificationPrompt() {
 
   return (
     <Dialog
-      open={open}
+      open={open && !isVerificationPage}
       onClose={() => setOpen(false)}
       title="Identity verification required"
       description="This feature is available after your identity has been approved."
