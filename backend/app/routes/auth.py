@@ -1477,6 +1477,16 @@ def complete_onboarding(
         text("UPDATE profiles SET onboarding_complete = TRUE WHERE account_id = :account_id"),
         {"account_id": account.account_id},
     )
+    db.execute(
+        text(
+            """
+            UPDATE accounts
+            SET account_state = 'active'
+            WHERE id = :account_id AND account_state = 'needs-onboarding'
+            """
+        ),
+        {"account_id": account.account_id},
+    )
     record_audit_event(
         db,
         request,

@@ -117,6 +117,27 @@ def test_super_admin_can_suspend_member_and_revoke_sessions(api_client) -> None:
         db_generator.close()
 
 
+def test_admin_revoke_sessions_invalidates_active_member_session(api_client) -> None:
+    client, _ = api_client
+    seed_admin(client)
+    account_id = seed_user(client)
+
+    signed_in = client.post(
+        "/auth/login",
+        json={"identifier": f"{account_id}@example.test", "password": "secure-password-123"},
+    )
+    assert signed_in.status_code == 200
+    assert client.get("/auth/session").json()["accountId"] == account_id
+
+    revoked = client.post(
+        f"/admin/users/{account_id}/sessions/revoke",
+        headers={"X-CSRF-Token": client.cookies["flingra_admin_csrf"]},
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["revokedCount"] == 2
+    assert client.get("/auth/session").json() is None
+
+
 def test_reviewer_cannot_suspend_member(api_client) -> None:
     client, _ = api_client
     seed_admin(client, "reviewer")

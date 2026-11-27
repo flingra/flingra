@@ -28,6 +28,10 @@ function setCachedSession(session: Session | null) {
   writeCachedSession(session)
 }
 
+export function clearCachedSession() {
+  setCachedSession(null)
+}
+
 export interface SignUpInput {
   sex: 'man' | 'woman'
   identifier: string

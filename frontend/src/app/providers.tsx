@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, useLocation } from 'react-router-dom'
 import { ToastProvider } from '@/components/ui/toast'
 import { AppErrorBoundary } from './error-boundary'
+import { SessionRevocationListener } from '@/components/session-revocation-listener'
 
 function RouteErrorBoundary({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
@@ -25,6 +26,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
           <BrowserRouter>
+            <SessionRevocationListener />
             <RouteErrorBoundary>{children}</RouteErrorBoundary>
           </BrowserRouter>
         </ToastProvider>

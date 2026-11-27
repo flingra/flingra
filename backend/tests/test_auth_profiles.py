@@ -425,6 +425,15 @@ def test_onboarding_completes_without_facial_verification_and_stays_pending_revi
 
     assert response.status_code == 200
     assert response.json()["stage"] == "active"
+    db_generator = client.app.dependency_overrides[auth.db_session]()
+    db = next(db_generator)
+    try:
+        assert db.execute(
+            auth.text("SELECT account_state FROM accounts WHERE id = :account_id"),
+            {"account_id": response.json()["accountId"]},
+        ).scalar_one() == "active"
+    finally:
+        db_generator.close()
     completed_profile = client.get("/profiles/me").json()
     assert completed_profile["onboardingComplete"] is True
     assert completed_profile["moderationStatus"] == "pending"

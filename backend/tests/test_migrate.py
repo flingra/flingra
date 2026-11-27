@@ -160,3 +160,55 @@ def test_live_location_migration_adds_private_live_location_columns(tmp_path) ->
         column["name"] for column in inspect(engine).get_columns("profiles")
     }
     engine.dispose()
+
+
+def test_completed_onboarding_migration_activates_only_eligible_accounts(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'onboarding-state.db'}")
+    migration_file = (
+        Path(__file__).resolve().parents[1]
+        / "internal"
+        / "migrate"
+        / "migrations"
+        / "000031_activate_completed_onboarding_accounts.sql"
+    )
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE accounts (id TEXT PRIMARY KEY, account_state TEXT, email_verified BOOLEAN)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE profiles (account_id TEXT PRIMARY KEY, onboarding_complete BOOLEAN)"
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO accounts (id, account_state, email_verified) VALUES
+                ('completed', 'needs-onboarding', TRUE),
+                ('incomplete', 'needs-onboarding', TRUE),
+                ('suspended', 'suspended', TRUE),
+                ('unverified', 'needs-onboarding', FALSE)
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO profiles (account_id, onboarding_complete) VALUES
+                ('completed', TRUE),
+                ('incomplete', FALSE),
+                ('suspended', TRUE),
+                ('unverified', TRUE)
+            """
+        )
+        for statement in migration_file.read_text().split(";"):
+            if statement.strip():
+                connection.exec_driver_sql(statement)
+        statuses = dict(
+            connection.exec_driver_sql(
+                "SELECT id, account_state FROM accounts"
+            ).all()
+        )
+
+    assert statuses == {
+        "completed": "active",
+        "incomplete": "needs-onboarding",
+        "suspended": "suspended",
+        "unverified": "needs-onboarding",
+    }
+    engine.dispose()

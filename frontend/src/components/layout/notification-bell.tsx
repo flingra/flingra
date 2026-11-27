@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 import { Drawer } from '@/components/ui/drawer'
 import { useToast } from '@/components/ui/toast'
 import { listRealtimeEvents } from '@/lib/api/realtime'
+import { ApiError } from '@/lib/api/types'
 import { useSessionStore } from '@/lib/stores/session-store'
 
 type NotificationItem = {
@@ -117,6 +118,10 @@ export function NotificationBell() {
           }
         }
       } catch (error) {
+        if (error instanceof ApiError && ['UNAUTHENTICATED', 'ACCOUNT_SUSPENDED', 'ACCOUNT_DELETION_PENDING'].includes(error.code)) {
+          disposed = true
+          return
+        }
         if (!reportedFailure) {
           reportedFailure = true
           showToast({
