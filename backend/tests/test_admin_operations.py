@@ -263,6 +263,7 @@ def test_call_credit_adjustments_and_dashboard_summary(api_client) -> None:
     dashboard = client.get("/admin/dashboard")
     assert dashboard.status_code == 200
     assert dashboard.json()["activeLiveStreams"] == 0
+    assert dashboard.json()["pendingAccountVerifications"] == 0
     assert "pendingPayouts" in dashboard.json()
 
 

@@ -35,7 +35,7 @@ DbSession = Annotated[Session, Depends(db_session)]
 SettingsDependency = Annotated[Settings, Depends(get_app_settings)]
 StorageDependency = Annotated[ObjectStorage, Depends(get_object_storage)]
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-REVIEW_ID_PATTERN = re.compile(r"^(profile|document)-([0-9a-f]{32})$")
+REVIEW_ID_PATTERN = re.compile(r"^verification-([0-9a-f]{32})$")
 MAX_LOGIN_ATTEMPTS = 5
 LOCKOUT_DURATION = timedelta(minutes=15)
 DUMMY_PASSWORD_HASH = hash_password(generate_token())
@@ -185,12 +185,11 @@ def require_admin_roles(*roles: AdminRole):
     return dependency
 
 
-def _review_parts(review_id: str) -> tuple[Literal["profile", "identity-document"], str]:
+def _review_parts(review_id: str) -> tuple[Literal["account-verification"], str]:
     match = REVIEW_ID_PATTERN.fullmatch(review_id)
     if match is None:
         raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable.", 404)
-    review_type = "profile" if match.group(1) == "profile" else "identity-document"
-    return review_type, match.group(2)
+    return "account-verification", match.group(1)
 
 
 def _admin_session_response(admin: AdminAccount) -> AdminSessionResponse:
@@ -956,55 +955,35 @@ def list_reviews(
         AdminAccount,
         Depends(require_admin_roles("super_admin", "reviewer")),
     ],
-    review_type: Literal["all", "profile", "identity-document"] = Query(
-        default="all", alias="type"
-    ),
+    review_type: Literal["all", "account-verification"] = Query(default="all", alias="type"),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, object]:
     rows = db.execute(
         text(
             """
-            SELECT review_type, review_id, account_id, display_name, review_status,
-                   document_type, created_at
-            FROM (
-                SELECT 'profile' AS review_type,
-                       CONCAT('profile-', p.account_id) AS review_id,
-                       p.account_id, p.display_name,
-                       p.moderation_status AS review_status,
-                       NULL AS document_type, p.updated_at AS created_at
-                FROM profiles p
-                WHERE p.onboarding_complete = TRUE
-                  AND p.moderation_status = 'pending'
-                  AND :include_profiles = 1
-                UNION ALL
-                SELECT 'identity-document' AS review_type,
-                       CONCAT('document-', m.id) AS review_id,
-                       p.account_id, p.display_name,
-                       p.document_verification AS review_status,
-                       p.document_type, m.created_at
-                FROM media_objects m
-                JOIN profiles p ON p.account_id = m.account_id
-                WHERE m.purpose = 'identity-document'
-                  AND p.document_verification = 'pending'
-                  AND :include_documents = 1
-                  AND NOT EXISTS (
-                      SELECT 1 FROM media_objects newer
-                      WHERE newer.account_id = m.account_id
-                        AND newer.purpose = 'identity-document'
-                        AND (
-                            newer.created_at > m.created_at
-                            OR (newer.created_at = m.created_at AND newer.id > m.id)
-                        )
-                  )
-            ) pending_reviews
-            ORDER BY created_at DESC, review_id DESC
+            SELECT CONCAT('verification-', p.account_id) AS review_id,
+                   p.account_id, p.display_name, p.moderation_status,
+                   p.document_verification, p.document_type, m.created_at
+            FROM profiles p
+            JOIN media_objects m ON m.account_id = p.account_id
+            WHERE p.onboarding_complete = TRUE
+              AND p.document_verification = 'pending'
+              AND m.purpose = 'identity-document'
+              AND NOT EXISTS (
+                  SELECT 1 FROM media_objects newer
+                  WHERE newer.account_id = m.account_id
+                    AND newer.purpose = 'identity-document'
+                    AND (
+                        newer.created_at > m.created_at
+                        OR (newer.created_at = m.created_at AND newer.id > m.id)
+                    )
+              )
+            ORDER BY m.created_at DESC, review_id DESC
             LIMIT :limit OFFSET :offset
             """
         ),
         {
-            "include_profiles": int(review_type in {"all", "profile"}),
-            "include_documents": int(review_type in {"all", "identity-document"}),
             "limit": limit + 1,
             "offset": offset,
         },
@@ -1013,10 +992,12 @@ def list_reviews(
     items = [
         {
             "reviewId": row["review_id"],
-            "type": row["review_type"],
+            "type": "account-verification",
             "accountId": row["account_id"],
             "displayName": row["display_name"],
-            "status": row["review_status"],
+            "status": "pending",
+            "profileStatus": row["moderation_status"],
+            "documentStatus": row["document_verification"],
             "documentType": row["document_type"],
             "createdAt": row["created_at"],
         }
@@ -1031,7 +1012,7 @@ def list_reviews(
             actor_id=admin.admin_id,
             subject_account_id=str(row["account_id"]),
             outcome="success",
-            metadata={"reviewType": row["review_type"], "reviewId": row["review_id"]},
+            metadata={"reviewType": "account-verification", "reviewId": row["review_id"]},
         )
     record_audit_event(
         db,
@@ -1150,63 +1131,33 @@ def get_review(
         Depends(require_admin_roles("super_admin", "reviewer")),
     ],
 ) -> dict[str, object]:
-    review_type, target_id = _review_parts(review_id)
-    if review_type == "profile":
-        row = db.execute(
-            text(
-                """
-                SELECT p.account_id, p.display_name, p.bio, p.photos, p.area, p.identity,
-                       p.moderation_status, p.onboarding_complete,
-                       a.identifier, a.identifier_type, a.date_of_birth
-                FROM profiles p
-                JOIN accounts a ON a.id = p.account_id
-                WHERE p.account_id = :account_id AND p.onboarding_complete = TRUE
-                """
-            ),
-            {"account_id": target_id},
-        ).mappings().first()
-        if row is None:
-            raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable.", 404)
-        record_audit_event(
-            db,
-            request,
-            event_type="admin.review.details_viewed",
-            actor_type="admin",
-            actor_id=admin.admin_id,
-            subject_account_id=str(row["account_id"]),
-            outcome="success",
-            metadata={"reviewType": review_type, "reviewId": review_id},
-        )
-        db.commit()
-        photos = row["photos"]
-        if isinstance(photos, str):
-            photos = json.loads(photos)
-        return {
-            "reviewId": review_id,
-            "type": review_type,
-            "accountId": row["account_id"],
-            "displayName": row["display_name"],
-            "bio": row["bio"],
-            "photos": photos,
-            "area": row["area"],
-            "identity": row["identity"],
-            "dateOfBirth": row["date_of_birth"],
-            "contact": mask_contact(row["identifier"], row["identifier_type"]),
-            "status": row["moderation_status"],
-        }
-
+    review_type, account_id = _review_parts(review_id)
     row = db.execute(
         text(
             """
-            SELECT m.id, m.account_id, m.object_key, m.content_type, m.size_bytes,
-                   m.created_at, p.display_name, p.document_type, p.document_verification
-            FROM media_objects m
-            JOIN profiles p ON p.account_id = m.account_id
-            WHERE m.id = :media_id AND m.purpose = 'identity-document'
+            SELECT p.account_id, p.display_name, p.bio, p.photos, p.area, p.identity,
+                   p.moderation_status, p.document_type, p.document_verification,
+                   a.identifier, a.identifier_type, a.date_of_birth, a.account_state,
+                   m.id AS document_id, m.content_type, m.size_bytes, m.created_at
+            FROM profiles p
+            JOIN accounts a ON a.id = p.account_id
+            JOIN media_objects m ON m.account_id = p.account_id
+            WHERE p.account_id = :account_id
+              AND p.onboarding_complete = TRUE
               AND p.document_verification = 'pending'
+              AND m.purpose = 'identity-document'
+              AND NOT EXISTS (
+                  SELECT 1 FROM media_objects newer
+                  WHERE newer.account_id = m.account_id
+                    AND newer.purpose = 'identity-document'
+                    AND (
+                        newer.created_at > m.created_at
+                        OR (newer.created_at = m.created_at AND newer.id > m.id)
+                    )
+              )
             """
         ),
-        {"media_id": target_id},
+        {"account_id": account_id},
     ).mappings().first()
     if row is None:
         raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable.", 404)
@@ -1221,16 +1172,27 @@ def get_review(
         metadata={"reviewType": review_type, "reviewId": review_id},
     )
     db.commit()
+    photos = row["photos"]
+    if isinstance(photos, str):
+        photos = json.loads(photos)
     return {
         "reviewId": review_id,
         "type": review_type,
         "accountId": row["account_id"],
         "displayName": row["display_name"],
+        "bio": row["bio"],
+        "photos": photos,
+        "area": row["area"],
+        "identity": row["identity"],
+        "dateOfBirth": row["date_of_birth"],
+        "contact": mask_contact(row["identifier"], row["identifier_type"]),
+        "accountStatus": row["account_state"],
+        "profileStatus": row["moderation_status"],
+        "documentStatus": row["document_verification"],
         "documentType": row["document_type"],
         "contentType": row["content_type"],
         "sizeBytes": row["size_bytes"],
-        "createdAt": row["created_at"],
-        "status": row["document_verification"],
+        "documentSubmittedAt": row["created_at"],
     }
 
 
@@ -1245,21 +1207,29 @@ def get_review_document(
     ],
     storage: StorageDependency,
 ) -> RedirectResponse:
-    review_type, target_id = _review_parts(review_id)
-    if review_type != "identity-document":
-        raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable.", 404)
+    review_type, account_id = _review_parts(review_id)
     row = db.execute(
         text(
             """
             SELECT m.account_id, m.object_key
             FROM media_objects m
             JOIN profiles p ON p.account_id = m.account_id
-            WHERE m.id = :media_id
+            WHERE m.account_id = :account_id
               AND m.purpose = 'identity-document'
               AND p.document_verification = 'pending'
+              AND p.onboarding_complete = TRUE
+              AND NOT EXISTS (
+                  SELECT 1 FROM media_objects newer
+                  WHERE newer.account_id = m.account_id
+                    AND newer.purpose = 'identity-document'
+                    AND (
+                        newer.created_at > m.created_at
+                        OR (newer.created_at = m.created_at AND newer.id > m.id)
+                    )
+              )
             """
         ),
-        {"media_id": target_id},
+        {"account_id": account_id},
     ).mappings().first()
     if row is None:
         raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable.", 404)
@@ -1296,6 +1266,83 @@ def get_review_document(
     )
 
 
+@router.get("/reviews/{review_id}/profile-photos/{media_id}")
+def get_review_profile_photo(
+    review_id: str,
+    media_id: str,
+    request: Request,
+    db: DbSession,
+    admin: Annotated[
+        AdminAccount,
+        Depends(require_admin_roles("super_admin", "reviewer")),
+    ],
+    storage: StorageDependency,
+) -> RedirectResponse:
+    review_type, account_id = _review_parts(review_id)
+    row = db.execute(
+        text(
+            """
+            SELECT m.object_key
+            FROM media_objects m
+            JOIN profiles p ON p.account_id = m.account_id
+            WHERE m.id = :media_id
+              AND m.account_id = :account_id
+              AND m.purpose = 'profile-photo'
+              AND p.onboarding_complete = TRUE
+              AND p.document_verification = 'pending'
+              AND EXISTS (
+                  SELECT 1 FROM media_objects doc
+                  WHERE doc.account_id = p.account_id
+                    AND doc.purpose = 'identity-document'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM media_objects newer
+                        WHERE newer.account_id = doc.account_id
+                          AND newer.purpose = 'identity-document'
+                          AND (
+                              newer.created_at > doc.created_at
+                              OR (newer.created_at = doc.created_at AND newer.id > doc.id)
+                          )
+                    )
+              )
+            """
+        ),
+        {"account_id": account_id, "media_id": media_id},
+    ).mappings().first()
+    if row is None:
+        raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable.", 404)
+    try:
+        signed_url = storage.get_url(row["object_key"])
+    except ServiceUnavailable:
+        record_audit_event(
+            db,
+            request,
+            event_type="admin.review.profile_photo_viewed",
+            actor_type="admin",
+            actor_id=admin.admin_id,
+            subject_account_id=account_id,
+            outcome="failure",
+            metadata={"reviewId": review_id, "mediaId": media_id, "reason": "storage_unavailable"},
+        )
+        db.commit()
+        raise
+    record_audit_event(
+        db,
+        request,
+        event_type="admin.review.profile_photo_viewed",
+        actor_type="admin",
+        actor_id=admin.admin_id,
+        subject_account_id=account_id,
+        outcome="success",
+        metadata={"reviewType": review_type, "reviewId": review_id, "mediaId": media_id},
+    )
+    db.commit()
+    return RedirectResponse(
+        signed_url,
+        status_code=307,
+        headers={"Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer"},
+    )
+
+
 @router.post(
     "/reviews/{review_id}/decision",
     dependencies=[Depends(require_admin_csrf)],
@@ -1313,62 +1360,48 @@ def decide_review(
     reason = body.reason.strip()
     if not reason:
         raise ApiException("INVALID_REVIEW_DECISION", "A non-empty decision reason is required.")
-    review_type, target_id = _review_parts(review_id)
-    if review_type == "profile":
-        result = db.execute(
-            text(
-                """
-                UPDATE profiles
-                SET moderation_status = :decision
-                WHERE account_id = :account_id
-                  AND onboarding_complete = TRUE
-                  AND moderation_status = 'pending'
-                """
-            ),
-            {"decision": body.decision, "account_id": target_id},
-        )
-    else:
-        result = db.execute(
-            text(
-                """
-                UPDATE profiles
-                SET document_verification = :document_status
-                WHERE account_id = (
-                    SELECT account_id FROM media_objects
-                    WHERE id = :media_id AND purpose = 'identity-document'
-                )
-                  AND document_verification = 'pending'
-                  AND EXISTS (
-                      SELECT 1 FROM media_objects m
-                      WHERE m.id = :media_id
-                        AND m.account_id = profiles.account_id
-                        AND m.purpose = 'identity-document'
-                  )
-                """
-            ),
-            {
-                "document_status": "verified" if body.decision == "approved" else "rejected",
-                "media_id": target_id,
-            },
-        )
+    review_type, account_id = _review_parts(review_id)
+    result = db.execute(
+        text(
+            """
+            UPDATE profiles
+            SET moderation_status = :decision,
+                document_verification = :document_status
+            WHERE account_id = :account_id
+              AND onboarding_complete = TRUE
+              AND document_verification = 'pending'
+              AND EXISTS (
+                  SELECT 1 FROM media_objects doc
+                  WHERE doc.account_id = profiles.account_id
+                    AND doc.purpose = 'identity-document'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM media_objects newer
+                        WHERE newer.account_id = doc.account_id
+                          AND newer.purpose = 'identity-document'
+                          AND (
+                              newer.created_at > doc.created_at
+                              OR (newer.created_at = doc.created_at AND newer.id > doc.id)
+                          )
+                    )
+              )
+            """
+        ),
+        {
+            "decision": body.decision,
+            "document_status": "verified" if body.decision == "approved" else "rejected",
+            "account_id": account_id,
+        },
+    )
     if result.rowcount != 1:
         db.rollback()
         raise ApiException("REVIEW_NOT_FOUND", "This review is unavailable or has already been decided.", 404)
-    subject_account_id = (
-        target_id
-        if review_type == "profile"
-        else db.execute(
-            text("SELECT account_id FROM media_objects WHERE id = :media_id"),
-            {"media_id": target_id},
-        ).scalar_one()
-    )
     record_audit_event(
         db,
         request,
         event_type="admin.review.decided",
         actor_type="admin",
         actor_id=admin.admin_id,
-        subject_account_id=str(subject_account_id),
+        subject_account_id=account_id,
         outcome="success",
         metadata={
             "reviewType": review_type,

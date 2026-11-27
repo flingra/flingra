@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ClipboardCheck, FileText, Gift, HeartHandshake, KeyRound, LockKeyhole, Newspaper, Phone, Radio, ScrollText,
+  ClipboardCheck, Gift, HeartHandshake, KeyRound, LockKeyhole, Newspaper, Phone, Radio, ScrollText,
   Search, ShieldAlert, UserRound, Users, Wallet, type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -567,8 +567,7 @@ const SAFETY = ['super_admin', 'safety_admin']
 const SUPER = ['super_admin']
 
 const ATTENTION: Stat[] = [
-  { key: 'pendingProfileReviews', label: 'Pending profile reviews', icon: UserRound, to: '/admin/reviews', roles: REVIEW },
-  { key: 'pendingDocumentReviews', label: 'Pending ID reviews', icon: FileText, to: '/admin/reviews', roles: REVIEW },
+  { key: 'pendingAccountVerifications', label: 'Pending account verifications', icon: UserRound, to: '/admin/reviews', roles: REVIEW },
   { key: 'openSafetyReports', label: 'Open safety reports', icon: ShieldAlert, to: '/admin/safety-reports', roles: SAFETY },
   { key: 'openSafetyReviews', label: 'Open safety reviews', icon: ClipboardCheck, to: '/admin/safety-reviews', roles: SAFETY },
   { key: 'disputedMeetupPayments', label: 'Disputed meetup payments', icon: HeartHandshake, to: '/admin/meetup-disputes', roles: SUPER },

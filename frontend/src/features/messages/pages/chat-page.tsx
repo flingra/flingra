@@ -131,6 +131,12 @@ export function ChatPage() {
       await acceptMeetupPayment(paymentId)
       await refreshPayments()
       showToast({ title: 'Proposal accepted', description: "It's now held until the meetup is confirmed.", variant: 'success' })
+    } catch (error) {
+      showToast({
+        title: 'Could not accept proposal',
+        description: error instanceof ApiError ? error.message : 'Try again.',
+        variant: 'error',
+      })
     } finally {
       setRespondingId(null)
     }

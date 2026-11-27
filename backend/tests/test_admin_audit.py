@@ -29,11 +29,12 @@ def seed_admin(client, email="reviewer@example.test", password="a-very-long-admi
     return admin_id
 
 
-def seed_pending_document(client) -> tuple[str, str]:
+def seed_pending_document(client) -> tuple[str, str, str]:
     db_generator = client.app.dependency_overrides[db_session]()
     db = next(db_generator)
     account_id = uuid.uuid4().hex
     media_id = uuid.uuid4().hex
+    profile_photo_id = uuid.uuid4().hex
     try:
         db.execute(
             text(
@@ -63,12 +64,28 @@ def seed_pending_document(client) -> tuple[str, str]:
                     moderation_status, onboarding_complete, document_verification, document_type
                 )
                 VALUES (
-                    :account_id, 'Member', 'Profile bio', '[]', '25–30', '[]', 'woman',
+                    :account_id, 'Member', 'Profile bio', :photos, '25–30', '[]', 'woman',
                     'pending', TRUE, 'pending', 'NIN'
                 )
                 """
             ),
-            {"account_id": account_id},
+            {"account_id": account_id, "photos": json.dumps([f"/media/{profile_photo_id}"])},
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO media_objects (
+                    id, account_id, purpose, object_key, content_type, size_bytes, sha256
+                )
+                VALUES (:id, :account_id, 'profile-photo', :object_key, 'image/jpeg', 20, :sha256)
+                """
+            ),
+            {
+                "id": profile_photo_id,
+                "account_id": account_id,
+                "object_key": f"accounts/{account_id}/profile-photos/{profile_photo_id}",
+                "sha256": "b" * 64,
+            },
         )
         db.execute(
             text(
@@ -89,7 +106,7 @@ def seed_pending_document(client) -> tuple[str, str]:
         db.commit()
     finally:
         db_generator.close()
-    return account_id, media_id
+    return account_id, media_id, profile_photo_id
 
 
 def set_admin_role(client, admin_id: str, role: str) -> None:
@@ -197,23 +214,25 @@ def test_admin_mfa_and_password_change_flow(api_client) -> None:
 
 def test_admin_reviews_are_user_scoped_audited_and_paginated(api_client) -> None:
     client, _ = api_client
-    account_id, media_id = seed_pending_document(client)
+    account_id, media_id, profile_photo_id = seed_pending_document(client)
     admin_id = seed_admin(client)
     set_admin_role(client, admin_id, "super_admin")
     assert admin_login(client).status_code == 200
     csrf_token = client.cookies["flingra_admin_csrf"]
 
-    queue = client.get("/admin/reviews", params={"type": "identity-document", "limit": 1})
+    queue = client.get("/admin/reviews", params={"type": "account-verification", "limit": 1})
     assert queue.status_code == 200
-    review_id = f"document-{media_id}"
+    review_id = f"verification-{account_id}"
     assert queue.json() == {
         "items": [
             {
                 "reviewId": review_id,
-                "type": "identity-document",
+                "type": "account-verification",
                 "accountId": account_id,
                 "displayName": "Member",
                 "status": "pending",
+                "profileStatus": "pending",
+                "documentStatus": "pending",
                 "documentType": "NIN",
                 "createdAt": queue.json()["items"][0]["createdAt"],
             }
@@ -223,8 +242,16 @@ def test_admin_reviews_are_user_scoped_audited_and_paginated(api_client) -> None
 
     details = client.get(f"/admin/reviews/{review_id}")
     assert details.status_code == 200
-    assert details.json()["status"] == "pending"
+    assert details.json()["profileStatus"] == "pending"
+    assert details.json()["documentStatus"] == "pending"
     assert details.json()["accountId"] == account_id
+    assert details.json()["dateOfBirth"] == "1995-02-10"
+    assert details.json()["documentType"] == "NIN"
+    assert details.json()["photos"] == [f"/media/{profile_photo_id}"]
+
+    dashboard = client.get("/admin/dashboard")
+    assert dashboard.status_code == 200
+    assert dashboard.json()["pendingAccountVerifications"] == 1
 
     document = client.get(
         f"/admin/reviews/{review_id}/document",
@@ -234,6 +261,14 @@ def test_admin_reviews_are_user_scoped_audited_and_paginated(api_client) -> None
     assert "private, no-store" in document.headers["cache-control"]
     assert document.headers["location"].endswith(
         f"accounts/{account_id}/identity-documents/{media_id}"
+    )
+    profile_photo = client.get(
+        f"/admin/reviews/{review_id}/profile-photos/{profile_photo_id}",
+        follow_redirects=False,
+    )
+    assert profile_photo.status_code == 307
+    assert profile_photo.headers["location"].endswith(
+        f"accounts/{account_id}/profile-photos/{profile_photo_id}"
     )
 
     decision = client.post(
@@ -262,10 +297,14 @@ def test_admin_reviews_are_user_scoped_audited_and_paginated(api_client) -> None
     db = next(db_generator)
     try:
         status = db.execute(
-            text("SELECT document_verification FROM profiles WHERE account_id = :account_id"),
+            text(
+                "SELECT document_verification, moderation_status "
+                "FROM profiles WHERE account_id = :account_id"
+            ),
             {"account_id": account_id},
-        ).scalar_one()
-        assert status == "verified"
+        ).one()
+        assert status.document_verification == "verified"
+        assert status.moderation_status == "approved"
         stored_events = db.execute(
             text("SELECT metadata FROM platform_audit_events WHERE subject_account_id = :account_id"),
             {"account_id": account_id},
@@ -273,6 +312,35 @@ def test_admin_reviews_are_user_scoped_audited_and_paginated(api_client) -> None
         assert all("secure-password-123" not in json.dumps(event) for event in stored_events)
     finally:
         db_generator.close()
+
+
+def test_admin_account_review_waits_for_identity_document(api_client) -> None:
+    client, _ = api_client
+    account_id, media_id, _ = seed_pending_document(client)
+    seed_admin(client)
+    assert admin_login(client).status_code == 200
+
+    db_generator = client.app.dependency_overrides[db_session]()
+    db = next(db_generator)
+    try:
+        db.execute(
+            text("DELETE FROM media_objects WHERE id = :media_id"),
+            {"media_id": media_id},
+        )
+        db.execute(
+            text(
+                "UPDATE profiles SET document_verification = 'unverified' "
+                "WHERE account_id = :account_id"
+            ),
+            {"account_id": account_id},
+        )
+        db.commit()
+    finally:
+        db_generator.close()
+
+    queue = client.get("/admin/reviews")
+    assert queue.status_code == 200
+    assert queue.json()["items"] == []
 
 
 def test_admin_login_failures_are_audited_without_exposing_credentials(api_client) -> None:
@@ -310,6 +378,9 @@ def test_reviewer_role_cannot_access_audit_or_admin_management(api_client) -> No
     assert admin_login(client).status_code == 200
 
     assert client.get("/admin/reviews").status_code == 200
+    dashboard = client.get("/admin/dashboard")
+    assert dashboard.status_code == 200
+    assert dashboard.json() == {"pendingAccountVerifications": 0}
     assert client.get("/admin/users/missing/audit").status_code == 403
     assert client.get("/admin/admins").status_code == 403
 

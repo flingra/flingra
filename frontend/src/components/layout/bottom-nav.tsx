@@ -46,7 +46,7 @@ export function BottomNav() {
         <nav
           ref={navRef}
           aria-label={hasMoreItems ? 'Primary navigation; scroll for more items' : 'Primary navigation'}
-          className="relative flex max-w-[calc(100vw-5.5rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-ink-900 px-2 py-2 pr-8 shadow-float sm:max-w-none sm:gap-1 sm:px-3 sm:py-2.5 sm:pr-3"
+          className="scrollbar-hide relative flex max-w-[calc(100vw-5.5rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-ink-900 px-2 py-2 pr-8 shadow-float sm:max-w-none sm:gap-1 sm:px-3 sm:py-2.5 sm:pr-3"
         >
           {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
             <NavLink

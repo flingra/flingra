@@ -670,20 +670,32 @@ def get_admin_dashboard(
     db: DbSession,
     admin: Annotated[
         AdminAccount,
-        Depends(require_admin_roles("super_admin", "safety_admin", "auditor")),
+        Depends(require_admin_roles("super_admin", "reviewer", "safety_admin", "auditor")),
     ],
 ) -> dict[str, int]:
     counts = {
-        "pendingProfileReviews": int(
+        "pendingAccountVerifications": int(
             db.execute(
                 text(
-                    "SELECT COUNT(*) FROM profiles "
-                    "WHERE onboarding_complete = TRUE AND moderation_status = 'pending'"
+                    """
+                    SELECT COUNT(*)
+                    FROM profiles p
+                    JOIN media_objects m ON m.account_id = p.account_id
+                    WHERE p.onboarding_complete = TRUE
+                      AND p.document_verification = 'pending'
+                      AND m.purpose = 'identity-document'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM media_objects newer
+                          WHERE newer.account_id = m.account_id
+                            AND newer.purpose = 'identity-document'
+                            AND (
+                                newer.created_at > m.created_at
+                                OR (newer.created_at = m.created_at AND newer.id > m.id)
+                            )
+                      )
+                    """
                 )
             ).scalar_one()
-        ),
-        "pendingDocumentReviews": int(
-            db.execute(text("SELECT COUNT(*) FROM profiles WHERE document_verification = 'pending'")).scalar_one()
         ),
         "openSafetyReports": int(
             db.execute(text("SELECT COUNT(*) FROM safety_reports WHERE status = 'open'")).scalar_one()
@@ -727,6 +739,8 @@ def get_admin_dashboard(
         outcome="success",
     )
     db.commit()
+    if admin.role == "reviewer":
+        return {"pendingAccountVerifications": counts["pendingAccountVerifications"]}
     return counts
 
 

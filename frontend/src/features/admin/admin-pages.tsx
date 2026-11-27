@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -22,33 +22,188 @@ export function AdminLoginPage() {
 }
 
 export function AdminReviewsPage() {
-  const [items, setItems] = useState<ReviewItem[]>([]); const [error, setError] = useState<string | null>(null)
-  const [documentUrl, setDocumentUrl] = useState<string | null>(null); const [documentError, setDocumentError] = useState<string | null>(null)
-  const [selectedReview, setSelectedReview] = useState<Record<string, unknown> | null>(null)
+  const [items, setItems] = useState<ReviewItem[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [documentUrl, setDocumentUrl] = useState<string | null>(null)
+  const [documentError, setDocumentError] = useState<string | null>(null)
+  const [profilePhotoUrls, setProfilePhotoUrls] = useState<string[]>([])
+  const [profilePhotoError, setProfilePhotoError] = useState<string | null>(null)
+  const [selectedReview, setSelectedReview] = useState<Awaited<ReturnType<typeof adminApi.getReview>> | null>(null)
+  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [documentLoading, setDocumentLoading] = useState(false)
+  const [decisionLoading, setDecisionLoading] = useState(false)
+  const detailsRequest = useRef(0)
   const load = () => adminApi.reviews().then((result) => setItems(result.items)).catch((e) => setError(e instanceof ApiError ? e.message : 'Unable to load reviews.'))
   useEffect(() => { void load() }, [])
-  function closeDocument() { if (documentUrl) URL.revokeObjectURL(documentUrl); setDocumentUrl(null); setDocumentError(null) }
-  async function viewReview(reviewId: string) {
-    try { setSelectedReview(await adminApi.getReview(reviewId)) }
-    catch (e) { setError(e instanceof ApiError ? e.message : 'Unable to load review details.') }
-  }
-  async function decideReview(reviewId: string, decision: 'approved' | 'rejected') {
-    try { await adminApi.decide(reviewId, decision, `${decision === 'approved' ? 'Approved' : 'Rejected'} by administrator`); await load() }
-    catch (e) { setError(e instanceof ApiError ? e.message : 'Unable to resolve review.') }
-  }
-  async function viewDocument(reviewId: string) {
+
+  useEffect(() => () => {
+    if (documentUrl) URL.revokeObjectURL(documentUrl)
+  }, [documentUrl])
+  useEffect(() => () => profilePhotoUrls.forEach((url) => URL.revokeObjectURL(url)), [profilePhotoUrls])
+
+  function closeReview() {
+    detailsRequest.current += 1
+    setSelectedReview(null)
+    setDetailsLoading(false)
+    setDocumentLoading(false)
+    setDocumentUrl(null)
     setDocumentError(null)
-    try { setDocumentUrl(URL.createObjectURL(await adminApi.reviewDocumentBlob(reviewId))) }
-    catch (e) { setDocumentError(e instanceof ApiError ? e.message : 'Unable to load document.') }
+    setProfilePhotoUrls([])
+    setProfilePhotoError(null)
   }
-  return <section><h1 className="mb-6 text-3xl font-bold">Review queue</h1>{error && <p className="mb-4 text-danger">{error}</p>}<div className="space-y-3">{items.length ? items.map((item) => <Card key={item.reviewId} className="flex items-center justify-between"><div><p className="font-semibold">{item.displayName || 'Unnamed profile'}</p><p className="text-sm text-ink-500">{item.type} · {item.documentType || 'Profile'} · {item.accountId}</p></div><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => void viewReview(item.reviewId)}>Details</Button>{item.documentType && <Button size="sm" variant="ghost" onClick={() => viewDocument(item.reviewId)}>View document</Button>}<Button size="sm" variant="accent" onClick={() => void decideReview(item.reviewId, 'approved')}>Approve</Button><Button size="sm" variant="outline" onClick={() => void decideReview(item.reviewId, 'rejected')}>Reject</Button></div></Card>) : <Card>No pending reviews.</Card>}</div>
-    <Dialog open={selectedReview !== null} onClose={() => setSelectedReview(null)} title="Review details">
-      {selectedReview && <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap text-sm">{JSON.stringify(selectedReview, null, 2)}</pre>}
-    </Dialog>
-    <Dialog open={Boolean(documentUrl) || Boolean(documentError)} onClose={closeDocument} title="Verification document">
-      {documentError ? <p className="text-sm text-danger">{documentError}</p> : documentUrl && <img src={documentUrl} alt="Submitted verification document" className="max-h-[70vh] w-full rounded-xl object-contain" />}
-    </Dialog>
-  </section>
+
+  async function viewReview(reviewId: string) {
+    closeReview()
+    const requestId = ++detailsRequest.current
+    setError(null)
+    setDetailsLoading(true)
+    try {
+      const details = await adminApi.getReview(reviewId)
+      if (requestId !== detailsRequest.current) return
+      setSelectedReview(details)
+      setDocumentLoading(true)
+      try {
+        const document = await adminApi.reviewDocumentBlob(reviewId)
+        if (requestId === detailsRequest.current) setDocumentUrl(URL.createObjectURL(document))
+      } catch (e) {
+        if (requestId === detailsRequest.current) {
+          setDocumentError(e instanceof ApiError ? e.message : 'Unable to load the identity document.')
+        }
+      } finally {
+        if (requestId === detailsRequest.current) setDocumentLoading(false)
+      }
+
+      const photoIds = details.photos
+        .map((photo) => /^\/media\/([0-9a-f]{32})$/.exec(photo)?.[1] ?? null)
+        .filter((mediaId): mediaId is string => mediaId !== null)
+      const photoResults = await Promise.allSettled(
+        photoIds.map((mediaId) => adminApi.reviewProfilePhotoBlob(reviewId, mediaId)),
+      )
+      if (requestId === detailsRequest.current) {
+        setProfilePhotoUrls(
+          photoResults.flatMap((result) => result.status === 'fulfilled' ? [URL.createObjectURL(result.value)] : []),
+        )
+        if (photoResults.some((result) => result.status === 'rejected')) {
+          setProfilePhotoError('One or more profile photos could not be loaded.')
+        }
+      }
+    } catch (e) {
+      if (requestId === detailsRequest.current) {
+        setError(e instanceof ApiError ? e.message : 'Unable to load review details.')
+      }
+    } finally {
+      if (requestId === detailsRequest.current) setDetailsLoading(false)
+    }
+  }
+
+  async function decideReview(decision: 'approved' | 'rejected') {
+    if (!selectedReview) return
+    setDecisionLoading(true)
+    try {
+      await adminApi.decide(
+        selectedReview.reviewId,
+        decision,
+        `${decision === 'approved' ? 'Approved' : 'Rejected'} account verification by administrator`,
+      )
+      closeReview()
+      await load()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Unable to resolve review.')
+    } finally {
+      setDecisionLoading(false)
+    }
+  }
+
+  return (
+    <section>
+      <h1 className="mb-6 text-3xl font-bold">Account verification queue</h1>
+      {error && <p className="mb-4 text-danger">{error}</p>}
+      <div className="space-y-3">
+        {items.length ? items.map((item) => (
+          <Card key={item.reviewId} className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold">{item.displayName || 'Unnamed profile'}</p>
+              <p className="text-sm text-ink-500">
+                {item.documentType || 'Identity document'} · {item.accountId}
+              </p>
+              <p className="text-xs text-ink-500">
+                Profile: {item.profileStatus} · Document: {item.documentStatus}
+              </p>
+            </div>
+            <Button size="sm" variant="accent" onClick={() => void viewReview(item.reviewId)}>
+              Review account
+            </Button>
+          </Card>
+        )) : <Card>No account verifications are waiting for review.</Card>}
+      </div>
+
+      <Dialog
+        open={detailsLoading || selectedReview !== null}
+        onClose={closeReview}
+        title="Account verification"
+        description="Review the account profile and submitted identity document together."
+        className="max-w-3xl"
+      >
+        {detailsLoading && <p className="text-sm text-ink-500">Loading account details…</p>}
+        {selectedReview && (
+          <>
+            <div className="grid gap-6 md:grid-cols-2">
+              <div>
+                <h3 className="mb-3 font-semibold text-ink-900">Account profile</h3>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  <div><dt className="text-ink-500">Display name</dt><dd className="font-medium">{selectedReview.displayName || '—'}</dd></div>
+                  <div><dt className="text-ink-500">Date of birth</dt><dd className="font-medium">{selectedReview.dateOfBirth}</dd></div>
+                  <div><dt className="text-ink-500">Contact</dt><dd className="font-medium">{selectedReview.contact}</dd></div>
+                  <div><dt className="text-ink-500">Identity</dt><dd className="font-medium">{selectedReview.identity}</dd></div>
+                  <div><dt className="text-ink-500">Account status</dt><dd className="font-medium">{selectedReview.accountStatus}</dd></div>
+                  <div><dt className="text-ink-500">Profile review</dt><dd className="font-medium">{selectedReview.profileStatus}</dd></div>
+                  <div><dt className="text-ink-500">Document type</dt><dd className="font-medium">{selectedReview.documentType ?? '—'}</dd></div>
+                  <div><dt className="text-ink-500">Document status</dt><dd className="font-medium">{selectedReview.documentStatus}</dd></div>
+                </dl>
+                <p className="mt-4 whitespace-pre-wrap text-sm text-ink-700">{selectedReview.bio || 'No bio provided.'}</p>
+                <p className="mt-2 text-sm text-ink-500">Area: {selectedReview.area || 'Not provided'}</p>
+                <p className="mt-1 break-all text-xs text-ink-400">Account ID: {selectedReview.accountId}</p>
+                {profilePhotoUrls.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="mb-2 text-sm font-medium text-ink-700">Profile photos</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {profilePhotoUrls.map((url) => (
+                        <img key={url} src={url} alt="Member profile" className="size-24 rounded-xl object-cover" />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {profilePhotoError && <p className="mt-2 text-sm text-danger">{profilePhotoError}</p>}
+              </div>
+              <div>
+                <h3 className="mb-3 font-semibold text-ink-900">Submitted identity document</h3>
+                {documentLoading && <p className="text-sm text-ink-500">Loading document…</p>}
+                {documentError && <p className="text-sm text-danger">{documentError}</p>}
+                {documentUrl && (
+                  <img
+                    src={documentUrl}
+                    alt={`Submitted ${selectedReview.documentType ?? 'identity'} document`}
+                    className="max-h-[50vh] w-full rounded-xl bg-ink-50 object-contain"
+                  />
+                )}
+                <p className="mt-2 text-xs text-ink-500">
+                  Submitted {new Date(selectedReview.documentSubmittedAt).toLocaleString()} · {selectedReview.sizeBytes.toLocaleString()} bytes
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="outline" disabled={decisionLoading} onClick={() => void decideReview('rejected')}>
+                Reject account
+              </Button>
+              <Button variant="accent" loading={decisionLoading} onClick={() => void decideReview('approved')}>
+                Approve account
+              </Button>
+            </div>
+          </>
+        )}
+      </Dialog>
+    </section>
+  )
 }
 
 export function AdminSafetyReviewsPage() {

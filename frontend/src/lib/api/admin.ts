@@ -8,12 +8,33 @@ export interface AdminSession { adminId: string; email: string; role: AdminRole 
 export interface AdminAccount { adminId: string; email: string; role: AdminRole; disabled: boolean; createdAt: string }
 export interface ReviewItem {
   reviewId: string
-  type: string
+  type: 'account-verification'
   accountId: string
   displayName: string | null
   status: string
+  profileStatus: string
+  documentStatus: string
   documentType: string | null
   createdAt: string
+}
+export interface ReviewDetails {
+  reviewId: string
+  type: 'account-verification'
+  accountId: string
+  displayName: string
+  bio: string
+  photos: string[]
+  area: string
+  identity: string
+  dateOfBirth: string
+  contact: string
+  accountStatus: string
+  profileStatus: string
+  documentStatus: string
+  documentType: string | null
+  contentType: string
+  sizeBytes: number
+  documentSubmittedAt: string
 }
 export interface SafetyReviewItem {
   reviewId: string
@@ -148,8 +169,10 @@ export const adminApi = {
   createAccount: (body: { email: string; password: string; role: AdminRole }) => adminRequest<AdminAccount>('/admin/admins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   updateAccount: (id: string, body: { role?: AdminRole; disabled?: boolean }) => adminRequest<AdminAccount>(`/admin/admins/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   reviews: () => adminRequest<{ items: ReviewItem[]; nextOffset: number | null }>('/admin/reviews'),
-  getReview: (id: string) => adminRequest<Record<string, unknown>>(`/admin/reviews/${id}`),
+  getReview: (id: string) => adminRequest<ReviewDetails>(`/admin/reviews/${id}`),
   reviewDocumentBlob: (id: string) => adminRequestBlob(`/admin/reviews/${id}/document`),
+  reviewProfilePhotoBlob: (reviewId: string, mediaId: string) =>
+    adminRequestBlob(`/admin/reviews/${reviewId}/profile-photos/${mediaId}`),
   decide: (id: string, decision: 'approved' | 'rejected', reason: string) => adminRequest(`/admin/reviews/${id}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, reason }) }),
   audit: (accountId: string) => adminRequest<{ items: Array<{ eventType: string; outcome: string; createdAt: string; metadata: unknown }> }>(`/admin/users/${accountId}/audit`),
   safetyReviews: async (status: 'open' | 'reviewed' | 'dismissed' | 'all' = 'open') => {
