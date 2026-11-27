@@ -201,3 +201,89 @@ def test_meetup_payment_dispute_is_admin_resolved_and_ledger_safe(api_client, mo
         ).scalar_one() == 1
     finally:
         generator.close()
+
+    release_proposal = client.post(
+        f"/chat/threads/{thread.json()['id']}/payment-proposals",
+        headers={"X-CSRF-Token": csrf},
+        json={"amountNaira": 500},
+    )
+    assert release_proposal.status_code == 201
+    release_payment_id = release_proposal.json()["id"]
+
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text("UPDATE sessions SET account_id = :recipient_id WHERE id = :session_id"),
+            {"recipient_id": recipient_id, "session_id": session_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    accepted_release = client.post(
+        f"/chat/meetup-payments/{release_payment_id}/accept",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert accepted_release.status_code == 200
+    assert accepted_release.json()["status"] == "held"
+
+    db, generator = _session(client)
+    try:
+        assert db.execute(
+            text("SELECT balance_kobo FROM wallet_accounts WHERE account_id = :id"),
+            {"id": payer_id},
+        ).scalar_one() == 200000
+    finally:
+        generator.close()
+
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text("UPDATE sessions SET account_id = :payer_id WHERE id = :session_id"),
+            {"payer_id": payer_id, "session_id": session_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+
+    released = client.post(
+        f"/chat/meetup-payments/{release_payment_id}/release",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert released.status_code == 200
+    assert released.json()["status"] == "released"
+
+    db, generator = _session(client)
+    try:
+        assert db.execute(
+            text("SELECT balance_kobo FROM wallet_accounts WHERE account_id = :id"),
+            {"id": payer_id},
+        ).scalar_one() == 200000
+        assert db.execute(
+            text("SELECT balance_kobo FROM wallet_accounts WHERE account_id = :id"),
+            {"id": recipient_id},
+        ).scalar_one() == 50000
+        assert db.execute(
+            text(
+                """
+                SELECT amount_kobo FROM wallet_transactions
+                WHERE account_id = :account_id
+                  AND transaction_type = 'meetup-payment-held'
+                  AND amount_kobo = -50000
+                """
+            ),
+            {"account_id": payer_id},
+        ).scalar_one() == -50000
+        assert db.execute(
+            text(
+                """
+                SELECT amount_kobo FROM wallet_transactions
+                WHERE account_id = :account_id
+                  AND transaction_type = 'meetup-payment-released'
+                  AND amount_kobo = 50000
+                """
+            ),
+            {"account_id": recipient_id},
+        ).scalar_one() == 50000
+    finally:
+        generator.close()
