@@ -311,6 +311,24 @@ export function OnboardingPage() {
   }
 
   async function finish() {
+    if (!draft.displayName.trim()) {
+      showToast({
+        title: 'Add a display name',
+        description: 'Enter a display name before finishing onboarding.',
+        variant: 'error',
+      })
+      return
+    }
+
+    if (!draft.photo) {
+      showToast({
+        title: 'Add a profile photo',
+        description: 'Upload a profile photo before finishing onboarding.',
+        variant: 'error',
+      })
+      return
+    }
+
     setFinishing(true)
     try {
       await saveOwnProfile({
@@ -334,6 +352,12 @@ export function OnboardingPage() {
       window.localStorage.removeItem(ONBOARDING_STORAGE_KEY)
       setSession(updated)
       navigate('/discover')
+    } catch (error) {
+      showToast({
+        title: 'Could not finish onboarding',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'error',
+      })
     } finally {
       setFinishing(false)
     }
