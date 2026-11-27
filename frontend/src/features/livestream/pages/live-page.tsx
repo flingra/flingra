@@ -348,6 +348,7 @@ export function LivePage() {
   const showJoinGate = !isHost && !joinedToChat && previewSecondsLeft <= 0
   const hostProfile: MemberProfile = {
     id: stream.hostId,
+    username: stream.hostId,
     displayName: stream.hostName,
     bio: '',
     photos: stream.hostPhoto ? [stream.hostPhoto] : [],

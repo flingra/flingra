@@ -20,6 +20,7 @@ export type SubscriptionTier = 'free' | 'vip'
 
 export interface MemberProfile {
   id: string
+  username: string
   displayName: string
   bio: string
   photos: string[]
@@ -50,6 +51,8 @@ export type VerificationDocumentType = 'NIN' | 'BVN' | 'voters-card'
 
 export interface OwnProfile extends MemberProfile {
   moderationStatus: 'approved' | 'pending' | 'rejected'
+  usernameChangeAvailableAt?: string | null
+  displayNameChangeAvailableAt?: string | null
   locationSharingEnabled?: boolean
   twoFactorEnabled?: boolean
   twoFactorMethod?: 'email' | 'authenticator'
@@ -59,6 +62,13 @@ export interface OwnProfile extends MemberProfile {
   documentType?: VerificationDocumentType
   /** Set only while `subscriptionTier` is 'vip'; past this date the account reverts to free. */
   vipExpiresAt?: string
+}
+
+export interface ProfileSearchResult {
+  id: string
+  username: string
+  displayName: string
+  photo: string | null
 }
 
 export interface DiscoveryFilters {
@@ -141,7 +151,7 @@ export interface GiftType {
 }
 
 export interface OwnedGift {
-  giftTypeId: string
+  gift: GiftType
   quantity: number
 }
 

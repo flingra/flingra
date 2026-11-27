@@ -43,7 +43,7 @@ The older [backend handoff](./backend-handoff.md) describes product behavior and
 | `POST /auth/onboarding/complete` | — + CSRF | session object |
 | `POST /auth/logout` | — + CSRF | `204` |
 | `GET /auth/oauth/google/config` | — | `{clientId: string \| null}` |
-| `POST /auth/oauth/google` | `{credential, nonce, sex?, dateOfBirth?, acceptedTerms?, referralCode?}` | session object |
+| `POST /auth/oauth/google` | `{credential, nonce, username?, sex?, dateOfBirth?, acceptedTerms?, referralCode?}` | session object |
 | `POST /auth/password/forgot` | `{identifier}` | `204` |
 | `POST /auth/password/reset` | `{token, password}` | `204` |
 | `POST /auth/2fa/email/request` | — + CSRF | `{status: "sent"}` |
@@ -56,6 +56,7 @@ Signup body:
 ```json
 {
   "sex": "woman",
+  "username": "flingra_user",
   "identifier": "person@example.com",
   "password": "example-password",
   "dateOfBirth": "1998-04-12",
@@ -75,6 +76,7 @@ The backend currently sends verification codes to email. Phone identifiers are r
 | `GET /profiles/{profile_id}` | — | discoverable `MemberProfile` |
 | `GET /profiles` | — | VIP showcase profile array |
 | `GET /discovery` | Query: `minAge`, `maxAge`, `maxDistanceKm?`, repeated `interests`, `liveOnly`, `lookingFor`, `cursor`, `latitude?`, `longitude?` | `{items: MemberProfile[], nextCursor}` |
+| `GET /discovery/search` | Query: `q`, `minAge`, `maxAge`, `lookingFor` | Up to 10 visible profile suggestions with `id`, `username`, `displayName`, and `photo` |
 | `PUT /profiles/me/location-sharing` | `{latitude, longitude}` + CSRF | `{locationSharingEnabled: true}` |
 | `DELETE /profiles/me/location-sharing` | — + CSRF | `{locationSharingEnabled: false}` |
 | `GET /location/search?q=...` | Query | location suggestions |
@@ -87,7 +89,7 @@ The backend currently sends verification codes to email. Phone identifiers are r
 | `GET /videos/nearby` | — | free/teaser video array |
 | `GET /presence/{author_id}` | — | `{hasStatus, isLive, streamId?}` |
 
-Profile patch fields include `displayName`, `bio`, `photos`, `videos`, `area`, `latitude`, `longitude`, `interests`, `discoverableBy`, `wantsToDiscover`, `identity`, `showIdentity`, `twoFactorEnabled`, and `twoFactorMethod`. Omit unchanged fields; do not send mock blob URLs.
+Profile patch fields include `username`, `displayName`, `bio`, `photos`, `videos`, `area`, `latitude`, `longitude`, `interests`, `discoverableBy`, `wantsToDiscover`, `identity`, `showIdentity`, `twoFactorEnabled`, and `twoFactorMethod`. Usernames are unique and accept 3–30 letters, numbers, or underscores. Username changes are limited to once every 60 days; display-name changes are limited to once every 21 days. Omit unchanged fields; do not send mock blob URLs.
 
 ### Posts and status
 

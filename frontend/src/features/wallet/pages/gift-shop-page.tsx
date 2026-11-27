@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { EmptyState, ErrorState } from '@/components/ui/state-message'
 import { useToast } from '@/components/ui/toast'
 import { formatNaira } from '@/lib/utils'
 import { buyGift, getOwnedGifts, getWalletBalance, listGiftCatalog } from '@/lib/api/wallet'
@@ -12,7 +13,12 @@ export function GiftShopPage() {
   const queryClient = useQueryClient()
 
   const { data: balance } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance })
-  const { data: owned } = useQuery({ queryKey: ['owned-gifts'], queryFn: getOwnedGifts })
+  const {
+    data: owned,
+    isLoading: ownedLoading,
+    isError: ownedError,
+    refetch: refetchOwned,
+  } = useQuery({ queryKey: ['owned-gifts'], queryFn: getOwnedGifts })
   const { data: gifts = [] } = useQuery({ queryKey: ['gift-catalog'], queryFn: listGiftCatalog })
 
   async function handleBuy(giftTypeId: string) {
@@ -40,7 +46,33 @@ export function GiftShopPage() {
         <h1 className="text-2xl font-bold text-ink-900">Gift shop</h1>
         <p className="text-sm font-semibold text-ink-700">Balance: {formatNaira(balance ?? 0)}</p>
       </div>
-      <p className="mt-1 text-sm text-ink-500">Buy gifts here, then send them on a livestream or in chat.</p>
+      <p className="mt-1 text-sm text-ink-500">Buy gifts here, view your collection, then send them on a livestream or in chat.</p>
+
+      <section id="my-gifts" className="mt-6" aria-labelledby="my-gifts-heading">
+        <h2 id="my-gifts-heading" className="text-lg font-bold text-ink-900">My gifts</h2>
+        {ownedLoading ? (
+          <p className="mt-3 text-sm text-ink-500" role="status">Loading your gifts…</p>
+        ) : ownedError ? (
+          <div className="mt-3">
+            <ErrorState title="Couldn’t load your gifts" action={{ label: 'Retry', onClick: () => void refetchOwned() }} />
+          </div>
+        ) : owned?.length ? (
+          <div className="mt-3 flex flex-wrap gap-3">
+            {owned.map(({ gift, quantity }) => (
+              <div key={gift.id} className="flex items-center gap-2 rounded-full border border-ink-100 bg-white px-4 py-2 shadow-soft">
+                <span className="text-xl">{gift.emoji}</span>
+                <span className="text-sm font-semibold text-ink-800">
+                  {gift.name} × {quantity}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-3">
+            <EmptyState title="No purchased gifts yet" description="Gifts you buy will appear here, ready to send during a call or livestream." />
+          </div>
+        )}
+      </section>
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
         {gifts.map((gift) => (
@@ -55,21 +87,6 @@ export function GiftShopPage() {
         ))}
       </div>
 
-      {owned && owned.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-lg font-bold text-ink-900">My gifts</h2>
-          <div className="mt-3 flex flex-wrap gap-3">
-            {owned.map(({ gift, quantity }) => (
-              <div key={gift.id} className="flex items-center gap-2 rounded-full border border-ink-100 bg-white px-4 py-2 shadow-soft">
-                <span className="text-xl">{gift.emoji}</span>
-                <span className="text-sm font-semibold text-ink-800">
-                  {gift.name} × {quantity}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

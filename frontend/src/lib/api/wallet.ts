@@ -33,13 +33,8 @@ export async function listGiftCatalog(): Promise<GiftType[]> {
 }
 
 export async function getOwnedGifts(): Promise<{ gift: GiftType; quantity: number }[]> {
-  const [catalog, owned] = await Promise.all([
-    listGiftCatalog(),
-    apiRequest<OwnedGift[]>('/wallet/gifts/owned'),
-  ])
-  return owned
-    .map((item) => ({ gift: catalog.find((gift) => gift.id === item.giftTypeId), quantity: item.quantity }))
-    .filter((item): item is { gift: GiftType; quantity: number } => Boolean(item.gift) && item.quantity > 0)
+  const owned = await apiRequest<OwnedGift[]>('/wallet/gifts/owned')
+  return owned.filter((item) => item.quantity > 0)
 }
 
 export async function buyGift(giftTypeId: string, quantity = 1): Promise<number> {

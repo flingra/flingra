@@ -4,6 +4,7 @@ import {
   type MemberProfile,
   type OwnProfile,
   type PagedResult,
+  type ProfileSearchResult,
   type ProfileVideo,
   type VerificationDocumentType,
 } from './types'
@@ -61,6 +62,23 @@ export async function getDiscoverableProfile(id: string): Promise<MemberProfile>
   return resolveProfileMedia(profile)
 }
 
+export async function searchDiscoverableProfiles(
+  query: string,
+  filters: Pick<DiscoveryFilters, 'minAge' | 'maxAge' | 'lookingFor'>,
+): Promise<ProfileSearchResult[]> {
+  const params = new URLSearchParams({
+    q: query,
+    minAge: String(filters.minAge),
+    maxAge: String(filters.maxAge),
+    lookingFor: filters.lookingFor,
+  })
+  const results = await apiRequest<ProfileSearchResult[]>(`/discovery/search?${params.toString()}`)
+  return results.map((profile) => ({
+    ...profile,
+    photo: profile.photo ? resolveMediaUrl(profile.photo) : null,
+  }))
+}
+
 export async function getProfile(id: string): Promise<MemberProfile> {
   return getDiscoverableProfile(id)
 }
@@ -86,6 +104,7 @@ export async function stopLocationSharing(): Promise<void> {
 
 export async function saveOwnProfile(partial: Partial<OwnProfile>): Promise<OwnProfile> {
   const payload = {
+    ...(partial.username !== undefined ? { username: partial.username } : {}),
     ...(partial.displayName !== undefined ? { displayName: partial.displayName } : {}),
     ...(partial.bio !== undefined ? { bio: partial.bio } : {}),
     ...(partial.photos !== undefined ? { photos: partial.photos } : {}),

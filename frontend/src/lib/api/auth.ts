@@ -34,6 +34,7 @@ export function clearCachedSession() {
 
 export interface SignUpInput {
   sex: 'man' | 'woman'
+  username: string
   identifier: string
   password: string
   dateOfBirth: string
@@ -47,6 +48,7 @@ export async function signUp(input: SignUpInput): Promise<{ stage: AccountStage 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       sex: input.sex,
+      username: input.username,
       identifier: input.identifier,
       password: input.password,
       dateOfBirth: input.dateOfBirth,
@@ -99,6 +101,7 @@ declare global {
 
 interface GoogleAuthInput {
   sex?: 'man' | 'woman'
+  username?: string
   dateOfBirth?: string
   acceptedTerms?: boolean
   referralCode?: string

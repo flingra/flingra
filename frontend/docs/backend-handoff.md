@@ -44,6 +44,7 @@ interface ProfileVideo {
 
 interface MemberProfile {
   id: string
+  username: string
   displayName: string
   bio: string
   photos: string[]
@@ -61,6 +62,8 @@ interface MemberProfile {
 
 interface OwnProfile extends MemberProfile {
   moderationStatus: 'approved' | 'pending' | 'rejected'
+  usernameChangeAvailableAt?: string | null
+  displayNameChangeAvailableAt?: string | null
   twoFactorEnabled?: boolean
   twoFactorMethod?: 'email' | 'authenticator'
   onboardingComplete?: boolean
@@ -155,7 +158,7 @@ interface SafetyCheckIn { id: string; message: string; notifiedContacts: string[
 
 | Function | Real endpoint (suggested) | Behavior / rules |
 |---|---|---|
-| `signUp({ sex, identifier, password, dateOfBirth, acceptedTerms, referralCode? })` → `{ stage }` | `POST /auth/signup` | Reject if `!acceptedTerms` → `TERMS_REQUIRED`. **Women must sign up with a valid email** (regex `^[^\s@]+@[^\s@]+\.[^\s@]+$`) → `EMAIL_REQUIRED` if not. **Minimum age is 21 for everyone** — reject `INELIGIBLE_AGE` otherwise. Reject duplicate identifier → `ACCOUNT_EXISTS`. On success: create account in `needs-verification` stage, create a draft profile with just `identity: sex` set (so gender-gated rules like the livestream restriction work before onboarding finishes), apply referral bonus if `referralCode` present (see §6.6). |
+| `signUp({ sex, username, identifier, password, dateOfBirth, acceptedTerms, referralCode? })` → `{ stage }` | `POST /auth/signup` | Username is required, normalized to lowercase, and unique; accepted format is 3–30 letters, numbers, or underscores. Username changes are limited to once every 60 days; display-name changes are limited to once every 21 days. Reject if `!acceptedTerms` → `TERMS_REQUIRED`. **Women must sign up with a valid email** (regex `^[^\s@]+@[^\s@]+\.[^\s@]+$`) → `EMAIL_REQUIRED` if not. **Minimum age is 21 for everyone** — reject `INELIGIBLE_AGE` otherwise. Reject duplicate identifier → `ACCOUNT_EXISTS`. On success: create account in `needs-verification` stage and a draft profile with its username and `identity: sex` set. |
 | `signIn({ identifier, password })` → `Session` | `POST /auth/login` | Wrong credentials → `INVALID_CREDENTIALS`. Too many attempts → `ACCOUNT_LOCKED`. Stage is `'active'` if `onboardingComplete`, else `'needs-onboarding'`. |
 | `verifyContact(code)` → `{ stage }` | `POST /auth/verify-contact` | Wrong code → `INVALID_CODE`. On success, advance stage same as sign-in logic. |
 | `resendCode()` | `POST /auth/resend-code` | Re-sends the OTP to email/phone. |
@@ -164,7 +167,7 @@ interface SafetyCheckIn { id: string; message: string; notifiedContacts: string[
 | `signOut()` | `POST /auth/logout` | Clears session. |
 | `currentSession()` | n/a (client reads cached session) | Real client reads session from cookie/local state, not a live call every time. |
 | `completeOnboarding()` | implicit side-effect of the last onboarding step | Marks the session `active` once onboarding finishes — **this must be a real, durable server-side state transition**, not just client state, or a page reload mid-flow bounces the user back into onboarding (this was an actual bug fixed in the frontend; don't reintroduce it server-side). |
-| `continueWithGoogle()` → `{ stage }` | `POST /auth/oauth/google` (or redirect flow) | Google sign-ups still go through the full onboarding flow; there is no "skip onboarding because OAuth" shortcut anywhere in the frontend. |
+| `continueWithGoogle({ username?, sex?, dateOfBirth?, acceptedTerms?, referralCode? })` → `{ stage }` | `POST /auth/oauth/google` (or redirect flow) | New Google accounts require a username and account details; existing Google sign-ins do not. Google sign-ups still go through the full onboarding flow; there is no "skip onboarding because OAuth" shortcut anywhere in the frontend. |
 
 **Session model**: cookie-based, `HttpOnly`, server-authoritative stage (`needs-verification` → `needs-onboarding` → `active`). The frontend's route guards (`ProtectedRoute`/`PublicOnlyRoute` in `app/protected-route.tsx`) gate entire route trees on `session.stage`, so the backend must be the source of truth for which stage an account is in at all times — the frontend never infers stage from anything else. Requests to `/auth/verify-contact`, `/auth/resend-code`, `/auth/logout`, `/auth/onboarding/complete`, and authenticated profile mutations must send the `flingra_csrf` cookie value in the `X-CSRF-Token` header. In configured deployments, also send an `Origin` matching the backend's allowlist.
 
@@ -173,9 +176,10 @@ interface SafetyCheckIn { id: string; message: string; notifiedContacts: string[
 | Function | Endpoint | Notes |
 |---|---|---|
 | `getDiscoveryFeed(filters: DiscoveryFilters, cursor = 0)` → `PagedResult<MemberProfile>` | `GET /discovery?minAge&maxAge&maxDistanceKm&interests&liveOnly&lookingFor&cursor&latitude&longitude` | Implemented against verified, onboarded, approved profiles. Page size is 6. Excludes self and applies audience preferences and VIP distance waiver. Distance filtering is only applied when enabled. Synthetic profiles require the private-only `FLINGRA_DEMO_PROFILES_ENABLED` flag and are marked `isDemo`; `liveOnly` is unavailable until livestream presence is backed by the API. |
+| `searchDiscoverableProfiles(query, filters)` → profile suggestions | `GET /discovery/search?q&minAge&maxAge&lookingFor` | Returns up to 10 username/display-name matches with their profile image, while applying the current discovery age/audience filters and the same verification, moderation, block, and discoverability rules. |
 | `getDiscoverableProfile(id)` → `MemberProfile` | `GET /profiles/:id` | Returns only currently discoverable, email-verified, document-verified, approved profiles; otherwise 404 → `PROFILE_NOT_FOUND`. Demo profiles are hidden unless the private-only flag is enabled and are labelled as test profiles. |
 | `getOwnProfile()` → `OwnProfile` | `GET /profiles/me` | No profile yet → `NO_PROFILE`. |
-| `saveOwnProfile(partial: Partial<OwnProfile>)` → `OwnProfile` | `PATCH /profiles/me` | Partial update/upsert; used throughout onboarding and edit-profile, one field or a batch at a time. |
+| `saveOwnProfile(partial: Partial<OwnProfile>)` → `OwnProfile` | `PATCH /profiles/me` | Partial update; username changes are limited to once per 60 days and display-name changes once per 21 days. The own-profile response provides each next-available timestamp. |
 | `publishCurrentLocation({ latitude, longitude })` / `stopLocationSharing()` | `PUT` / `DELETE /profiles/me/location-sharing` | Sharing is explicitly enabled by the user and updates only while Discover is open. The server stops using coordinates after 5 minutes without an update. Discovery uses exact coordinates only for distance calculations and returns map coordinates rounded to 0.01 degrees. |
 | `uploadPhoto(file)` → `string` (URL) | `POST /media/photos` (multipart) | Backend stores decoded/re-encoded JPEGs as authenticated Cloudinary assets and returns `{ mediaId, url, contentType, sizeBytes }`. Persist only the returned `/media/{mediaId}` URL; the database stores the Cloudinary public ID, and the backend enforces ownership and pending-review visibility before issuing a short-lived URL. The mock still returns a blob URL. |
 | `uploadIdentityDocument(file, documentType)` | `POST /media/documents` (multipart `file`, `documentType`) | Required for all accounts. Stored as an authenticated Cloudinary asset; status becomes `pending`. The user media endpoint is owner-only, and authorized review admins access documents through the admin review endpoint. Messaging, livestreaming, and payments stay blocked until approved. |

@@ -111,6 +111,13 @@ def _as_datetime(value: datetime | str) -> datetime:
     return value if isinstance(value, datetime) else datetime.fromisoformat(value)
 
 
+def _username_exists(db: Session, username: str) -> bool:
+    return db.execute(
+        text("SELECT 1 FROM profiles WHERE username = :username"),
+        {"username": username},
+    ).first() is not None
+
+
 def _stage(account: AuthenticatedAccount) -> str:
     return account.stage
 
@@ -435,6 +442,9 @@ def sign_up(
             409,
         )
 
+    if _username_exists(db, body.username):
+        raise ApiException("USERNAME_TAKEN", "That username is already in use.", 409)
+
     account_id = uuid.uuid4().hex
     code = generate_verification_code()
     try:
@@ -470,13 +480,19 @@ def sign_up(
             text(
                 """
                 INSERT INTO profiles (
-                    account_id, bio, photos, age_range, interests, identity, document_verification
+                    account_id, username, username_changed_at, bio, photos, age_range, interests,
+                    identity, document_verification
                 )
-                VALUES (:account_id, '', '[]', :age_range, '[]', :identity, 'unverified')
+                VALUES (
+                    :account_id, :username, :username_changed_at, '', '[]', :age_range,
+                    '[]', :identity, 'unverified'
+                )
                 """
             ),
             {
                 "account_id": account_id,
+                "username": body.username,
+                "username_changed_at": _now(),
                 "age_range": _age_range(body.date_of_birth),
                 "identity": body.sex,
             },
@@ -510,6 +526,8 @@ def sign_up(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        if _username_exists(db, body.username):
+            raise ApiException("USERNAME_TAKEN", "That username is already in use.", 409) from exc
         raise ApiException(
             "ACCOUNT_EXISTS",
             "If an account already exists for these details, sign in instead or reset your password.",
@@ -1036,16 +1054,19 @@ def google_auth(
         db.commit()
         return _session_response(authenticated)
 
-    if body.sex is None or body.date_of_birth is None:
+    if body.sex is None or body.username is None or body.date_of_birth is None:
         raise ApiException(
             "GOOGLE_SIGNUP_REQUIRED",
-            "Choose your account type and date of birth to finish creating your account.",
+            "Choose your account type, username and date of birth to finish creating your account.",
             409,
         )
     if not body.accepted_terms:
         raise ApiException("TERMS_REQUIRED", "Accept the terms and privacy notice to continue.")
     if _age_on(body.date_of_birth, date.today()) < MINIMUM_ACCOUNT_AGE:
         raise ApiException("INELIGIBLE_AGE", "Flingra is only available to adults 21 and older.")
+
+    if _username_exists(db, body.username):
+        raise ApiException("USERNAME_TAKEN", "That username is already in use.", 409)
 
     referral_code = normalize_referral_code(body.referral_code)
     account_id = uuid.uuid4().hex
@@ -1086,14 +1107,19 @@ def google_auth(
             text(
                 """
                 INSERT INTO profiles (
-                    account_id, display_name, bio, photos, age_range, interests, identity,
-                    document_verification
+                    account_id, username, username_changed_at, display_name, bio, photos,
+                    age_range, interests, identity, document_verification
                 )
-                VALUES (:account_id, :display_name, '', '[]', :age_range, '[]', :identity, 'unverified')
+                VALUES (
+                    :account_id, :username, :username_changed_at, :display_name, '', '[]',
+                    :age_range, '[]', :identity, 'unverified'
+                )
                 """
             ),
             {
                 "account_id": account_id,
+                "username": body.username,
+                "username_changed_at": _now(),
                 "display_name": display_name,
                 "age_range": _age_range(body.date_of_birth),
                 "identity": body.sex,
@@ -1123,6 +1149,8 @@ def google_auth(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        if _username_exists(db, body.username):
+            raise ApiException("USERNAME_TAKEN", "That username is already in use.", 409) from exc
         raise ApiException(
             "ACCOUNT_EXISTS",
             "If an account already exists for these details, sign in instead or reset your password.",
@@ -1474,8 +1502,15 @@ def complete_onboarding(
     if not profile["display_name"].strip() or not photos:
         raise ApiException("ONBOARDING_INCOMPLETE", "Add a display name and profile photo to continue.")
     db.execute(
-        text("UPDATE profiles SET onboarding_complete = TRUE WHERE account_id = :account_id"),
-        {"account_id": account.account_id},
+        text(
+            """
+            UPDATE profiles
+            SET onboarding_complete = TRUE,
+                display_name_changed_at = COALESCE(display_name_changed_at, :completed_at)
+            WHERE account_id = :account_id
+            """
+        ),
+        {"account_id": account.account_id, "completed_at": _now()},
     )
     db.execute(
         text(

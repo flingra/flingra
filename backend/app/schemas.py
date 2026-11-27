@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 AccountStage = Literal["needs-verification", "needs-onboarding", "active"]
@@ -24,11 +24,20 @@ class SignUpRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     sex: Literal["man", "woman"]
+    username: str = Field(min_length=3, max_length=30, pattern=r"^[a-zA-Z0-9_]+$")
     identifier: str = Field(min_length=1, max_length=254)
     password: str = Field(min_length=8, max_length=128)
     date_of_birth: date = Field(alias="dateOfBirth")
     accepted_terms: bool = Field(alias="acceptedTerms")
     referral_code: str | None = Field(default=None, alias="referralCode", max_length=64)
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return (normalized[1:] if normalized.startswith("@") else normalized).lower()
+        return value
 
 
 class SignInRequest(BaseModel):
@@ -42,9 +51,18 @@ class GoogleAuthRequest(BaseModel):
     credential: str = Field(min_length=100, max_length=8192)
     nonce: str = Field(min_length=16, max_length=256)
     sex: Literal["man", "woman"] | None = None
+    username: str | None = Field(default=None, min_length=3, max_length=30, pattern=r"^[a-zA-Z0-9_]+$")
     date_of_birth: date | None = Field(default=None, alias="dateOfBirth")
     accepted_terms: bool = Field(default=False, alias="acceptedTerms")
     referral_code: str | None = Field(default=None, alias="referralCode", max_length=64)
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return (normalized[1:] if normalized.startswith("@") else normalized).lower()
+        return value
 
 
 class AdminLoginRequest(BaseModel):
@@ -146,6 +164,13 @@ class OwnProfileResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str
+    username: str
+    username_change_available_at: datetime | None = Field(
+        default=None, serialization_alias="usernameChangeAvailableAt"
+    )
+    display_name_change_available_at: datetime | None = Field(
+        default=None, serialization_alias="displayNameChangeAvailableAt"
+    )
     display_name: str = Field(serialization_alias="displayName")
     bio: str
     photos: list[str]
@@ -186,6 +211,7 @@ class DiscoveryProfileResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str
+    username: str
     display_name: str = Field(serialization_alias="displayName")
     bio: str
     photos: list[str]
@@ -202,6 +228,15 @@ class DiscoveryProfileResponse(BaseModel):
     show_identity: bool = Field(serialization_alias="showIdentity")
     subscription_tier: Literal["free", "vip"] = Field(serialization_alias="subscriptionTier")
     is_demo: bool = Field(default=False, serialization_alias="isDemo")
+
+
+class ProfileSearchResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    username: str
+    display_name: str = Field(serialization_alias="displayName")
+    photo: str | None
 
 
 class LiveLocationUpdate(BaseModel):
@@ -224,6 +259,9 @@ class DiscoveryFeedResponse(BaseModel):
 class OwnProfilePatch(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
+    username: str | None = Field(
+        default=None, min_length=3, max_length=30, pattern=r"^[a-zA-Z0-9_]+$"
+    )
     display_name: str | None = Field(default=None, alias="displayName", max_length=100)
     bio: str | None = Field(default=None, max_length=2000)
     photos: list[Annotated[str, Field(min_length=1, max_length=2048)]] | None = Field(
@@ -247,6 +285,14 @@ class OwnProfilePatch(BaseModel):
     two_factor_method: Literal["email", "authenticator"] | None = Field(
         default=None, alias="twoFactorMethod"
     )
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return (normalized[1:] if normalized.startswith("@") else normalized).lower()
+        return value
 
 
 class CurrentSessionResponse(SessionResponse):

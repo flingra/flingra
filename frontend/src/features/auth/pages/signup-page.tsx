@@ -29,6 +29,12 @@ const STAGE_ROUTE: Record<AccountStage, string> = {
 const schema = z
   .object({
     sex: z.enum(['woman', 'man'], { message: 'Choose an option to continue.' }),
+    username: z
+      .string()
+      .trim()
+      .min(3, 'Use at least 3 characters.')
+      .max(30, 'Use no more than 30 characters.')
+      .regex(/^[a-zA-Z0-9_]+$/, 'Use only letters, numbers and underscores.'),
     identifier: z.string().min(3, 'Enter your email or mobile number.'),
     password: z.string().min(8, 'Use at least 8 characters.'),
     confirmPassword: z.string(),
@@ -51,7 +57,7 @@ type FormValues = z.infer<typeof schema>
 
 const STEP_FIELDS: Record<number, (keyof FormValues)[]> = {
   1: ['sex'],
-  2: ['identifier', 'password', 'confirmPassword'],
+  2: ['username', 'identifier', 'password', 'confirmPassword'],
   3: ['dateOfBirth', 'acceptedTerms'],
 }
 
@@ -76,7 +82,7 @@ export function SignUpPage() {
 
   async function goNext() {
     const fields = googlePending
-      ? (step === 1 ? ['sex'] : ['dateOfBirth', 'acceptedTerms'])
+      ? (step === 1 ? ['sex'] : ['username', 'dateOfBirth', 'acceptedTerms'])
       : STEP_FIELDS[step]
     const valid = await trigger(fields as (keyof FormValues)[])
     if (valid) setStep((current) => Math.min(googlePending ? 2 : TOTAL_STEPS, current + 1))
@@ -92,6 +98,7 @@ export function SignUpPage() {
     try {
       await signUp({
         sex: values.sex,
+        username: values.username,
         identifier: values.identifier,
         password: values.password,
         dateOfBirth: values.dateOfBirth,
@@ -101,7 +108,10 @@ export function SignUpPage() {
       setSession(currentSession())
       navigate('/verify-contact')
     } catch (error) {
-      if (error instanceof ApiError && (error.code === 'INELIGIBLE_AGE' || error.code === 'EMAIL_REQUIRED')) {
+      if (error instanceof ApiError && error.code === 'USERNAME_TAKEN') {
+        setError('username', { message: error.message })
+        setStep(2)
+      } else if (error instanceof ApiError && (error.code === 'INELIGIBLE_AGE' || error.code === 'EMAIL_REQUIRED')) {
         setError(error.code === 'EMAIL_REQUIRED' ? 'identifier' : 'dateOfBirth', { message: error.message })
         setStep(error.code === 'EMAIL_REQUIRED' ? 2 : 3)
       } else if (error instanceof ApiError) {
@@ -116,7 +126,7 @@ export function SignUpPage() {
     setFormError(null)
 
     if (googlePending) {
-      const valid = await trigger(['sex', 'dateOfBirth', 'acceptedTerms'])
+      const valid = await trigger(['sex', 'username', 'dateOfBirth', 'acceptedTerms'])
       if (!valid) {
         setStep(watch('sex') ? 2 : 1)
         return
@@ -128,6 +138,7 @@ export function SignUpPage() {
       const values = watch()
       const session = await continueWithGoogle({
         sex: values.sex,
+        username: values.username || undefined,
         dateOfBirth: values.dateOfBirth,
         acceptedTerms: values.acceptedTerms,
         referralCode: values.referralCode,
@@ -138,6 +149,10 @@ export function SignUpPage() {
       if (error instanceof ApiError && error.code === 'GOOGLE_SIGNUP_REQUIRED') {
         setGooglePending(true)
         setStep(watch('sex') ? 2 : 1)
+      } else if (error instanceof ApiError && error.code === 'USERNAME_TAKEN') {
+        setError('username', { message: error.message })
+        setGooglePending(true)
+        setStep(2)
       } else {
         setFormError(error instanceof ApiError ? error.message : 'Google sign-in failed. Try again.')
       }
@@ -211,6 +226,20 @@ export function SignUpPage() {
           {step === 2 && !googlePending && (
             <>
               <Field
+                id="username"
+                label="Username"
+                hint="3–30 letters, numbers or underscores. You can change it once every 60 days."
+                error={errors.username?.message}
+              >
+                <Input
+                  id="username"
+                  autoComplete="nickname"
+                  aria-invalid={!!errors.username}
+                  {...register('username')}
+                />
+              </Field>
+
+              <Field
                 id="identifier"
                 label={sex === 'woman' ? 'Email address' : 'Email or mobile number'}
                 error={errors.identifier?.message}
@@ -241,6 +270,20 @@ export function SignUpPage() {
 
           {googlePending && step === 2 && (
             <>
+              <Field
+                id="username"
+                label="Username"
+                hint="3–30 letters, numbers or underscores. You can change it once every 60 days."
+                error={errors.username?.message}
+              >
+                <Input
+                  id="username"
+                  autoComplete="nickname"
+                  aria-invalid={!!errors.username}
+                  {...register('username')}
+                />
+              </Field>
+
               <Field
                 id="dateOfBirth"
                 label="Date of birth"

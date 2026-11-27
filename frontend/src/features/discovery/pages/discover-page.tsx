@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import {
   Camera,
   ChevronDown,
@@ -28,6 +29,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Avatar } from '@/components/ui/avatar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState, ErrorState } from '@/components/ui/state-message'
 import {
@@ -35,9 +37,10 @@ import {
   getDiscoveryFeed,
   getOwnProfile,
   publishCurrentLocation,
+  searchDiscoverableProfiles,
   stopLocationSharing,
 } from '@/lib/api/profiles'
-import type { DiscoveryFilters, MemberProfile } from '@/lib/api/types'
+import type { DiscoveryFilters, MemberProfile, ProfileSearchResult } from '@/lib/api/types'
 import { getCurrentLocation, searchLocations, type CurrentLocation, type LocationSearchResult } from '@/lib/location'
 import { CircleCard } from '../components/circle-card'
 import { FiltersDrawer } from '../components/filters-drawer'
@@ -63,6 +66,8 @@ const SEARCH_DEBOUNCE_MS = 400
 const SHARE_PUBLISH_INTERVAL_MS = 30_000
 const SEARCH_UNAVAILABLE = 'Location search is temporarily unavailable. Try again in a moment.'
 const SEARCH_NO_RESULTS = 'No locations found. Try a nearby landmark or street.'
+const PROFILE_SEARCH_UNAVAILABLE = 'People search is temporarily unavailable. Try again in a moment.'
+const PROFILE_SEARCH_NO_RESULTS = 'No matching profiles found.'
 
 /* -------------------------------------------------------------------------- */
 /*  Small presentational pieces                                               */
@@ -209,6 +214,90 @@ function useLocationSearch() {
   }
 }
 
+function useProfileSearch(filters: Pick<DiscoveryFilters, 'minAge' | 'maxAge' | 'lookingFor'>) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<ProfileSearchResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [locked, setLocked] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const requestId = useRef(0)
+
+  useEffect(() => {
+    requestId.current++
+    setLocked(false)
+  }, [filters])
+
+  const run = useCallback(async (text: string) => {
+    const id = ++requestId.current
+    setSearching(true)
+    setError(null)
+    try {
+      const found = await searchDiscoverableProfiles(text, filters)
+      if (id !== requestId.current) return
+      setResults(found)
+      if (found.length === 0) setError(PROFILE_SEARCH_NO_RESULTS)
+    } catch (error) {
+      if (id !== requestId.current) return
+      setResults([])
+      setError(error instanceof Error ? error.message : PROFILE_SEARCH_UNAVAILABLE)
+    } finally {
+      if (id === requestId.current) setSearching(false)
+    }
+  }, [filters])
+
+  useEffect(() => {
+    if (locked) return
+    const text = query.trim()
+    if (text.replace(/^@/, '').length < 2) {
+      requestId.current++
+      setResults([])
+      setError(null)
+      setSearching(false)
+      return
+    }
+    const timeout = window.setTimeout(() => void run(text), SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(timeout)
+  }, [query, locked, run])
+
+  useEffect(() => setActiveIndex(-1), [results])
+
+  const reset = useCallback(() => {
+    requestId.current++
+    setResults([])
+    setError(null)
+    setSearching(false)
+  }, [])
+
+  return {
+    query,
+    results,
+    searching,
+    error,
+    activeIndex,
+    setActiveIndex,
+    isOpen: results.length > 0 || searching || error !== null,
+    change(value: string) {
+      requestId.current++
+      setSearching(false)
+      setLocked(false)
+      setQuery(value)
+    },
+    submit() {
+      const text = query.trim()
+      if (text.replace(/^@/, '').length < 2) return
+      setLocked(true)
+      void run(text)
+    },
+    dismiss: reset,
+    clear() {
+      setLocked(false)
+      setQuery('')
+      reset()
+    },
+  }
+}
+
 /** Live location sharing: publishes on a throttle, stops cleanly, and resumes if the server says sharing is on. */
 function useLocationSharing(serverEnabled: boolean | undefined) {
   const queryClient = useQueryClient()
@@ -321,7 +410,9 @@ function useLocationSharing(serverEnabled: boolean | undefined) {
 /* -------------------------------------------------------------------------- */
 
 export function DiscoverPage() {
+  const navigate = useNavigate()
   const [filters, setFilters] = useState<DiscoveryFilters>(DEFAULT_FILTERS)
+  const [searchMode, setSearchMode] = useState<'location' | 'people'>('location')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [locationEnabled, setLocationEnabled] = useState(false)
   const [userLocation, setUserLocation] = useState<CurrentLocation | null>(null)
@@ -342,6 +433,7 @@ export function DiscoverPage() {
   const listboxId = useId()
 
   const search = useLocationSearch()
+  const peopleSearch = useProfileSearch(filters)
 
   const { data: ownProfile } = useQuery({
     queryKey: ['own-profile'],
@@ -519,6 +611,18 @@ export function DiscoverPage() {
     searchInputRef.current?.blur()
   }
 
+  function selectProfile(profile: ProfileSearchResult) {
+    peopleSearch.clear()
+    searchInputRef.current?.blur()
+    navigate(`/profiles/${encodeURIComponent(profile.id)}`)
+  }
+
+  function changeSearchMode(mode: 'location' | 'people') {
+    setSearchMode(mode)
+    search.clear()
+    peopleSearch.clear()
+  }
+
   function clearLocationSearch() {
     manualMapLocationSelected.current = true
     setMapCenter(null)
@@ -534,26 +638,29 @@ export function DiscoverPage() {
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    const count = search.results.length
+    const activeSearch = searchMode === 'location' ? search : peopleSearch
+    const count = activeSearch.results.length
     if (event.key === 'Escape') {
-      search.dismiss()
+      activeSearch.dismiss()
       return
     }
     if (count === 0) return
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      search.setActiveIndex((index) => (index + 1) % count)
+      activeSearch.setActiveIndex((index) => (index + 1) % count)
     } else if (event.key === 'ArrowUp') {
       event.preventDefault()
-      search.setActiveIndex((index) => (index <= 0 ? count - 1 : index - 1))
-    } else if (event.key === 'Enter' && search.activeIndex >= 0) {
+      activeSearch.setActiveIndex((index) => (index <= 0 ? count - 1 : index - 1))
+    } else if (event.key === 'Enter' && activeSearch.activeIndex >= 0) {
       event.preventDefault()
-      selectLocation(search.results[search.activeIndex])
+      if (searchMode === 'location') selectLocation(search.results[activeSearch.activeIndex])
+      else selectProfile(peopleSearch.results[activeSearch.activeIndex])
     }
   }
 
   /* ---- render ---- */
 
+  const activeSearch = searchMode === 'location' ? search : peopleSearch
   const googleMapsReady = isGoogleMapsConfigured()
   const showEmpty = !isLoading && !isError && items.length === 0
   const heading = userLocation ? 'Near you' : hasChosenArea ? `In ${activeMapLocationLabel}` : 'People to meet'
@@ -649,11 +756,38 @@ export function DiscoverPage() {
         className="relative mt-3 h-[54dvh] max-h-[480px] min-h-[360px] w-full overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-sm sm:mt-4 sm:h-[70vh] sm:max-h-none sm:min-h-[520px]"
       >
         <div className="absolute left-1/2 top-3 z-[1200] w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 sm:top-4 sm:w-[calc(100%-2rem)]">
+          <div
+            role="group"
+            aria-label="Search filter"
+            className="mb-2 flex rounded-full border border-ink-100 bg-white/95 p-1 shadow-md backdrop-blur"
+          >
+            <button
+              type="button"
+              aria-pressed={searchMode === 'location'}
+              onClick={() => changeSearchMode('location')}
+              className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                searchMode === 'location' ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-ink-50'
+              }`}
+            >
+              Location
+            </button>
+            <button
+              type="button"
+              aria-pressed={searchMode === 'people'}
+              onClick={() => changeSearchMode('people')}
+              className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                searchMode === 'people' ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-ink-50'
+              }`}
+            >
+              Username or name
+            </button>
+          </div>
           <form
             className="flex items-center gap-2 rounded-full border border-ink-100 bg-white/95 p-1.5 pl-3 shadow-md backdrop-blur focus-within:ring-2 focus-within:ring-primary-500"
             onSubmit={(event) => {
               event.preventDefault()
-              search.submit()
+              if (searchMode === 'location') search.submit()
+              else peopleSearch.submit()
             }}
           >
             <Search className="size-4 shrink-0 text-ink-400" aria-hidden="true" />
@@ -661,24 +795,30 @@ export function DiscoverPage() {
               ref={searchInputRef}
               type="text"
               role="combobox"
-              aria-label="Search locations"
+              aria-label={searchMode === 'location' ? 'Search locations' : 'Search by username or display name'}
               aria-autocomplete="list"
-              aria-expanded={search.results.length > 0}
+              aria-expanded={activeSearch.isOpen}
               aria-controls={listboxId}
-              aria-activedescendant={search.activeIndex >= 0 ? `${listboxId}-${search.activeIndex}` : undefined}
+              aria-activedescendant={
+                activeSearch.activeIndex >= 0 ? `${listboxId}-${activeSearch.activeIndex}` : undefined
+              }
               autoComplete="off"
               enterKeyHint="search"
-              value={search.query}
-              onChange={(event) => search.change(event.target.value)}
+              value={activeSearch.query}
+              onChange={(event) => activeSearch.change(event.target.value)}
               onKeyDown={handleSearchKeyDown}
-              placeholder="Search a street, landmark, neighbourhood or city"
+              placeholder={
+                searchMode === 'location'
+                  ? 'Search a street, landmark, neighbourhood or city'
+                  : 'Search a username or display name'
+              }
               className="min-w-0 flex-1 bg-transparent text-sm font-medium text-ink-900 outline-none placeholder:text-ink-400"
             />
-            {search.query && (
+            {activeSearch.query && (
               <button
                 type="button"
-                aria-label="Clear location search"
-                onClick={clearLocationSearch}
+                aria-label={searchMode === 'location' ? 'Clear location search' : 'Clear people search'}
+                onClick={searchMode === 'location' ? clearLocationSearch : peopleSearch.clear}
                 className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-400 hover:bg-ink-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
               >
                 <X className="size-4" aria-hidden="true" />
@@ -689,42 +829,69 @@ export function DiscoverPage() {
               size="icon"
               aria-label="Search"
               className="size-9 shrink-0 rounded-full"
-              disabled={search.searching}
+              disabled={activeSearch.searching}
             >
               <Search className="size-4" aria-hidden="true" />
             </Button>
           </form>
 
-          {search.isOpen && (
-            <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-ink-100 bg-white p-1 shadow-float">
-              {search.searching && (
+          {activeSearch.isOpen && (
+            <div className="mt-2 max-h-64 overflow-y-auto rounded-2xl border border-ink-100 bg-white p-1 shadow-float">
+              {activeSearch.searching && (
                 <p className="px-3 py-2 text-sm text-ink-500" role="status">
                   Searching…
                 </p>
               )}
-              {search.error && (
+              {activeSearch.error && (
                 <p className="px-3 py-2 text-sm text-ink-500" role="status">
-                  {search.error}
+                  {activeSearch.error}
                 </p>
               )}
-              <ul id={listboxId} role="listbox" aria-label="Location suggestions">
-                {search.results.map((result, index) => (
-                  <li
-                    key={`${result.latitude}-${result.longitude}`}
-                    id={`${listboxId}-${index}`}
-                    role="option"
-                    aria-selected={index === search.activeIndex}
-                    onMouseEnter={() => search.setActiveIndex(index)}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => selectLocation(result)}
-                    className={`cursor-pointer rounded-xl px-3 py-2 ${
-                      index === search.activeIndex ? 'bg-ink-50' : ''
-                    }`}
-                  >
-                    <span className="block text-sm font-semibold text-ink-900">{result.area}</span>
-                    <span className="block truncate text-xs text-ink-500">{result.name}</span>
-                  </li>
-                ))}
+              <ul
+                id={listboxId}
+                role="listbox"
+                aria-label={searchMode === 'location' ? 'Location suggestions' : 'Profile suggestions'}
+              >
+                {searchMode === 'location'
+                  ? search.results.map((result, index) => (
+                      <li
+                        key={`${result.latitude}-${result.longitude}`}
+                        id={`${listboxId}-${index}`}
+                        role="option"
+                        aria-selected={index === search.activeIndex}
+                        onMouseEnter={() => search.setActiveIndex(index)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectLocation(result)}
+                        className={`cursor-pointer rounded-xl px-3 py-2 ${
+                          index === search.activeIndex ? 'bg-ink-50' : ''
+                        }`}
+                      >
+                        <span className="block text-sm font-semibold text-ink-900">{result.area}</span>
+                        <span className="block truncate text-xs text-ink-500">{result.name}</span>
+                      </li>
+                    ))
+                  : peopleSearch.results.map((profile, index) => (
+                      <li
+                        key={profile.id}
+                        id={`${listboxId}-${index}`}
+                        role="option"
+                        aria-selected={index === peopleSearch.activeIndex}
+                        onMouseEnter={() => peopleSearch.setActiveIndex(index)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectProfile(profile)}
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 ${
+                          index === peopleSearch.activeIndex ? 'bg-ink-50' : ''
+                        }`}
+                      >
+                        <Avatar name={profile.displayName} src={profile.photo ?? undefined} size="sm" />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-ink-900">
+                            {profile.displayName}
+                          </span>
+                          <span className="block truncate text-xs text-ink-500">@{profile.username}</span>
+                        </span>
+                      </li>
+                    ))}
               </ul>
             </div>
           )}

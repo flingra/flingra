@@ -167,6 +167,8 @@ Implemented endpoints:
 - `GET /profiles` (VIP showcase), `GET /videos/nearby`, `GET /presence/{author_id}`
 - `GET /discovery` — verified, approved member feed with age, interest, audience,
   distance and pagination filters, including the live-only filter
+- `GET /discovery/search` — username/display-name suggestions using the same
+  verification, moderation, audience, age, and block filters as discovery
 - `POST /media/photos`, `POST /media/documents`, `POST /media/videos`,
   `POST /statuses`, `GET /media/{media_id}`
 - `POST /media/videos?purpose=post` stores an owned private video for a post;
@@ -250,6 +252,9 @@ Implemented endpoints:
 All signup and sign-in paths enforce a minimum age of 21; existing sessions
 belonging to underage accounts are revoked when used. Government ID review is
 required for every account; a document upload sets its status to `pending`.
+Signup requires a unique 3–30 character username (letters, numbers, and
+underscores); username changes are limited to once every 60 days and display
+name changes to once every 21 days.
 Safety reports and blocks are persisted; blocking immediately hides either
 member from discovery, chat, and member interactions. Safety reviewers can
 process the resulting queue through the admin API. Chat messages, meetup

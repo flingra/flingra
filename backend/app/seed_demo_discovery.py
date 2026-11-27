@@ -189,14 +189,14 @@ def seed_demo_profiles(db: Session, settings: Settings, cohort_id: str) -> int:
             text(
                 """
                 INSERT INTO profiles (
-                    account_id, display_name, bio, photos, videos, age_range, area,
+                    account_id, username, display_name, bio, photos, videos, age_range, area,
                     distance_km, interests, discoverable_by, wants_to_discover,
                     identity, show_identity, subscription_tier, moderation_status,
                     onboarding_complete, document_verification, demo_cohort_id,
                     latitude, longitude
                 )
                 VALUES (
-                    :account_id, :display_name, :bio, '[]', NULL, :age_range, :area,
+                    :account_id, :username, :display_name, :bio, '[]', NULL, :age_range, :area,
                     0, :interests, 'everyone', 'everyone', :identity, TRUE, 'free',
                     'approved', TRUE, 'verified', :cohort_id, :latitude, :longitude
                 )
@@ -204,6 +204,7 @@ def seed_demo_profiles(db: Session, settings: Settings, cohort_id: str) -> int:
             ),
             {
                 "account_id": profile.account_id,
+                "username": f"demo_{profile.account_id}",
                 "display_name": profile.display_name,
                 "bio": "Synthetic test profile for Discover.",
                 "age_range": profile.age_range,

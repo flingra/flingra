@@ -19,6 +19,7 @@ def _create_viewer(client, monkeypatch, *, document_status="verified"):
         "/auth/signup",
         json={
             "sex": "man",
+            "username": "discoveryviewer",
             "identifier": "viewer@example.test",
             "password": "secure-password-123",
             "dateOfBirth": "1990-02-10",
@@ -55,6 +56,8 @@ def _create_viewer(client, monkeypatch, *, document_status="verified"):
 def _create_candidate(
     client,
     *,
+    username="candidate",
+    display_name="Candidate",
     identity="woman",
     email_verified=True,
     moderation_status="approved",
@@ -92,13 +95,14 @@ def _create_candidate(
             text(
                 """
                 INSERT INTO profiles (
-                    account_id, display_name, bio, photos, videos, age_range, area,
+                    account_id, username, display_name, bio, photos, videos, age_range, area,
                     interests, discoverable_by, wants_to_discover, identity, show_identity,
                     subscription_tier, moderation_status, onboarding_complete,
                     document_verification, latitude, longitude, demo_cohort_id
                 )
                 VALUES (
-                    :account_id, 'Candidate', 'A test profile', '["/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]',
+                    :account_id, :username, :display_name, 'A test profile',
+                    '["/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]',
                     '[{"url":"https://media.example.test/demo.mp4"}]', '30–35', 'Yaba, Lagos',
                     '["Tech"]', :discoverable_by, :wants_to_discover, :identity, TRUE,
                     'free', :moderation_status, TRUE, :document_status, :latitude, :longitude,
@@ -108,6 +112,8 @@ def _create_candidate(
             ),
             {
                 "account_id": account_id,
+                "username": username,
+                "display_name": display_name,
                 "identity": identity,
                 "discoverable_by": discoverable_by,
                 "wants_to_discover": wants_to_discover,
@@ -122,6 +128,38 @@ def _create_candidate(
     finally:
         generator.close()
     return account_id
+
+
+def test_people_search_returns_only_visible_profiles_with_avatar(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    _create_viewer(client, monkeypatch)
+    visible_id = _create_candidate(
+        client,
+        username="wonderwoman",
+        display_name="Wonder Woman",
+    )
+    _create_candidate(
+        client,
+        username="wonderhidden",
+        display_name="Wonder Hidden",
+        document_status="pending",
+    )
+
+    response = client.get("/discovery/search?q=wonder")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": visible_id,
+            "username": "wonderwoman",
+            "displayName": "Wonder Woman",
+            "photo": "/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        }
+    ]
+
+    by_username = client.get("/discovery/search?q=%40wonderwoman")
+    assert by_username.status_code == 200
+    assert by_username.json()[0]["id"] == visible_id
 
 
 def test_discovery_feed_filters_verified_profiles_and_paginates(api_client, monkeypatch) -> None:

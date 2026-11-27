@@ -33,6 +33,7 @@ def test_live_stream_lifecycle_issues_restricted_livekit_tokens(api_client, monk
         "/auth/signup",
         json={
             "sex": "woman",
+            "username": "streamer",
             "identifier": "streamer@example.test",
             "password": "secure-password-123",
             "dateOfBirth": "1995-02-10",
@@ -196,6 +197,7 @@ def test_livestream_join_capacity_presence_chat_and_gifts(api_client, monkeypatc
         "/auth/signup",
         json={
             "sex": "woman",
+            "username": "hostuser",
             "identifier": "host@example.test",
             "password": "secure-password-123",
             "dateOfBirth": "1995-02-10",

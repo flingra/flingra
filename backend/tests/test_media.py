@@ -38,6 +38,7 @@ def verified_woman_client(client: TestClient, monkeypatch) -> None:
         "/auth/signup",
         json={
             "sex": "woman",
+            "username": "mediatest",
             "identifier": "media@example.com",
             "password": "secure-password-123",
             "dateOfBirth": "1995-02-10",
@@ -115,6 +116,7 @@ def test_document_upload_accepts_male_account_and_requires_review(api_client, mo
         "/auth/signup",
         json={
             "sex": "man",
+            "username": "mediaman",
             "identifier": "man@example.com",
             "password": "secure-password-123",
             "dateOfBirth": "1995-02-10",
@@ -228,6 +230,7 @@ def test_non_owner_cannot_read_pending_photo_or_identity_document(api_client, mo
             "/auth/signup",
             json={
                 "sex": "man",
+                "username": "mediaanother",
                 "identifier": "another@example.com",
                 "password": "secure-password-123",
                 "dateOfBirth": "1995-02-10",

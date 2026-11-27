@@ -1,6 +1,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import hashlib
+
 import pytest
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.exc import DBAPIError
@@ -211,4 +213,45 @@ def test_completed_onboarding_migration_activates_only_eligible_accounts(tmp_pat
         "suspended": "suspended",
         "unverified": "needs-onboarding",
     }
+    engine.dispose()
+
+
+def test_username_migration_backfills_unique_handles(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'usernames.db'}")
+    migration_file = (
+        Path(__file__).resolve().parents[1]
+        / "internal"
+        / "migrate"
+        / "migrations"
+        / "000032_add_usernames_and_name_cooldowns.sql"
+    )
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE profiles (account_id TEXT PRIMARY KEY)")
+        connection.exec_driver_sql(
+            "INSERT INTO profiles (account_id) VALUES ('account-one'), ('account-two')"
+        )
+        connection.connection.create_function(
+            "CONCAT", -1, lambda *parts: "".join(str(part) for part in parts)
+        )
+        connection.connection.create_function(
+            "SHA2",
+            2,
+            lambda value, bits: hashlib.sha256(str(value).encode()).hexdigest()
+            if bits == 256
+            else None,
+        )
+        for statement in migration_file.read_text().split(";"):
+            if statement.strip():
+                connection.exec_driver_sql(statement)
+        usernames = dict(
+            connection.exec_driver_sql("SELECT account_id, username FROM profiles").all()
+        )
+
+    assert usernames == {
+        account_id: f"u{hashlib.sha256(account_id.encode()).hexdigest()[:29]}"
+        for account_id in ("account-one", "account-two")
+    }
+    assert all(len(username) == 30 for username in usernames.values())
+    indexes = {index["name"] for index in inspect(engine).get_indexes("profiles")}
+    assert "uq_profiles_username" in indexes
     engine.dispose()

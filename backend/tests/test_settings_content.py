@@ -279,7 +279,17 @@ def test_wallet_gift_purchase_and_vip_subscription_use_atomic_ledger(api_client,
     )
     assert bought.status_code == 200
     assert bought.json() == {"balanceNaira": 9000}
-    assert client.get("/wallet/gifts/owned").json()[0]["quantity"] == 2
+    assert client.get("/wallet/gifts/owned").json() == [
+        {
+            "gift": {
+                "id": "rose",
+                "name": "Rose",
+                "emoji": "🌹",
+                "priceNaira": 500,
+            },
+            "quantity": 2,
+        }
+    ]
 
     vip = client.post(
         "/subscriptions",

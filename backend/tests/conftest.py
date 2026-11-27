@@ -50,7 +50,9 @@ def api_client() -> Iterator[tuple[TestClient, list[str]]]:
         connection.exec_driver_sql(
             """
             CREATE TABLE profiles (
-                account_id TEXT PRIMARY KEY, display_name TEXT NOT NULL DEFAULT '',
+                account_id TEXT PRIMARY KEY, username TEXT NOT NULL DEFAULT 'fixture',
+                username_changed_at DATETIME, display_name_changed_at DATETIME,
+                display_name TEXT NOT NULL DEFAULT '',
                 bio TEXT NOT NULL, photos TEXT NOT NULL, videos TEXT, age_range TEXT NOT NULL,
                 area TEXT NOT NULL DEFAULT '', distance_km REAL NOT NULL DEFAULT 0,
                 interests TEXT NOT NULL, discoverable_by TEXT NOT NULL DEFAULT 'everyone',

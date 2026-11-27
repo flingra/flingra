@@ -23,6 +23,7 @@ export function EditProfilePage() {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile })
   const { data: myPosts } = useQuery({ queryKey: ['my-posts'], queryFn: listMyPosts })
 
+  const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
   const [photos, setPhotos] = useState<string[]>([])
@@ -35,6 +36,7 @@ export function EditProfilePage() {
 
   useEffect(() => {
     if (!data) return
+    setUsername(data.username)
     setDisplayName(data.displayName)
     setBio(data.bio)
     setPhotos(data.photos)
@@ -102,6 +104,7 @@ export function EditProfilePage() {
 
   function handleCancel() {
     if (!data) return
+    setUsername(data.username)
     setDisplayName(data.displayName)
     setBio(data.bio)
     setPhotos(data.photos)
@@ -112,12 +115,16 @@ export function EditProfilePage() {
   async function handleSave() {
     setSaving(true)
     try {
-      await saveOwnProfile({ displayName, bio, photos, videos })
+      await saveOwnProfile({ username, displayName, bio, photos, videos })
       await queryClient.invalidateQueries({ queryKey: ['own-profile'] })
       setDirty(false)
       showToast({ title: 'Profile saved', variant: 'success' })
-    } catch {
-      showToast({ title: 'Could not save profile', description: 'Check your connection and try again.', variant: 'error' })
+    } catch (error) {
+      showToast({
+        title: 'Could not save profile',
+        description: error instanceof Error ? error.message : 'Check your connection and try again.',
+        variant: 'error',
+      })
     } finally {
       setSaving(false)
     }
@@ -131,6 +138,11 @@ export function EditProfilePage() {
       </div>
     )
   }
+
+  const usernameChangeLocked =
+    !!data?.usernameChangeAvailableAt && new Date(data.usernameChangeAvailableAt).getTime() > Date.now()
+  const displayNameChangeLocked =
+    !!data?.displayNameChangeAvailableAt && new Date(data.displayNameChangeAvailableAt).getTime() > Date.now()
 
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
@@ -237,10 +249,39 @@ export function EditProfilePage() {
             </div>
           </div>
 
-          <Field id="displayName" label="Display name">
+          <Field
+            id="username"
+            label="Username"
+            hint={
+              usernameChangeLocked
+                ? `You can change your username again on ${new Date(data.usernameChangeAvailableAt!).toLocaleDateString()}.`
+                : 'You can change your username once every 60 days.'
+            }
+          >
+            <Input
+              id="username"
+              value={username}
+              disabled={usernameChangeLocked}
+              onChange={(event) => {
+                setUsername(event.target.value)
+                setDirty(true)
+              }}
+            />
+          </Field>
+
+          <Field
+            id="displayName"
+            label="Display name"
+            hint={
+              displayNameChangeLocked
+                ? `You can change your display name again on ${new Date(data.displayNameChangeAvailableAt!).toLocaleDateString()}.`
+                : 'You can change your display name once every 21 days.'
+            }
+          >
             <Input
               id="displayName"
               value={displayName}
+              disabled={displayNameChangeLocked}
               onChange={(event) => {
                 setDisplayName(event.target.value)
                 setDirty(true)

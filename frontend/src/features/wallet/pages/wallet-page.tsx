@@ -49,7 +49,7 @@ const TRANSACTION_LABELS: Record<WalletTransactionType, string> = {
 }
 
 const LINKS = [
-  { to: '/gifts/shop', icon: Gift, label: 'Gift shop', description: 'Buy gifts to send' },
+  { to: '/gifts/shop', icon: Gift, label: 'Gift shop', description: 'Buy gifts and view your collection' },
   { to: '/gifts/redeem', icon: WalletIcon, label: 'Redeem gifts', description: 'Trade received gifts for cash' },
   { to: '/referrals', icon: Share2, label: 'Referrals', description: 'Invite friends, track referrals' },
   { to: '/payout', icon: Landmark, label: 'Payout', description: 'Withdraw to your bank account' },

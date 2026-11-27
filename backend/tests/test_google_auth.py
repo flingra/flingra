@@ -56,6 +56,7 @@ def test_google_signup_creates_verified_account_and_session(api_client, monkeypa
     response = google_auth(
         client,
         sex="woman",
+        username="googleuser",
         dateOfBirth="1995-02-10",
         acceptedTerms=True,
         referralCode="FRIEND-123",
@@ -105,6 +106,7 @@ def test_google_login_links_verified_email_account_and_verifies_contact(api_clie
         "/auth/signup",
         json={
             "sex": "woman",
+            "username": "googleexisting",
             "identifier": "google@example.com",
             "password": "secure-password-123",
             "dateOfBirth": "1995-02-10",
@@ -138,9 +140,36 @@ def test_google_login_links_verified_email_account_and_verifies_contact(api_clie
     [
         ({"email_verified": False}, {}, "INVALID_GOOGLE_CREDENTIAL"),
         ({}, {"nonce": "another-google-nonce-1234567"}, "INVALID_GOOGLE_CREDENTIAL"),
-        ({}, {"acceptedTerms": False, "sex": "woman", "dateOfBirth": "1995-02-10"}, "TERMS_REQUIRED"),
-        ({}, {"acceptedTerms": True, "sex": "woman", "dateOfBirth": "2008-02-10"}, "INELIGIBLE_AGE"),
-        ({}, {"acceptedTerms": True, "sex": "man", "dateOfBirth": "2008-02-10"}, "INELIGIBLE_AGE"),
+        (
+            {},
+            {
+                "acceptedTerms": False,
+                "sex": "woman",
+                "username": "termsuser",
+                "dateOfBirth": "1995-02-10",
+            },
+            "TERMS_REQUIRED",
+        ),
+        (
+            {},
+            {
+                "acceptedTerms": True,
+                "sex": "woman",
+                "username": "youngwoman",
+                "dateOfBirth": "2008-02-10",
+            },
+            "INELIGIBLE_AGE",
+        ),
+        (
+            {},
+            {
+                "acceptedTerms": True,
+                "sex": "man",
+                "username": "youngman",
+                "dateOfBirth": "2008-02-10",
+            },
+            "INELIGIBLE_AGE",
+        ),
     ],
 )
 def test_google_signup_rejects_invalid_claims_or_profile_data(
@@ -181,6 +210,7 @@ def test_google_signin_rejects_existing_account_under_21(api_client, monkeypatch
         "/auth/signup",
         json={
             "sex": "man",
+            "username": "googleexisting",
             "identifier": "google@example.com",
             "password": "secure-password-123",
             "dateOfBirth": "1995-02-10",

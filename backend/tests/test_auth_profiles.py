@@ -1,5 +1,6 @@
 import hashlib
 import io
+import re
 
 from PIL import Image
 from sqlalchemy import text
@@ -13,12 +14,16 @@ from app.routes import auth
 def signup(client, **overrides):
     payload = {
         "sex": "woman",
+        "username": "testuser",
         "identifier": "test@example.com",
         "password": "secure-password-123",
         "dateOfBirth": "1995-02-10",
         "acceptedTerms": True,
     }
     payload.update(overrides)
+    if "username" not in overrides:
+        local_part = payload["identifier"].split("@", 1)[0]
+        payload["username"] = f"u_{re.sub(r'[^a-zA-Z0-9_]', '_', local_part).lower()}"[:30]
     return client.post("/auth/signup", json=payload)
 
 
@@ -55,6 +60,8 @@ def test_signup_verify_login_and_profile_round_trip(api_client, monkeypatch) -> 
     draft = client.get("/profiles/me")
     assert draft.status_code == 200
     assert draft.json()["identity"] == "woman"
+    assert draft.json()["username"] == "u_test"
+    assert draft.json()["usernameChangeAvailableAt"]
     assert draft.json()["documentVerification"] == "unverified"
 
     verified = client.post(
@@ -171,6 +178,18 @@ def test_signup_rejects_terms_email_and_minimum_age(api_client, monkeypatch) -> 
     assert no_terms.status_code == 400
     assert no_terms.json()["error"]["code"] == "TERMS_REQUIRED"
 
+    no_username = client.post(
+        "/auth/signup",
+        json={
+            "sex": "woman",
+            "identifier": "missing-username@example.com",
+            "password": "secure-password-123",
+            "dateOfBirth": "1995-02-10",
+            "acceptedTerms": True,
+        },
+    )
+    assert no_username.status_code == 422
+
     no_email = signup(client, identifier="not-an-email")
     assert no_email.status_code == 400
     assert no_email.json()["error"]["code"] == "EMAIL_REQUIRED"
@@ -198,6 +217,86 @@ def test_signup_rejects_duplicate_identifier(api_client, monkeypatch) -> None:
     duplicate = signup(client)
     assert duplicate.status_code == 409
     assert duplicate.json()["error"]["code"] == "ACCOUNT_EXISTS"
+
+
+def test_profile_name_change_cooldowns_and_username_uniqueness(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    monkeypatch.setattr(auth, "send_verification_code", lambda *_: None)
+    assert signup(client, username="HandleOne").status_code == 201
+    csrf_token = client.cookies["flingra_csrf"]
+    db_generator = client.app.dependency_overrides[auth.db_session]()
+    db = next(db_generator)
+    try:
+        db.execute(
+            auth.text("UPDATE profiles SET onboarding_complete = TRUE")
+        )
+        db.commit()
+    finally:
+        db_generator.close()
+
+    unavailable_username = client.patch(
+        "/profiles/me",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"username": "newhandle"},
+    )
+    assert unavailable_username.status_code == 429
+    assert unavailable_username.json()["error"]["code"] == "USERNAME_CHANGE_COOLDOWN"
+
+    first_name = client.patch(
+        "/profiles/me",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"displayName": "First name"},
+    )
+    assert first_name.status_code == 200
+    second_name = client.patch(
+        "/profiles/me",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"displayName": "Second name"},
+    )
+    assert second_name.status_code == 200
+    blocked_name = client.patch(
+        "/profiles/me",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"displayName": "Third name"},
+    )
+    assert blocked_name.status_code == 429
+    assert blocked_name.json()["error"]["code"] == "DISPLAY_NAME_CHANGE_COOLDOWN"
+
+    db_generator = client.app.dependency_overrides[auth.db_session]()
+    db = next(db_generator)
+    try:
+        db.execute(
+            auth.text(
+                """
+                UPDATE profiles SET username_changed_at = :changed_at
+                WHERE account_id = :account_id
+                """
+            ),
+            {
+                "changed_at": auth._now() - auth.timedelta(days=61),
+                "account_id": client.get("/auth/session").json()["accountId"],
+            },
+        )
+        db.commit()
+    finally:
+        db_generator.close()
+
+    changed_username = client.patch(
+        "/profiles/me",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"username": "  NewHandle "},
+    )
+    assert changed_username.status_code == 200
+    assert changed_username.json()["username"] == "newhandle"
+    assert changed_username.json()["usernameChangeAvailableAt"]
+
+    duplicate_username = signup(
+        client,
+        identifier="different@example.com",
+        username="NEWHANDLE",
+    )
+    assert duplicate_username.status_code == 409
+    assert duplicate_username.json()["error"]["code"] == "USERNAME_TAKEN"
 
 
 def test_referral_signup_does_not_credit_bonus_until_policy_is_decided(
@@ -417,6 +516,12 @@ def test_onboarding_completes_without_facial_verification_and_stays_pending_revi
         json={"displayName": "Tola", "photos": [photo_url]},
     )
     assert patched.status_code == 200
+    patched_during_onboarding = client.patch(
+        "/profiles/me",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"displayName": "Tola Updated"},
+    )
+    assert patched_during_onboarding.status_code == 200
 
     response = client.post(
         "/auth/onboarding/complete",
@@ -436,6 +541,7 @@ def test_onboarding_completes_without_facial_verification_and_stays_pending_revi
         db_generator.close()
     completed_profile = client.get("/profiles/me").json()
     assert completed_profile["onboardingComplete"] is True
+    assert completed_profile["displayNameChangeAvailableAt"]
     assert completed_profile["moderationStatus"] == "pending"
     assert "selfieVerification" not in completed_profile
     assert "selfiePhoto" not in completed_profile

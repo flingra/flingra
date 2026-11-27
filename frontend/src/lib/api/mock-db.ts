@@ -129,6 +129,7 @@ function seedVideos(person: { name: string; identity: MemberProfile['identity'] 
 
 export const PROFILES: OwnProfile[] = NAMES.map((person, index) => ({
   id: `member-${index + 1}`,
+  username: `member_${index + 1}`,
   displayName: person.name,
   bio: 'Exploring the city, always up for good conversation and good food.',
   photos: avatarGallery(`${person.name}-${index}`),

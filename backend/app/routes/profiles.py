@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import bindparam, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.audit import record_audit_event
@@ -21,13 +22,17 @@ from app.schemas import (
     LocationSharingResponse,
     OwnProfilePatch,
     OwnProfileResponse,
+    ProfileSearchResult,
 )
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 discovery_router = APIRouter(prefix="/discovery", tags=["discovery"])
 DISCOVERY_PAGE_SIZE = 6
+PROFILE_SEARCH_LIMIT = 10
 EARTH_RADIUS_KM = 6371.0
 LIVE_LOCATION_TTL = timedelta(minutes=5)
+USERNAME_CHANGE_COOLDOWN = timedelta(days=60)
+DISPLAY_NAME_CHANGE_COOLDOWN = timedelta(days=21)
 
 
 def _visible_profile_rows(
@@ -36,9 +41,19 @@ def _visible_profile_rows(
     viewer_identity: str,
     include_demo_profiles: bool,
     profile_id: str | None = None,
+    search_term: str | None = None,
+    limit: int | None = None,
+    min_age: int | None = None,
+    max_age: int | None = None,
+    target_identity: str | None = None,
 ) -> list[dict[str, Any]]:
     viewer_audience = {"man": "men", "woman": "women"}.get(viewer_identity)
     profile_condition = "AND a.id = :profile_id" if profile_id is not None else ""
+    search_condition = ""
+    age_condition = ""
+    identity_condition = ""
+    order_clause = "ORDER BY p.created_at DESC, a.id ASC"
+    limit_clause = ""
     parameters: dict[str, Any] = {
         "viewer_id": viewer_id,
         "viewer_audience": viewer_audience,
@@ -46,12 +61,48 @@ def _visible_profile_rows(
     }
     if profile_id is not None:
         parameters["profile_id"] = profile_id
+    if search_term is not None:
+        escaped = search_term.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        parameters.update(
+            search_exact=search_term.lower(),
+            search_prefix=f"{escaped}%",
+            search_pattern=f"%{escaped}%",
+        )
+        search_condition = """
+                  AND (
+                      LOWER(p.username) LIKE :search_pattern ESCAPE '!'
+                      OR LOWER(p.display_name) LIKE :search_pattern ESCAPE '!'
+                  )
+        """
+        order_clause = """
+                ORDER BY CASE
+                    WHEN LOWER(p.username) = :search_exact THEN 0
+                    WHEN LOWER(p.display_name) = :search_exact THEN 1
+                    WHEN LOWER(p.username) LIKE :search_prefix ESCAPE '!' THEN 2
+                    WHEN LOWER(p.display_name) LIKE :search_prefix ESCAPE '!' THEN 3
+                    ELSE 4
+                END, p.created_at DESC, a.id ASC
+        """
+    if limit is not None:
+        parameters["result_limit"] = limit
+        limit_clause = "LIMIT :result_limit"
+    if min_age is not None and max_age is not None:
+        today = date.today()
+        parameters["youngest_birth_date"] = _date_years_ago(today, min_age)
+        parameters["oldest_birth_date"] = _date_years_ago(today, max_age + 1)
+        age_condition = """
+                  AND a.date_of_birth > :oldest_birth_date
+                  AND a.date_of_birth <= :youngest_birth_date
+        """
+    if target_identity is not None:
+        parameters["target_identity"] = target_identity
+        identity_condition = "AND p.identity = :target_identity"
     return list(
         db.execute(
             text(
                 f"""
                 SELECT a.id, a.date_of_birth,
-                       p.display_name, p.bio, p.photos, p.videos, p.age_range, p.area,
+                       p.username, p.display_name, p.bio, p.photos, p.videos, p.age_range, p.area,
                        p.latitude, p.longitude, p.live_latitude, p.live_longitude,
                        p.location_shared_at, p.interests, p.discoverable_by,
                        p.wants_to_discover, p.identity, p.show_identity,
@@ -78,8 +129,12 @@ def _visible_profile_rows(
                       p.wants_to_discover = 'everyone'
                       OR (:viewer_audience IS NOT NULL AND p.wants_to_discover = :viewer_audience)
                   )
+                  {age_condition}
+                  {identity_condition}
+                  {search_condition}
                   {profile_condition}
-                ORDER BY p.created_at DESC, a.id ASC
+                {order_clause}
+                {limit_clause}
                 """
             ),
             parameters,
@@ -111,6 +166,14 @@ def _profile_videos(value: Any) -> list[Any]:
 
 def _parse_date(value: date | str) -> date:
     return value if isinstance(value, date) else date.fromisoformat(value)
+
+
+def _date_years_ago(value: date, years: int) -> date:
+    target_year = value.year - years
+    try:
+        return value.replace(year=target_year)
+    except ValueError:
+        return value.replace(year=target_year, day=28)
 
 
 def _effective_subscription_tier(tier: str, expires_at: datetime | str | None) -> str:
@@ -195,6 +258,7 @@ def _member_profile(
         ]
     return DiscoveryProfileResponse(
         id=str(row["id"]),
+        username=row["username"],
         display_name=row["display_name"],
         bio=row["bio"],
         photos=_parse_json_list(row["photos"]),
@@ -252,6 +316,7 @@ def get_own_profile(
         text(
             """
             SELECT a.date_of_birth,
+                   p.username, p.username_changed_at, p.display_name_changed_at,
                    p.display_name, p.bio, p.photos, p.videos, p.age_range, p.area,
                    p.latitude, p.longitude,
                    p.distance_km, p.interests, p.discoverable_by, p.wants_to_discover,
@@ -281,6 +346,18 @@ def get_own_profile(
     db.commit()
     profile = dict(row)
     profile["id"] = account.account_id
+    username_available_at = _change_available_at(
+        profile["username_changed_at"], USERNAME_CHANGE_COOLDOWN
+    )
+    display_name_available_at = _change_available_at(
+        profile["display_name_changed_at"], DISPLAY_NAME_CHANGE_COOLDOWN
+    )
+    profile["username_change_available_at"] = (
+        username_available_at.replace(tzinfo=timezone.utc) if username_available_at else None
+    )
+    profile["display_name_change_available_at"] = (
+        display_name_available_at.replace(tzinfo=timezone.utc) if display_name_available_at else None
+    )
     profile["distance_km"] = float(profile["distance_km"])
     profile["location_sharing_enabled"] = _location_sharing_active(profile["location_shared_at"])
     if isinstance(profile["photos"], str):
@@ -292,6 +369,18 @@ def get_own_profile(
     elif profile["videos"] is not None:
         profile["videos"] = _profile_videos(profile["videos"])
     return OwnProfileResponse.model_validate(profile)
+
+
+def _change_available_at(
+    changed_at: datetime | str | None,
+    cooldown: timedelta,
+) -> datetime | None:
+    if changed_at is None:
+        return None
+    timestamp = changed_at if isinstance(changed_at, datetime) else datetime.fromisoformat(changed_at)
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.astimezone(timezone.utc).replace(tzinfo=None)
+    return timestamp + cooldown
 
 
 @router.put(
@@ -397,8 +486,81 @@ def save_own_profile(
 ) -> OwnProfileResponse:
     changes = payload.model_dump(exclude_unset=True, by_alias=False)
     changes.pop("distance_km", None)
+    if "username" in changes and changes["username"] is None:
+        raise ApiException("USERNAME_REQUIRED", "Choose a username to continue.")
     if not changes:
         return get_own_profile(request, account, db)
+
+    profile_state = db.execute(
+        text(
+            """
+            SELECT username, username_changed_at, display_name, display_name_changed_at,
+                   onboarding_complete
+            FROM profiles
+            WHERE account_id = :account_id
+            """
+        ),
+        {"account_id": account.account_id},
+    ).mappings().first()
+    if profile_state is None:
+        raise ApiException("NO_PROFILE", "Finish onboarding to create your profile.", 404)
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    eligibility_conditions: list[str] = []
+    eligibility_parameters: dict[str, datetime] = {}
+    if "username" in changes:
+        if changes["username"] == profile_state["username"]:
+            changes.pop("username")
+        else:
+            username_taken = db.execute(
+                text(
+                    """
+                    SELECT 1 FROM profiles
+                    WHERE username = :username AND account_id != :account_id
+                    """
+                ),
+                {"username": changes["username"], "account_id": account.account_id},
+            ).first()
+            if username_taken is not None:
+                raise ApiException("USERNAME_TAKEN", "That username is already in use.", 409)
+            changed_at = profile_state["username_changed_at"]
+            if changed_at is not None:
+                available_at = _change_available_at(changed_at, USERNAME_CHANGE_COOLDOWN)
+                if available_at is not None and now < available_at:
+                    raise ApiException(
+                        "USERNAME_CHANGE_COOLDOWN",
+                        f"You can change your username again after {available_at.isoformat()}Z.",
+                        429,
+                    )
+                eligibility_parameters["username_cutoff"] = now - USERNAME_CHANGE_COOLDOWN
+                eligibility_conditions.append("username_changed_at <= :username_cutoff")
+            else:
+                eligibility_conditions.append("username_changed_at IS NULL")
+            changes["username_changed_at"] = now
+    if "display_name" in changes:
+        if changes["display_name"] == profile_state["display_name"]:
+            changes.pop("display_name")
+        elif profile_state["onboarding_complete"] and profile_state["display_name"]:
+            changed_at = profile_state["display_name_changed_at"]
+            if changed_at is not None:
+                available_at = _change_available_at(changed_at, DISPLAY_NAME_CHANGE_COOLDOWN)
+                if available_at is not None and now < available_at:
+                    raise ApiException(
+                        "DISPLAY_NAME_CHANGE_COOLDOWN",
+                        f"You can change your display name again after {available_at.isoformat()}Z.",
+                        429,
+                    )
+                eligibility_parameters["display_name_cutoff"] = now - DISPLAY_NAME_CHANGE_COOLDOWN
+                eligibility_conditions.append("display_name_changed_at <= :display_name_cutoff")
+            else:
+                eligibility_conditions.append("display_name_changed_at IS NULL")
+            changes["display_name_changed_at"] = now
+    audit_changed_fields = sorted(
+        field for field in changes if field not in {"username_changed_at", "display_name_changed_at"}
+    )
+    if not changes:
+        return get_own_profile(request, account, db)
+
     if "photos" in changes and changes["photos"] is not None:
         photo_urls = changes["photos"]
         media_ids: list[str] = []
@@ -465,6 +627,9 @@ def save_own_profile(
                 )
 
     column_names = {
+        "username": "username",
+        "username_changed_at": "username_changed_at",
+        "display_name_changed_at": "display_name_changed_at",
         "display_name": "display_name",
         "bio": "bio",
         "photos": "photos",
@@ -481,16 +646,33 @@ def save_own_profile(
         "two_factor_method": "two_factor_method",
     }
     assignments: list[str] = []
-    parameters: dict[str, Any] = {"account_id": account.account_id}
+    parameters: dict[str, Any] = {
+        "account_id": account.account_id,
+        **eligibility_parameters,
+    }
     for field, value in changes.items():
         column = column_names[field]
         assignments.append(f"{column} = :{field}")
         parameters[field] = json.dumps(value) if field in {"photos", "videos", "interests"} else value
 
-    db.execute(
-        text(f"UPDATE profiles SET {', '.join(assignments)} WHERE account_id = :account_id"),
-        parameters,
-    )
+    where_clause = "account_id = :account_id"
+    if eligibility_conditions:
+        where_clause += " AND " + " AND ".join(eligibility_conditions)
+    try:
+        result = db.execute(
+            text(f"UPDATE profiles SET {', '.join(assignments)} WHERE {where_clause}"),
+            parameters,
+        )
+    except IntegrityError as exc:
+        db.rollback()
+        if "username" in audit_changed_fields:
+            raise ApiException("USERNAME_TAKEN", "That username is already in use.", 409) from exc
+        raise
+    if result.rowcount == 0 and eligibility_conditions:
+        db.rollback()
+        if "username" in audit_changed_fields:
+            raise ApiException("USERNAME_CHANGE_COOLDOWN", "Your username cannot be changed yet.", 429)
+        raise ApiException("DISPLAY_NAME_CHANGE_COOLDOWN", "Your display name cannot be changed yet.", 429)
     record_audit_event(
         db,
         request,
@@ -499,10 +681,62 @@ def save_own_profile(
         actor_id=account.account_id,
         subject_account_id=account.account_id,
         outcome="success",
-        metadata={"changedFields": sorted(changes)},
+        metadata={"changedFields": audit_changed_fields},
     )
     db.commit()
     return get_own_profile(request, account, db)
+
+
+@discovery_router.get("/search", response_model=list[ProfileSearchResult])
+def search_discoverable_profiles(
+    request: Request,
+    account: IdentityVerifiedAccount,
+    db: Annotated[Session, Depends(db_session)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    q: str = Query(min_length=2, max_length=64),
+    min_age: int = Query(default=21, alias="minAge", ge=18, le=99),
+    max_age: int = Query(default=45, alias="maxAge", ge=18, le=99),
+    looking_for: AudiencePreference = Query(default="everyone", alias="lookingFor"),
+) -> list[ProfileSearchResult]:
+    _require_discovery_ready(account)
+    if max_age < min_age:
+        raise ApiException("INVALID_DISCOVERY_FILTERS", "Maximum age must be at least the minimum age.", 422)
+    search_term = q.strip().removeprefix("@").strip()
+    if len(search_term) < 2:
+        return []
+    viewer = _viewer_profile(db, account.account_id)
+    rows = _visible_profile_rows(
+        db,
+        account.account_id,
+        viewer["identity"],
+        settings.demo_profiles_enabled,
+        search_term=search_term,
+        limit=PROFILE_SEARCH_LIMIT,
+        min_age=max(min_age, 21),
+        max_age=max_age,
+        target_identity={"men": "man", "women": "woman"}.get(looking_for),
+    )
+    results = [
+        ProfileSearchResult(
+            id=str(row["id"]),
+            username=row["username"],
+            display_name=row["display_name"],
+            photo=next(iter(_parse_json_list(row["photos"])), None),
+        )
+        for row in rows
+    ]
+    record_audit_event(
+        db,
+        request,
+        event_type="discovery.profile_search",
+        actor_type="user",
+        actor_id=account.account_id,
+        subject_account_id=None,
+        outcome="success",
+        metadata={"resultCount": len(results)},
+    )
+    db.commit()
+    return results
 
 
 @discovery_router.get("", response_model=DiscoveryFeedResponse)
