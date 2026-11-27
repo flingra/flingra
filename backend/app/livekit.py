@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import time
 from typing import Any
 
@@ -9,6 +10,8 @@ import httpx
 
 from app.config import Settings
 from app.errors import ServiceUnavailable
+
+logger = logging.getLogger("uvicorn.error")
 
 
 def _b64url(value: bytes) -> str:
@@ -81,5 +84,15 @@ def delete_room(settings: Settings, room_name: str) -> None:
             )
             if response.status_code != 404:
                 response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "LiveKit room deletion returned HTTP %d.",
+            exc.response.status_code,
+        )
+        raise ServiceUnavailable("LiveKit could not close this room.") from exc
     except (httpx.HTTPError, OSError) as exc:
+        logger.warning(
+            "LiveKit room deletion request failed (%s).",
+            type(exc).__name__,
+        )
         raise ServiceUnavailable("LiveKit could not close this room.") from exc

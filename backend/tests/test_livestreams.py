@@ -22,7 +22,7 @@ def _session(client):
     return next(generator), generator
 
 
-def test_live_stream_lifecycle_issues_restricted_livekit_tokens(api_client, monkeypatch) -> None:
+def test_live_stream_lifecycle_issues_restricted_livekit_tokens(api_client, monkeypatch, caplog) -> None:
     client, delivered_codes = api_client
     monkeypatch.setattr(
         auth,
@@ -109,6 +109,7 @@ def test_live_stream_lifecycle_issues_restricted_livekit_tokens(api_client, monk
         headers={"X-CSRF-Token": client.cookies["flingra_csrf"]},
     )
     assert failed_end.status_code == 503
+    assert "LiveKit room deletion returned HTTP 503" in caplog.text
     db, generator = _session(client)
     try:
         durable_state = db.execute(
