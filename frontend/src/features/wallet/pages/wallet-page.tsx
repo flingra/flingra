@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronRight, Coins, Gift, Share2, Wallet as WalletIcon, Landmark, HeartHandshake } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -20,24 +20,29 @@ import {
   listMeetupPayments,
   listTransactions,
   refundMeetupPayment,
+  verifyWalletTopUp,
 } from '@/lib/api/wallet'
 import { getCallCreditBalance } from '@/lib/api/calls'
 import { ApiError, type WalletTransactionType } from '@/lib/api/types'
+import { useSessionStore } from '@/lib/stores/session-store'
 
 const QUICK_AMOUNTS = [500, 1000, 5000, 10000]
 
 const TRANSACTION_LABELS: Record<WalletTransactionType, string> = {
-  'top-up': 'Wallet top-up',
+  'wallet-top-up': 'Wallet top-up',
   'gift-purchase': 'Gift purchase',
   'gift-received': 'Gift received',
   redemption: 'Gift redeemed',
   'referral-bonus': 'Referral bonus',
   'call-bonus': 'Call bonus',
   payout: 'Payout',
+  'payout-refund': 'Payout refund',
+  'admin-adjustment': 'Account adjustment',
   'meetup-payment-held': 'Meetup payment held',
   'meetup-payment-released': 'Meetup payment released',
   'meetup-payment-refunded': 'Meetup payment refunded',
   'video-unlock': 'Video unlocked',
+  'video-sale': 'Video unlock earnings',
   'vip-subscription': 'VIP subscription',
   'coin-purchase': 'Call credit coins bought',
   'call-credit-spend': 'Call credit coins spent',
@@ -46,24 +51,59 @@ const TRANSACTION_LABELS: Record<WalletTransactionType, string> = {
 const LINKS = [
   { to: '/gifts/shop', icon: Gift, label: 'Gift shop', description: 'Buy gifts to send' },
   { to: '/gifts/redeem', icon: WalletIcon, label: 'Redeem gifts', description: 'Trade received gifts for cash' },
-  { to: '/referrals', icon: Share2, label: 'Referrals', description: 'Invite friends, earn bonuses' },
+  { to: '/referrals', icon: Share2, label: 'Referrals', description: 'Invite friends, track referrals' },
   { to: '/payout', icon: Landmark, label: 'Payout', description: 'Withdraw to your bank account' },
 ]
 
 export function WalletPage() {
   const { showToast } = useToast()
   const queryClient = useQueryClient()
+  const accountId = useSessionStore((state) => state.session?.accountId)
+  const [searchParams] = useSearchParams()
   const [fundOpen, setFundOpen] = useState(false)
   const [amount, setAmount] = useState('')
   const [funding, setFunding] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [paymentStatus, setPaymentStatus] = useState<'verifying' | 'pending' | 'success' | null>(null)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+  const paymentReference = searchParams.get('reference') ?? searchParams.get('trxref')
 
   const [resolvingId, setResolvingId] = useState<string | null>(null)
 
   const { data: balance, isLoading: balanceLoading } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance })
   const { data: transactions, isLoading: transactionsLoading } = useQuery({ queryKey: ['wallet-transactions'], queryFn: listTransactions })
-  const { data: meetupPayments } = useQuery({ queryKey: ['meetup-payments'], queryFn: listMeetupPayments })
+  const { data: meetupPayments = [] } = useQuery({ queryKey: ['meetup-payments'], queryFn: listMeetupPayments })
   const { data: callCredits } = useQuery({ queryKey: ['call-credits'], queryFn: getCallCreditBalance })
+
+  useEffect(() => {
+    if (!paymentReference) {
+      setPaymentStatus(null)
+      setPaymentError(null)
+      return
+    }
+
+    let active = true
+    setPaymentStatus('verifying')
+    setPaymentError(null)
+    void verifyWalletTopUp(paymentReference)
+      .then(async (result) => {
+        if (!active) return
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['wallet-balance'] }),
+          queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] }),
+        ])
+        if (active) setPaymentStatus(result.status)
+      })
+      .catch((err: unknown) => {
+        if (!active) return
+        setPaymentStatus(null)
+        setPaymentError(err instanceof ApiError ? err.message : 'Could not verify this payment. Try again later.')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [paymentReference, queryClient])
 
   async function refreshWallet() {
     await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
@@ -119,12 +159,15 @@ export function WalletPage() {
     setError(null)
     setFunding(true)
     try {
-      await fundWallet(amountNaira)
-      await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
-      await queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] })
-      showToast({ title: 'Wallet funded', description: `${formatNaira(amountNaira)} added to your balance.`, variant: 'success' })
-      setFundOpen(false)
-      setAmount('')
+      const checkout = await fundWallet(amountNaira)
+      const authorizationUrl = new URL(checkout.authorizationUrl)
+      if (
+        authorizationUrl.protocol !== 'https:'
+        || (authorizationUrl.hostname !== 'paystack.com' && !authorizationUrl.hostname.endsWith('.paystack.com'))
+      ) {
+        throw new ApiError('INVALID_CHECKOUT_URL', 'Paystack returned an invalid checkout link.')
+      }
+      window.location.assign(authorizationUrl.toString())
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not fund your wallet. Try again.')
     } finally {
@@ -135,6 +178,20 @@ export function WalletPage() {
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
       <h1 className="text-2xl font-bold text-ink-900">Wallet</h1>
+
+      {paymentReference && (
+        <div role="status" className="mt-4 rounded-2xl border border-ink-100 bg-white p-4 text-sm">
+          {paymentError ? (
+            <p className="text-danger">{paymentError}</p>
+          ) : paymentStatus === 'verifying' ? (
+            <p className="text-ink-700">Verifying your Paystack payment…</p>
+          ) : paymentStatus === 'success' ? (
+            <p className="font-medium text-success">Payment confirmed. Your wallet balance is up to date.</p>
+          ) : paymentStatus === 'pending' ? (
+            <p className="text-ink-700">Payment is still processing. Your wallet will update after Paystack confirms it.</p>
+          ) : null}
+        </div>
+      )}
 
       <Card className="mt-6 bg-gradient-to-br from-primary-500 to-primary-600 text-white">
         <p className="text-sm font-medium text-white/80">Balance</p>
@@ -190,7 +247,7 @@ export function WalletPage() {
           </p>
           <ul className="mt-3 flex flex-col gap-3">
             {meetupPayments.map((payment) => {
-              const amIRecipient = payment.toId === 'me'
+              const amIRecipient = payment.toId === accountId
               const counterpart = amIRecipient ? payment.fromName : payment.toName
               return (
                 <li key={payment.id} className="rounded-2xl border border-ink-100 bg-white p-4 shadow-soft">
@@ -321,7 +378,7 @@ export function WalletPage() {
         )}
       </div>
 
-      <Dialog open={fundOpen} onClose={() => setFundOpen(false)} title="Fund wallet" description="This is a demo top-up — no real payment is made.">
+      <Dialog open={fundOpen} onClose={() => setFundOpen(false)} title="Fund wallet" description="Complete payment securely on Paystack. Your balance updates after payment is confirmed.">
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap gap-2">
             {QUICK_AMOUNTS.map((value) => (
@@ -340,7 +397,7 @@ export function WalletPage() {
           </Field>
           {error && <p role="alert" className="text-sm font-medium text-danger">{error}</p>}
           <Button loading={funding} disabled={!amount || Number(amount) <= 0} onClick={() => handleFund(Number(amount))}>
-            Add funds
+            Continue to Paystack
           </Button>
         </div>
       </Dialog>

@@ -1,26 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, Gift, ShieldCheck, Sparkles } from 'lucide-react'
+import { Bell, Gift, HeartHandshake } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Drawer } from '@/components/ui/drawer'
 import { useToast } from '@/components/ui/toast'
-import { apiWebSocketUrl } from '@/lib/api/client'
+import { listRealtimeEvents } from '@/lib/api/realtime'
 import { useSessionStore } from '@/lib/stores/session-store'
-
-const NOTIFICATIONS = [
-  { id: 'welcome', icon: Sparkles, title: 'Welcome to Flingra', body: 'Finish your profile to start appearing in Discover.' },
-  { id: 'approved', icon: ShieldCheck, title: 'Profile approved', body: 'Your profile passed review and is now visible to others.' },
-]
-
-type RealtimeEvent = {
-  id?: unknown
-  type?: unknown
-  data?: {
-    giftEmoji?: unknown
-    giftId?: unknown
-    giftName?: unknown
-    senderName?: unknown
-  }
-}
 
 type NotificationItem = {
   id: string
@@ -33,80 +18,97 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
-  const [notifications, setNotifications] = useState<NotificationItem[]>(NOTIFICATIONS)
+  const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const containerRef = useRef<HTMLDivElement>(null)
   const accountId = useSessionStore((state) => state.session?.stage === 'active' ? state.session.accountId : null)
+  const queryClient = useQueryClient()
   const { showToast } = useToast()
 
   useEffect(() => {
-    setNotifications(NOTIFICATIONS)
+    setNotifications([])
     setUnreadCount(0)
     if (!accountId) return
 
-    let socket: WebSocket | null = null
-    let retryTimer: number | undefined
-    let retryDelay = 1000
-    let cursor: number | null = null
+    let pollTimer: number | undefined
+    let retryDelay = 5000
+    let cursor: number | undefined
     let disposed = false
+    let reportedFailure = false
 
-    function connect() {
-      const socketUrl = apiWebSocketUrl('/realtime/ws')
-      if (!socketUrl || disposed) return
+    async function poll() {
+      try {
+        const batch = await listRealtimeEvents(cursor)
+        const isInitialCursor = cursor === undefined
+        cursor = batch.cursor
+        retryDelay = 5000
+        reportedFailure = false
+        if (!isInitialCursor) {
+          for (const event of batch.events) {
+            let notification: NotificationItem | null = null
+            if (
+              event.type === 'wallet.gift_received'
+              && typeof event.data.giftId === 'string'
+              && typeof event.data.giftName === 'string'
+              && typeof event.data.giftEmoji === 'string'
+              && typeof event.data.senderName === 'string'
+            ) {
+              notification = {
+                id: `gift-${event.id}`,
+                icon: Gift,
+                title: 'Gift received',
+                body: `${event.data.senderName} sent you ${event.data.giftEmoji} ${event.data.giftName}.`,
+              }
+            } else if (event.type === 'meetup_payment.updated') {
+              const status = typeof event.data.status === 'string' ? event.data.status : 'updated'
+              notification = {
+                id: `meetup-${event.id}`,
+                icon: HeartHandshake,
+                title: 'Meetup payment updated',
+                body: `Your meetup payment is now ${status}.`,
+              }
+              void Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['meetup-payments'] }),
+                queryClient.invalidateQueries({ queryKey: ['wallet-balance'] }),
+                queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] }),
+              ])
+            } else if (event.type === 'chat.message') {
+              void queryClient.invalidateQueries({ queryKey: ['chat-threads'] })
+              void queryClient.invalidateQueries({ queryKey: ['chat-messages'] })
+            }
+            if (!notification) continue
 
-      const url = new URL(socketUrl)
-      if (cursor !== null) url.searchParams.set('after', String(cursor))
-      const connection = new WebSocket(url)
-      socket = connection
-      connection.addEventListener('open', () => {
-        retryDelay = 1000
-      })
-      connection.addEventListener('message', (message) => {
-        let event: RealtimeEvent
-        try {
-          event = JSON.parse(message.data) as RealtimeEvent
-        } catch {
-          return
+            setNotifications((current) => [notification, ...current].slice(0, 20))
+            setUnreadCount((current) => current + 1)
+            showToast({
+              title: notification.title,
+              description: event.type === 'wallet.gift_received'
+                ? `${notification.body} Redeem it from your wallet.`
+                : notification.body,
+              variant: event.type === 'wallet.gift_received' ? 'success' : 'info',
+            })
+          }
         }
-
-        if (typeof event.id === 'number' && Number.isSafeInteger(event.id)) cursor = event.id
-        if (
-          event.type !== 'wallet.gift_received'
-          || typeof event.id !== 'number'
-          || typeof event.data?.giftId !== 'string'
-          || typeof event.data.giftName !== 'string'
-          || typeof event.data.giftEmoji !== 'string'
-          || typeof event.data.senderName !== 'string'
-        ) return
-
-        const notification = {
-          id: `gift-${event.id}`,
-          icon: Gift,
-          title: 'Gift received',
-          body: `${event.data.senderName} sent you ${event.data.giftEmoji} ${event.data.giftName}.`,
+      } catch (error) {
+        if (!reportedFailure) {
+          reportedFailure = true
+          showToast({
+            title: 'Notifications are delayed',
+            description: error instanceof Error ? error.message : 'Could not load notifications.',
+            variant: 'error',
+          })
         }
-        setNotifications((current) => [notification, ...current].slice(0, 20))
-        setUnreadCount((current) => current + 1)
-        showToast({
-          title: notification.title,
-          description: `${notification.body} Redeem it from your wallet.`,
-          variant: 'success',
-        })
-      })
-      connection.addEventListener('close', () => {
-        if (disposed) return
-        retryTimer = window.setTimeout(connect, retryDelay)
-        retryDelay = Math.min(retryDelay * 2, 30_000)
-      })
-      connection.addEventListener('error', () => connection.close())
+        retryDelay = Math.min(retryDelay * 2, 60_000)
+      } finally {
+        if (!disposed) pollTimer = window.setTimeout(() => void poll(), retryDelay)
+      }
     }
 
-    connect()
+    void poll()
     return () => {
       disposed = true
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
-      socket?.close()
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer)
     }
-  }, [accountId, showToast])
+  }, [accountId, queryClient, showToast])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 639px)')
@@ -171,13 +173,15 @@ export function NotificationBell() {
             className="fixed inset-x-4 top-[4.25rem] z-40 overflow-hidden rounded-2xl border border-ink-100 bg-white py-2 shadow-float sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72"
           >
             <p className="px-4 py-2 text-sm font-bold text-ink-900">Notifications</p>
-            {notificationItems}
+            {notificationItems.length ? notificationItems : <p className="px-4 py-3 text-sm text-ink-500">No notifications yet.</p>}
           </div>
         )}
       </div>
       {open && isMobile && (
         <Drawer open onClose={() => setOpen(false)} title="Notifications">
-          <div className="-mx-4 -mt-2 divide-y divide-ink-100">{notificationItems}</div>
+          <div className="-mx-4 -mt-2 divide-y divide-ink-100">
+            {notificationItems.length ? notificationItems : <p className="px-4 py-3 text-sm text-ink-500">No notifications yet.</p>}
+          </div>
         </Drawer>
       )}
     </>

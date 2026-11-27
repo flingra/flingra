@@ -58,6 +58,23 @@ def _video_metadata(db: Session, media_id: str) -> tuple[dict[str, Any], dict[st
     return dict(row), video
 
 
+@router.get("/unlocks", response_model=list[str])
+def list_video_unlocks(
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> list[str]:
+    rows = db.execute(
+        text(
+            """
+            SELECT media_id FROM video_unlocks
+            WHERE viewer_id = :viewer_id AND expires_at > :now
+            """
+        ),
+        {"viewer_id": account.account_id, "now": _now()},
+    ).mappings()
+    return [f"/media/{row['media_id']}" for row in rows]
+
+
 @router.post(
     "/unlock",
     response_model=VideoUnlockResponse,

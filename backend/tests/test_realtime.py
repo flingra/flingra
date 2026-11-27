@@ -8,6 +8,7 @@ from app.dependencies import db_session
 from app.realtime import is_origin_allowed
 from app.security import hash_token
 from app import realtime
+from test_discovery import _create_viewer
 
 
 def test_realtime_origin_uses_same_origin_when_no_allowlist_is_configured() -> None:
@@ -103,3 +104,50 @@ def test_realtime_websocket_accepts_same_origin_when_allowlist_is_empty(api_clie
 
     with client.websocket_connect("/realtime/ws", headers={"Origin": "http://testserver"}):
         pass
+
+
+def test_realtime_polling_returns_only_the_signed_in_members_events(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    account_id = _create_viewer(client, monkeypatch)
+    generator = client.app.dependency_overrides[db_session]()
+    db = next(generator)
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO realtime_events (recipient_id, event_type, payload_json, created_at)
+                VALUES (:recipient_id, 'wallet.gift_received', '{"giftName":"Rose"}', '2025-01-01')
+                """
+            ),
+            {"recipient_id": account_id},
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO realtime_events (recipient_id, event_type, payload_json, created_at)
+                VALUES ('another-account', 'wallet.gift_received', '{"giftName":"Other"}', '2025-01-01')
+                """
+            )
+        )
+        db.commit()
+        own_event_id = db.execute(
+            text("SELECT MAX(id) FROM realtime_events WHERE recipient_id = :account_id"),
+            {"account_id": account_id},
+        ).scalar_one()
+    finally:
+        generator.close()
+
+    batch = client.get("/realtime/events?after=0")
+    assert batch.status_code == 200
+    assert batch.json() == {
+        "events": [
+            {
+                "id": own_event_id,
+                "type": "wallet.gift_received",
+                "data": {"giftName": "Rose"},
+            }
+        ],
+        "cursor": own_event_id,
+    }
+    initial = client.get("/realtime/events")
+    assert initial.json() == {"events": [], "cursor": own_event_id}

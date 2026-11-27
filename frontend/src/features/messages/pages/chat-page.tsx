@@ -12,7 +12,8 @@ import { ErrorState } from '@/components/ui/state-message'
 import { useToast } from '@/components/ui/toast'
 import { listMessages, listThreads, proposePaymentInChat, sendMessage, uploadChatAttachment } from '@/lib/api/chat'
 import { getOwnProfile, getProfile } from '@/lib/api/profiles'
-import { acceptMeetupPayment, declineMeetupPayment, getMeetupPayment } from '@/lib/api/wallet'
+import { acceptMeetupPayment, declineMeetupPayment, listMeetupPayments } from '@/lib/api/wallet'
+import { useSessionStore } from '@/lib/stores/session-store'
 import { ApiError } from '@/lib/api/types'
 import { cn, formatNaira } from '@/lib/utils'
 
@@ -21,6 +22,7 @@ export function ChatPage() {
   const navigate = useNavigate()
   const { showToast } = useToast()
   const queryClient = useQueryClient()
+  const accountId = useSessionStore((state) => state.session?.accountId)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
@@ -48,7 +50,10 @@ export function ChatPage() {
     enabled: !!thread,
     refetchInterval: 2000,
   })
-  const meetupPayments: Awaited<ReturnType<typeof getMeetupPayment>>[] = []
+  const { data: meetupPayments = [] } = useQuery({
+    queryKey: ['meetup-payments'],
+    queryFn: listMeetupPayments,
+  })
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
@@ -178,7 +183,7 @@ export function ChatPage() {
             const payment = message.paymentId ? meetupPayments.find((item) => item.id === message.paymentId) : undefined
 
             if (payment) {
-              const canRespond = payment.status === 'proposed' && payment.toId === 'me'
+              const canRespond = payment.status === 'proposed' && payment.toId === accountId
               return (
                 <div key={message.id} className={cn('flex max-w-[85%] flex-col gap-1', fromOther ? 'self-start' : 'self-end')}>
                   <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-3.5">

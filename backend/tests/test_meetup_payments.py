@@ -47,6 +47,13 @@ def test_meetup_payment_dispute_is_admin_resolved_and_ledger_safe(api_client, mo
     assert proposal.status_code == 201
     payment_id = proposal.json()["id"]
     assert proposal.json()["status"] == "proposed"
+    listed_payments = client.get("/chat/meetup-payments")
+    assert listed_payments.status_code == 200
+    assert [payment["id"] for payment in listed_payments.json()] == [payment_id]
+    messages = client.get(f"/chat/threads/{thread.json()['id']}/messages")
+    assert messages.status_code == 200
+    assert len(messages.json()) == 1
+    assert messages.json()[0]["paymentId"] == payment_id
     db, generator = _session(client)
     try:
         events = db.execute(
@@ -114,6 +121,15 @@ def test_meetup_payment_dispute_is_admin_resolved_and_ledger_safe(api_client, mo
     )
     assert disputed.status_code == 200
     assert disputed.json()["status"] == "disputed"
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text("UPDATE sessions SET account_id = :payer_id WHERE id = :session_id"),
+            {"payer_id": payer_id, "session_id": session_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
     assert client.post(
         f"/chat/meetup-payments/{payment_id}/release",
         headers={"X-CSRF-Token": csrf},

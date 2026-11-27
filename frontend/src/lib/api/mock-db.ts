@@ -311,7 +311,7 @@ export const walletStore = {
 const transactionsField = persistedField<WalletTransaction[]>('flingra:wallet-transactions', [
   {
     id: 'txn-seed-1',
-    type: 'top-up',
+    type: 'wallet-top-up',
     amountNaira: 5000,
     description: 'Welcome credit',
     status: 'completed',

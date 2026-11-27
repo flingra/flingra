@@ -73,10 +73,7 @@ export async function listSafetyCheckIns(): Promise<SafetyCheckIn[]> {
   return apiRequest<SafetyCheckIn[]>('/safety/check-ins')
 }
 
-/**
- * Simulates alerting emergency contacts — no real SMS/call goes out from this mock
- * frontend. A real integration (Termii, Twilio, etc.) is backend work.
- */
+/** Submits a safety check-in; contact delivery depends on the backend SMS provider configuration. */
 export async function notifyEmergencyContacts(message: string, locationLink?: string): Promise<SafetyCheckIn> {
   return apiRequest<SafetyCheckIn>('/safety/check-ins', {
     method: 'POST',

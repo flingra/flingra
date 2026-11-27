@@ -11,10 +11,12 @@ import { listNearbyStatuses, createStatus } from '@/lib/api/status'
 import { listNearbyVideos } from '@/lib/api/profiles'
 import { ApiError } from '@/lib/api/types'
 import { StatusViewer } from '../components/status-viewer'
+import { useSessionStore } from '@/lib/stores/session-store'
 
 export function StatusPage() {
   const { showToast } = useToast()
   const queryClient = useQueryClient()
+  const accountId = useSessionStore((state) => state.session?.accountId)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [viewerAuthorId, setViewerAuthorId] = useState<string | null>(null)
@@ -33,8 +35,8 @@ export function StatusPage() {
     return Array.from(groups.values())
   }, [statuses])
 
-  const myStatuses = byAuthor.find((group) => group.authorId === 'me')
-  const otherStatuses = byAuthor.filter((group) => group.authorId !== 'me')
+  const myStatuses = byAuthor.find((group) => group.authorId === accountId)
+  const otherStatuses = byAuthor.filter((group) => group.authorId !== accountId)
   const activeGroup = byAuthor.find((group) => group.authorId === viewerAuthorId)
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -74,7 +76,7 @@ export function StatusPage() {
       <div className="mt-6 flex flex-col gap-2">
         <button
           type="button"
-          onClick={() => (myStatuses ? setViewerAuthorId('me') : fileInputRef.current?.click())}
+          onClick={() => (myStatuses ? setViewerAuthorId(accountId ?? null) : fileInputRef.current?.click())}
           className="flex w-full cursor-pointer items-center gap-3 rounded-2xl border border-ink-100 bg-white p-3 text-left shadow-soft transition-shadow hover:shadow-float"
         >
           <span className="relative">

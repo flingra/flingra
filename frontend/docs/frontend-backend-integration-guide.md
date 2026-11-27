@@ -1,6 +1,6 @@
 # Flingra frontend ↔ backend integration guide
 
-**Current-source guide:** checked against the FastAPI OpenAPI schema and frontend adapters on 2026-11-25. This document describes the routes that exist now and identifies frontend mock implementations that still need to be replaced. The generated API schema at `GET /openapi.json` and interactive docs at `/docs` are the source of truth for field constraints.
+**Current-source guide:** describes the implemented FastAPI routes and frontend wiring. The generated API schema at `GET /openapi.json` and interactive docs at `/docs` are the source of truth for field constraints. Production behavior still depends on external provider credentials and dashboard configuration.
 
 The older [backend handoff](./backend-handoff.md) describes product behavior and history. Where its suggested paths or return shapes differ from this guide, follow the current backend route and schema.
 
@@ -19,14 +19,13 @@ The older [backend handoff](./backend-handoff.md) describes product behavior and
 
 | Frontend adapter / area | Current state |
 |---|---|
-| `api/auth.ts` | Uses the backend for signup, login, contact verification, session restore, OAuth, password reset, onboarding and 2FA. Phone signup is not currently supported by the backend. |
-| `api/profiles.ts` | Discovery, profile detail via `getDiscoverableProfile`, own profile, location sharing, photo upload and ID upload use the backend. `getProfile`, video upload, VIP showcase and nearby-video feed still use mocks. |
-| `api/admin.ts` | Uses backend admin APIs for login/session, staff accounts, profile reviews and audit. Safety-review and meetup-dispute admin surfaces are not covered by this adapter. |
-| `api/chat.ts`, `api/safety.ts`, `api/posts.ts`, `api/status.ts`, `api/presence.ts` | Still mock-backed. |
-| `api/livestream.ts`, `api/calls.ts`, `api/wallet.ts`, `api/payout.ts`, `api/subscription.ts`, `api/settings.ts` | Still mock-backed. |
-| Notification bell | Already connects to `/realtime/ws` and handles `wallet.gift_received`. It does not yet handle chat, call, meetup, or livestream events. |
+| `api/auth.ts`, `api/profiles.ts`, `api/admin.ts` | Use the backend APIs. |
+| `api/chat.ts`, `api/safety.ts`, `api/posts.ts`, `api/status.ts`, `api/presence.ts` | Use the backend APIs. |
+| `api/livestream.ts`, `api/calls.ts` | Use backend control APIs and connect media through LiveKit when configured. |
+| `api/wallet.ts`, `api/payout.ts`, `api/subscription.ts`, `api/settings.ts` | Use backend APIs. Wallet checkout and payouts depend on Paystack; referral bonus crediting is disabled. |
+| Notification bell | Polls `GET /realtime/events` for durable events; the WebSocket endpoint remains available but the frontend no longer reconnects to it. |
 
-Remove calls to `delay`, `mock-db.ts`, and `simulate*` only as each flow is connected and tested against the corresponding endpoint. Do not retain simulated replies, fake recipients, incoming gifts, or referral credits in the live-user path.
+`mock-db.ts` remains as unused legacy code; it is not the active data source for the app. Do not add simulated replies, fake recipients, incoming gifts, or referral credits to live-user flows.
 
 ## 3. Endpoint catalogue
 
@@ -110,7 +109,7 @@ Post body example (photo/video URLs must be backend-owned upload URLs):
 }
 ```
 
-Posts require at least three owned photos or one owned post video. Status video duration is checked in the current frontend mock but is **not yet validated server-side**; do not claim the 50-second limit is enforced by the API.
+Posts require at least three owned photos or one owned post video. Status video duration is checked in the frontend UI but is **not yet validated server-side**; do not claim the 50-second limit is enforced by the API.
 
 ### Chat, meetup payments, and realtime
 
@@ -122,6 +121,7 @@ Posts require at least three owned photos or one owned post video. Status video 
 | `POST /chat/threads/{thread_id}/messages` | `{text?, attachment?}` + CSRF | created `DirectMessage` |
 | `POST /chat/attachments` | multipart `file` + CSRF | `{url, type, name}` |
 | `POST /chat/threads/{thread_id}/payment-proposals` | `{amountNaira}` + CSRF | `MeetupPayment` |
+| `GET /chat/meetup-payments` | — | payments involving the signed-in member |
 | `GET /chat/meetup-payments/{payment_id}` | — | `MeetupPayment` |
 | `POST /chat/meetup-payments/{payment_id}/accept` | — + CSRF | updated `MeetupPayment` |
 | `POST /chat/meetup-payments/{payment_id}/decline` | — + CSRF | updated `MeetupPayment` |
@@ -142,9 +142,9 @@ Message body:
 }
 ```
 
-`text` may be empty only when an attachment is supplied. Upload chat media first; the backend accepts owned media URLs, not `blob:` URLs. There is currently **no list-all meetup-payments endpoint**. The mock `listMeetupPayments()` cannot be directly replaced; either derive payment cards from messages and fetch by ID, or agree on and add a participant-scoped list endpoint.
+`text` may be empty only when an attachment is supplied. Upload chat media first; the backend accepts owned media URLs, not `blob:` URLs. `GET /chat/meetup-payments` lists payments scoped to the signed-in payer or recipient.
 
-Connect to authenticated WebSocket `/realtime/ws` using the session cookie. Same-origin connections are accepted; cross-origin frontend deployments must have their exact HTTPS origin in backend `FLINGRA_ALLOWED_ORIGINS`. The endpoint accepts any authenticated, active member session (identity verification is not required for opening the event stream). Reconnect with `?after=<last-event-id>` to resume. Events have shape `{"id": 123, "type": "...", "data": {...}}`. Implemented event types include `chat.message`, `wallet.gift_received`, `meetup_payment.updated`, call events, and livestream events. Gift payload includes `{giftId, giftTypeId, giftName, giftEmoji, senderName}`. The current notification bell handles only the gift event.
+Poll authenticated `GET /realtime/events` for durable events. The first request returns an empty batch with a cursor; send that cursor as `?after=<last-event-id>` on later requests. Events have shape `{"id": 123, "type": "...", "data": {...}}`. Implemented event types include `chat.message`, `wallet.gift_received`, `meetup_payment.updated`, call events, and livestream events. The authenticated WebSocket `/realtime/ws` remains available to other clients; cross-origin deployments must allow the exact HTTPS origin in backend `FLINGRA_ALLOWED_ORIGINS`.
 
 ### Safety and settings
 
@@ -187,6 +187,7 @@ Report reasons are `fake-profile`, `harassment`, `inappropriate-content`, `under
 | `GET /subscriptions/me` | — | `{tier, expiresAt?}` |
 | `POST /subscriptions` | `{planId}` + CSRF | `{tier, expiresAt?}` |
 | `POST /videos/unlock` | `{url}` + CSRF | `{url, unlocked, priceNaira}` |
+| `GET /videos/unlocks` | — | active unlocked media URLs |
 | `GET /referrals/code` | — | referral-code object |
 | `GET /referrals` | — | referral records |
 | `GET /payout/banks` | — | `[{code, name}]` |

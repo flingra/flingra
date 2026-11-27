@@ -26,7 +26,7 @@ import { ErrorState } from '@/components/ui/state-message'
 import { getDiscoverableProfile, getOwnProfile } from '@/lib/api/profiles'
 import { blockMember } from '@/lib/api/safety'
 import { getOrCreateThread, proposePaymentInChat } from '@/lib/api/chat'
-import { isVideoUnlocked, unlockVideo } from '@/lib/api/wallet'
+import { listUnlockedVideos, unlockVideo } from '@/lib/api/wallet'
 import { getCallCreditBalance, startCall } from '@/lib/api/calls'
 import { canInteract } from '@/lib/api/subscription'
 import { ApiError, type ProfileVideo } from '@/lib/api/types'
@@ -64,6 +64,7 @@ export function ProfileDetailPage() {
     queryFn: () => getDiscoverableProfile(profileId),
   })
   const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
+  const { data: unlockedVideos = [] } = useQuery({ queryKey: ['unlocked-videos'], queryFn: listUnlockedVideos })
   const locked = !!profile && !canInteract(ownProfile, profile)
   const isPayingCaller = ownProfile?.identity === 'man'
   const { data: callCredits } = useQuery({ queryKey: ['call-credits'], queryFn: getCallCreditBalance, enabled: isPayingCaller })
@@ -99,7 +100,10 @@ export function ProfileDetailPage() {
     setUnlocking(true)
     try {
       await unlockVideo(unlockTarget.url)
-      await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['wallet-balance'] }),
+        queryClient.invalidateQueries({ queryKey: ['unlocked-videos'] }),
+      ])
       showToast({ title: 'Video unlocked', variant: 'success' })
       setPlayingVideo(unlockTarget.url)
       setUnlockTarget(null)
@@ -136,11 +140,23 @@ export function ProfileDetailPage() {
   }
 
   async function handleShowInterest() {
-    if (!profile || locked) return
-    setInterested(true)
-    showToast({ title: 'Interest sent', description: `${profile.displayName} will be notified.`, variant: 'success' })
-    const thread = await getOrCreateThread(profile.id, profile.displayName, profile.photos[0])
-    setChatThreadId(thread.id)
+    if (!profile || locked || interested) return
+    try {
+      const thread = await getOrCreateThread(profile.id, profile.displayName, profile.photos[0] ?? '')
+      setChatThreadId(thread.id)
+      setInterested(true)
+      showToast({
+        title: 'Conversation opened',
+        description: `Send ${profile.displayName} a message to get started.`,
+        variant: 'success',
+      })
+    } catch (error) {
+      showToast({
+        title: "Couldn't open conversation",
+        description: error instanceof ApiError ? error.message : 'Try again.',
+        variant: 'error',
+      })
+    }
   }
 
   async function handleBlock() {
@@ -150,6 +166,12 @@ export function ProfileDetailPage() {
       showToast({ title: `${profile?.displayName ?? 'Member'} blocked`, description: 'They can no longer see your profile or contact you.', variant: 'success' })
       setBlockConfirmOpen(false)
       navigate('/discover')
+    } catch (error) {
+      showToast({
+        title: "Couldn't block this member",
+        description: error instanceof ApiError ? error.message : 'Try again.',
+        variant: 'error',
+      })
     } finally {
       setBlocking(false)
     }
@@ -268,7 +290,7 @@ export function ProfileDetailPage() {
               <p className="mb-2 text-sm font-medium text-ink-800">Videos</p>
               <div className="grid max-w-xs grid-cols-3 gap-2">
                 {profile.videos.map((video) => {
-                  const locked = video.locked && !isVideoUnlocked(video.url)
+                  const locked = video.locked && !unlockedVideos.includes(video.url)
                   return locked ? (
                     <button
                       key={video.url}
@@ -360,7 +382,7 @@ export function ProfileDetailPage() {
         open={!!unlockTarget}
         onClose={() => setUnlockTarget(null)}
         title="Unlock this video?"
-        description={`Pay ${formatNaira(unlockTarget?.priceNaira ?? 0)} to watch this video for 30 days. This is a demo charge—no real payment is made. Video unlocks are non-refundable.`}
+        description={`Pay ${formatNaira(unlockTarget?.priceNaira ?? 0)} from your wallet to watch this video for 30 days. Video unlocks are non-refundable.`}
       >
         <div className="flex gap-3">
           <Button variant="secondary" className="flex-1" onClick={() => setUnlockTarget(null)}>

@@ -176,6 +176,60 @@ def test_call_credit_purchase_and_server_billed_call_lifecycle(api_client, monke
         generator.close()
 
 
+def test_call_lifecycle_ends_stale_connecting_calls(api_client, monkeypatch) -> None:
+    client, _ = api_client
+    caller_id = _create_viewer(client, monkeypatch)
+    callee_id = _create_candidate(client)
+    client.app.state.settings.livekit_url = "wss://livekit.example.test"
+    client.app.state.settings.livekit_api_key = "api-key"
+    from pydantic import SecretStr
+
+    client.app.state.settings.livekit_api_secret = SecretStr("api-secret")
+    monkeypatch.setattr(calls, "delete_room", lambda *_args: None)
+    csrf = client.cookies["flingra_csrf"]
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text("INSERT INTO wallet_accounts (account_id, balance_kobo) VALUES (:id, 500000)"),
+            {"id": caller_id},
+        )
+        db.commit()
+    finally:
+        generator.close()
+    purchase = client.post(
+        "/calls/credits/purchase",
+        headers={"X-CSRF-Token": csrf, "Idempotency-Key": "stale-call-purchase"},
+        json={"coins": 10},
+    )
+    assert purchase.status_code == 201
+    started = client.post(
+        "/calls",
+        headers={"X-CSRF-Token": csrf, "Idempotency-Key": "stale-call-key"},
+        json={"targetId": callee_id, "callType": "audio"},
+    )
+    assert started.status_code == 201
+    call_id = started.json()["callId"]
+    db, generator = _session(client)
+    try:
+        db.execute(
+            text(
+                "UPDATE call_sessions SET status = 'connecting', created_at = :created_at WHERE id = :id"
+            ),
+            {
+                "created_at": datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=31),
+                "id": call_id,
+            },
+        )
+        db.commit()
+        calls.process_call_lifecycle(db, client.app.state.settings)
+        assert db.execute(
+            text("SELECT status FROM call_sessions WHERE id = :id"),
+            {"id": call_id},
+        ).scalar_one() == "ended"
+    finally:
+        generator.close()
+
+
 def test_video_unlock_uses_creator_price_and_credits_creator(api_client, monkeypatch) -> None:
     client, _ = api_client
     viewer_id = _create_viewer(client, monkeypatch)
@@ -233,6 +287,7 @@ def test_video_unlock_uses_creator_price_and_credits_creator(api_client, monkeyp
     assert unlocked.status_code == 200, unlocked.json()
     assert unlocked.json() == {"url": media_url, "unlocked": True, "priceNaira": 1250}
     assert client.post("/videos/unlock", headers=headers, json={"url": media_url}).json() == unlocked.json()
+    assert client.get("/videos/unlocks").json() == [media_url]
     assert client.get("/wallet/balance").json() == {"balanceNaira": 2750}
 
     db, generator = _session(client)

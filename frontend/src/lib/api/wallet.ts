@@ -80,7 +80,7 @@ export async function redeemAllGifts(): Promise<number> {
 }
 
 export async function listMeetupPayments(): Promise<MeetupPayment[]> {
-  return []
+  return apiRequest<MeetupPayment[]>('/chat/meetup-payments')
 }
 
 export async function proposeMeetupPayment(_toId: string, _toName: string, _amountNaira: number): Promise<MeetupPayment> {
@@ -135,6 +135,6 @@ export async function unlockVideo(url: string): Promise<{ url: string; unlocked:
   })
 }
 
-export function isVideoUnlocked(_url: string): boolean {
-  return false
+export async function listUnlockedVideos(): Promise<string[]> {
+  return apiRequest<string[]>('/videos/unlocks')
 }

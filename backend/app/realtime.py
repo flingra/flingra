@@ -2,19 +2,22 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_engine
+from app.dependencies import db_session
+from app.routes.auth import CurrentAccount
 from app.security import hash_token
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter(tags=["realtime"])
 EVENT_RETENTION = timedelta(days=7)
+DbSession = Annotated[Session, Depends(db_session)]
 
 
 def is_origin_allowed(
@@ -80,6 +83,44 @@ def _authenticated_account_id(websocket: WebSocket, db: Session) -> str | None:
     today = datetime.now(UTC).date()
     age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
     return str(row["id"]) if age >= 21 else None
+
+
+@router.get("/realtime/events")
+def list_realtime_events(
+    account: CurrentAccount,
+    db: DbSession,
+    after: int | None = Query(default=None, ge=0),
+) -> dict[str, Any]:
+    if after is None:
+        cursor = int(
+            db.execute(
+                text("SELECT COALESCE(MAX(id), 0) FROM realtime_events WHERE recipient_id = :account_id"),
+                {"account_id": account.account_id},
+            ).scalar_one()
+        )
+        return {"events": [], "cursor": cursor}
+
+    rows = db.execute(
+        text(
+            """
+            SELECT id, event_type, payload_json
+            FROM realtime_events
+            WHERE recipient_id = :account_id AND id > :cursor
+            ORDER BY id
+            LIMIT 100
+            """
+        ),
+        {"account_id": account.account_id, "cursor": after},
+    ).mappings()
+    events = []
+    cursor = after
+    for row in rows:
+        cursor = int(row["id"])
+        payload = row["payload_json"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        events.append({"id": cursor, "type": row["event_type"], "data": payload})
+    return {"events": events, "cursor": cursor}
 
 
 @router.websocket("/realtime/ws")

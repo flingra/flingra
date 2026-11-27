@@ -48,13 +48,6 @@ export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
 }
 
-export function apiWebSocketUrl(path: string): string | null {
-  if (!API_BASE_URL) return null
-  const url = new URL(apiUrl(path))
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  return url.toString()
-}
-
 export function resolveMediaUrl(url: string): string {
   return url.startsWith('/media/') ? apiUrl(url) : url
 }

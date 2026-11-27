@@ -51,7 +51,7 @@ const FAQ_GROUPS = [
       },
       {
         q: 'Is funding my wallet a real payment?',
-        a: 'Not in this preview build — funding is a demo top-up. Live payments are handled separately once the backend is connected.',
+        a: 'Wallet top-ups use Paystack checkout and are credited only after server-side confirmation. If your balance does not update after checkout, check the payment status in Wallet or contact support with your reference.',
       },
     ],
   },

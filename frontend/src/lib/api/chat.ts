@@ -35,12 +35,10 @@ export async function proposePaymentInChat(
   _otherId: string,
   _otherName: string,
   amountNaira: number,
-): Promise<DirectMessage> {
-  const payment = await apiRequest<MeetupPayment>(`/chat/threads/${encodeURIComponent(threadId)}/payment-proposals`, {
+): Promise<MeetupPayment> {
+  return apiRequest<MeetupPayment>(`/chat/threads/${encodeURIComponent(threadId)}/payment-proposals`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await ensureCsrfHeaders()) },
     body: JSON.stringify({ amountNaira }),
   })
-  await sendMessage(threadId, `Proposed ₦${amountNaira.toLocaleString('en-NG')} for a meetup.`)
-  return { id: payment.id, threadId, authorId: payment.fromId, text: '', paymentId: payment.id, createdAt: payment.createdAt }
 }

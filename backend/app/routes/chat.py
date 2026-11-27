@@ -646,6 +646,30 @@ def _enqueue_meetup_event(db: Session, payment: MeetupPaymentResponse) -> None:
 
 
 @router.get(
+    "/meetup-payments",
+    response_model=list[MeetupPaymentResponse],
+)
+def list_meetup_payments(
+    account: IdentityVerifiedAccount,
+    db: DbSession,
+) -> list[MeetupPaymentResponse]:
+    rows = db.execute(
+        text(
+            """
+            SELECT id, payer_id, recipient_id, payer_name, recipient_name,
+                   amount_kobo, status, created_at, resolved_at
+            FROM meetup_payments
+            WHERE payer_id = :account_id OR recipient_id = :account_id
+            ORDER BY created_at DESC, id
+            LIMIT 100
+            """
+        ),
+        {"account_id": account.account_id},
+    ).mappings()
+    return [_meetup_response(dict(row)) for row in rows]
+
+
+@router.get(
     "/meetup-payments/{payment_id}",
     response_model=MeetupPaymentResponse,
 )

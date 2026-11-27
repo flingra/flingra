@@ -351,6 +351,7 @@ def process_call_lifecycle(db: Session, settings: Settings, *, limit: int = 100)
                    caller_connected_at, callee_connected_at, room_closed_at, created_at
             FROM call_sessions
             WHERE (status = 'ringing' AND created_at < :ring_cutoff)
+               OR (status = 'connecting' AND created_at < :ring_cutoff)
                OR (status = 'active' AND last_billed_at <= :billing_cutoff)
                OR (status = 'active' AND last_activity_at < :activity_cutoff)
                OR (status IN ('ended', 'declined') AND room_closed_at IS NULL)
@@ -370,14 +371,16 @@ def process_call_lifecycle(db: Session, settings: Settings, *, limit: int = 100)
     rooms_to_close: list[tuple[str, str]] = []
     for value in rows:
         row = dict(value)
-        if row["status"] == "ringing":
+        if row["status"] in {"ringing", "connecting"}:
+            previous_status = row["status"]
             db.execute(
-                text("UPDATE call_sessions SET status = 'ended', ended_at = :now WHERE id = :id AND status = 'ringing'"),
-                {"now": now, "id": row["id"]},
+                text("UPDATE call_sessions SET status = 'ended', ended_at = :now WHERE id = :id AND status = :status"),
+                {"now": now, "id": row["id"], "status": previous_status},
             )
             row["status"] = "ended"
             row["ended_at"] = now
-            _queue_call_event(db, row, "call.ended", reason="no_answer")
+            reason = "no_answer" if previous_status == "ringing" else "connection_timeout"
+            _queue_call_event(db, row, "call.ended", reason=reason)
         elif row["status"] == "active":
             cutoff = now
             if row["last_activity_at"] is not None:

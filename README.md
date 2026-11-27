@@ -1,48 +1,29 @@
 # Flingra
 
-Flingra is a Nigeria-first, safety-focused adult social connection and meetup platform with location-aware discovery, real-time communication, secure payments, and user verification.
+Flingra is a Nigeria-first social connection and meetup platform for adults,
+with location-aware discovery, messaging, verification, safety tools, wallet
+payments, calls, and livestreams.
 
-This repository is currently scaffolded for collaborative development between frontend and backend teams.
+## Project structure
 
-## Project Overview
+- `frontend/` — React, TypeScript, and Vite web client.
+- `backend/` — FastAPI application, database migrations, and tests.
+- `docs/` — product and integration documentation.
 
-Flingra is designed to help consenting adults discover connections, chat, plan meetups, and transact safely with strong trust and safety foundations.
+The frontend uses the backend API for its account and product flows. Payments,
+media delivery, email/SMS, calls, and livestream media also require the
+corresponding external provider credentials and production dashboard settings;
+source code alone cannot verify those deployments.
 
-## Planned Core Features
+## Current integrations
 
-- Location-aware profile discovery
-- Real-time messaging and communication
-- Identity and profile verification flows
-- Secure in-app payments
-- Safety-focused moderation and reporting tools
+- Paystack handles wallet top-ups and bank payouts.
+- LiveKit provides call and livestream media rooms.
+- Cloudinary stores uploaded media.
+- Brevo handles transactional email; Termii is required for SMS safety
+  notifications.
+- Referral codes are available, but referral bonus crediting is disabled.
 
-## Repository Structure
-
-```text
-.
-├── backend/   # Backend services and APIs
-├── docs/      # Product, architecture, and process documentation
-├── frontend/  # Frontend web/mobile client applications
-├── .gitignore
-└── README.md
-```
-
-## Getting Started
-
-The application modules are not implemented yet. Initial setup focuses on project structure.
-
-1. Clone the repository.
-2. Use the `frontend/` directory for UI/client implementation.
-3. Use the `backend/` directory for API/service implementation.
-4. Use the `docs/` directory for architecture notes, ADRs, and contributor docs.
-
-## Contribution Guidelines
-
-- Keep changes focused and scoped to the relevant area (`frontend/`, `backend/`, or `docs/`).
-- Follow conventional commit style where possible.
-- Update documentation for any architectural or workflow changes.
-- Open pull requests with clear descriptions and verification steps.
-
-## Status
-
-Scaffold only. No production application features are implemented in this initial setup.
+See [backend/README.md](./backend/README.md) and the
+[frontend integration guide](./frontend/docs/frontend-backend-integration-guide.md)
+for setup requirements and provider configuration.

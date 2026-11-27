@@ -2,11 +2,11 @@
 
 > **Current endpoint and payload reference:** see [frontend-backend-integration-guide.md](./frontend-backend-integration-guide.md). This older document preserves functional rules and project history; where its suggested paths or response shapes differ, use the current FastAPI contract in the integration guide and `/openapi.json`.
 
-Status: the auth client and primary Discover/profile endpoints use the FastAPI backend. The backend also implements chat attachments and realtime events, meetup-payment cards and holds, call-credit billing, profile-video unlocks, livestream join requests/chat/presence/gifts, privacy jobs, wallet/gift ledgers, payouts, Paystack wallet funding, Termii safety check-ins, and LiveKit room control. Many feature adapters still use `mock-db.ts`; see the current integration guide for the per-adapter status. The Termii key currently configured locally is test-only, so safety-check-in delivery is not production-verified. Do not retain mock-only simulated counterpart actions after switching to the backend.
+**Historical status:** the current frontend uses backend APIs for supported product flows; `mock-db.ts` is unused legacy code. Use the [current integration guide](./frontend-backend-integration-guide.md) for wiring and provider requirements. External Paystack, LiveKit, Cloudinary, email, and SMS deployments still require environment-specific configuration and cannot be verified from this repository alone.
 
-This document remains the functional contract: it describes the data shapes, business rules, and edge cases that existing frontend components assume. The live backend support and provider gaps are summarized in [`backend/README.md`](../../backend/README.md).
+The sections below preserve earlier product behavior and proposed data shapes. They are historical notes, not an instruction to replace current API adapters or copy simulated behavior into the live app. Current backend support and provider requirements are summarized in [`backend/README.md`](../../backend/README.md).
 
-The mock layer lives in `frontend/src/lib/api/*.ts`. Each file below is both the mock implementation today and the target REST contract tomorrow. Every function is `async`, called from React Query hooks or event handlers, and returns/throws exactly what's described. Swap the body of each function for a real `fetch` call; keep the same function signature and return shape so none of the ~40 page/component files need to change.
+The mock layer described below is historical. Do not replace current API adapters based on the old mock-to-endpoint mapping in this handoff.
 
 See also `frontend/architecture.md` for the proposed stack (FastAPI + MySQL) and security baseline (Argon2id, HttpOnly cookies, HTTPS, input validation, rate limiting, etc.) — that document is the non-functional baseline; this document is the functional contract.
 
@@ -198,7 +198,7 @@ Interest tag pool (`lib/constants/interests.ts`, 28 items) and `CATEGORY_CHIPS` 
 | `sendMessage(threadId, text, attachment?)` | `POST /chat/threads/:id/messages` | Updates the thread's `lastMessage`/`lastMessageAt` (shows `📎 filename` as the preview when it's an attachment-only message). Needs to be real-time (WebSocket/SSE) for the other party — the mock fakes this with a client-side timer (`simulateReply`), which real backend should NOT port; instead push the message to the real recipient's live session. |
 | `proposePaymentInChat(threadId, otherId, otherName, amountNaira)` → `DirectMessage` | `POST /chat/threads/:id/payment-proposals` | Thin wrapper: calls the same meetup-payment proposal flow as §6.5, then drops an embedded proposal card message (`paymentId` set, `text` is a human-readable summary) into the thread. |
 
-The backend persists text threads/messages and payment-proposal cards, checks membership, verification, VIP access, and blocks, and provides private attachment upload/access. `GET /realtime/ws` authenticates with the existing HttpOnly session cookie, checks the configured `Origin`, and emits `{ id, type, data }` events. Pass `?after=<last-seen-event-id>` to resume delivery; without `after`, the connection starts with new events. Use REST to load message history, and persist the last event id client-side for reconnects. Chat and payment events are durable for up to seven days. The frontend chat adapter is still mock-backed; do not restore simulated replies as a substitute.
+The backend persists text threads/messages and payment-proposal cards, checks membership, verification, VIP access, and blocks, and provides private attachment upload/access. `GET /realtime/ws` authenticates with the existing HttpOnly session cookie, checks the configured `Origin`, and emits `{ id, type, data }` events. `GET /realtime/events` provides cursor-based REST polling for clients that do not use WebSockets. The current frontend chat adapter uses the backend; do not restore simulated replies as a substitute.
 
 ## 6. Business rules that span multiple features
 
@@ -277,7 +277,7 @@ The backend exposes `/calls/coin-price`, `/calls/coin-packages`, `/calls/credits
 
 The mock's `simulateJoinRequest`, `simulateIncomingGift`, `simulateIncomingMessage`, `simulateReceivedGift` (livestream/wallet) exist purely to make the solo-account demo feel alive — **none of this ported**; real multi-user rooms replace all of it with genuine events from other connected clients.
 
-Backend status: wallet balance/transaction reads and gift catalog, inventory, send, receive, and redemption use the persistent ledger. Gift sending records the recipient's received gift and redemption credits the recipient once. Live-stream listing/control, join requests, participant/viewer accounting, stream messages/gifts, and realtime event delivery are implemented. The host must call `POST /live-streams/:id/heartbeat` periodically; after 60 seconds without a host heartbeat the background worker ends the stream and closes its LiveKit room. The mock adapter is not wired to these backend routes.
+Backend status: wallet balance/transaction reads and gift catalog, inventory, send, receive, and redemption use the persistent ledger. Gift sending records the recipient's received gift and redemption credits the recipient once. Live-stream listing/control, LiveKit media connection, join requests, participant/viewer accounting, stream messages/gifts, and realtime event delivery are implemented. The host must call `POST /live-streams/:id/heartbeat` periodically; after 60 seconds without a host heartbeat the background worker ends the stream and closes its LiveKit room. The current frontend livestream adapter uses these backend routes.
 
 ## 8. VIP subscription (`lib/api/subscription.ts`)
 
@@ -299,7 +299,7 @@ Not its own API file yet — reads/writes land on `OwnProfile` fields directly v
 
 Be precise about this boundary when scoping backend work:
 
-- **External real-money rails are implemented server-side but not wired in the frontend.** `fundWallet(amountNaira)` in `lib/api/wallet.ts` remains a mock; the backend's `POST /wallet/top-ups` initializes Paystack checkout and settles only after server-side verification or a signed webhook. Paystack Transfers support bank recipient setup and payout requests; transfers settle/refund only from signed webhooks. Endpoints are `GET /payout/banks`, `GET/PUT /payout/bank-account`, and `GET/POST /payouts` (the create request requires `Idempotency-Key`).
+- **External real-money rails are wired but provider-dependent.** `fundWallet(amountNaira)` opens the Paystack-hosted checkout; `POST /wallet/top-ups` settles only after server-side verification or a signed webhook. Paystack Transfers support bank recipient setup and payout requests; transfers settle/refund only from signed webhooks. Endpoints are `GET /payout/banks`, `GET/PUT /payout/bank-account`, and `GET/POST /payouts` (the create request requires `Idempotency-Key`).
 - **Internal ledger unit:** wallet and catalog amounts are stored as integer kobo in the backend. Existing API responses use whole-naira display values to preserve the frontend contract; provider adapters must convert to/from kobo explicitly and must never credit a wallet from an unverified client callback.
 - Gifts, VIP, video unlocks, meetup holds, and payouts use the backend wallet ledger. Keep the existing transaction-type taxonomy when wiring the client wallet so the wallet/transactions page remains compatible.
 - `getBankAccount()` / `saveBankAccount(account: BankAccount)` (`lib/api/payout.ts`) — a single bank account per user today (`BankAccount: { bankName, accountNumber, accountName }`), validated non-empty only (`INVALID_BANK_ACCOUNT`) — no real bank-account-number validation (e.g. NUBAN checksum) yet; consider adding it server-side.
@@ -338,11 +338,11 @@ Backend status: password changes and session revocation are implemented. Export 
 | `listNearbyStatuses()` → `Status[]` | `GET /statuses/nearby` | 24-hour-style ephemeral media feed (seed data doesn't currently model expiry — add TTL/expiry server-side if that's the intended semantics). |
 | `createStatus(file)` → `Status` | `POST /statuses` (multipart) | Video statuses capped at **50 seconds** (`MAX_STATUS_VIDEO_SECONDS`), checked client-side via `<video>` duration before upload — **re-validate server-side**, don't trust the client check. `STATUS_VIDEO_TOO_LONG` if over. |
 
-Backend status: own-post CRUD and nearby image/video-status reads are implemented. A post accepts at least three owned photos or one owned video uploaded through `POST /media/videos?purpose=post`; regular `/media/videos` uploads are profile videos. Uploaded status videos are size- and file-signature-validated and expire after 24 hours. Video-duration limits are not yet validated server-side, despite the 50-second UI limit; enforce this before relying on that limit for moderation. The frontend post/status adapters remain mock-backed.
+Backend status: own-post CRUD and nearby image/video-status reads are implemented. A post accepts at least three owned photos or one owned video uploaded through `POST /media/videos?purpose=post`; regular `/media/videos` uploads are profile videos. Uploaded status videos are size- and file-signature-validated and expire after 24 hours. Video-duration limits are not yet validated server-side, despite the 50-second UI limit; enforce this before relying on that limit for moderation. The current frontend post/status adapters use these APIs.
 
 ## 14. Presence (`lib/api/presence.ts`)
 
-`getPresence(authorId)` → `{ hasStatus, isLive, streamId? }` — currently mock-backed in the frontend. The backend's `GET /presence/{author_id}` reports persisted status and livestream presence. Consider Redis only after measured load justifies it.
+`getPresence(authorId)` → `{ hasStatus, isLive, streamId? }`. The frontend adapter uses the backend's `GET /presence/{author_id}` for persisted status and livestream presence. Consider Redis only after measured load justifies it.
 
 ## 15. Routes (for reference — confirms which pages need which data)
 

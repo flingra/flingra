@@ -292,11 +292,11 @@ holds, not regulated escrow. Referral codes are available, but bonus credits
 remain disabled until the reward policy is approved. Ledger amounts are stored
 in kobo and displayed in whole naira.
 
-The backend endpoints added for these flows are not yet wired into every
-frontend API adapter. The frontend remains mock-backed in chat, safety,
-posts/status, settings, presence, livestream, wallet, payout, calls, and
-subscriptions. Do not treat those UI flows as production-backed just because
-a corresponding read or core endpoint exists.
+The frontend's chat, safety, posts/status, settings, presence, livestream,
+wallet, payout, call, and subscription flows now use the backend APIs. Calls
+and livestream media require valid LiveKit credentials; wallet checkout and
+payouts require Paystack configuration and webhook delivery. Their production
+availability cannot be verified from local code alone.
 
 ## Synthetic Discover cohort
 
@@ -449,9 +449,9 @@ Apply migration `000028_admin_mfa.sql` before deploying the admin MFA endpoints.
 The payout admin surface is read-only to avoid duplicate provider transfers.
 The admin frontend exposes member account controls, safety reports, privacy
 request retries, payout inspection, content and stream moderation, subscription
-and gift catalog controls, wallet adjustments, and platform audit search. The frontend uses the backend for Discover feeds and
-discoverable profile details; other feature areas still use mock APIs and need
-their own integrations.
+and gift catalog controls, wallet adjustments, and platform audit search.
+User-facing product flows are wired to the backend; external provider settings
+and deployment configuration remain environment-specific.
 
 Media endpoints require verified, authenticated accounts and CSRF tokens.
 Uploaded JPEG/PNG/WebP images are decoded and re-encoded as JPEG to remove

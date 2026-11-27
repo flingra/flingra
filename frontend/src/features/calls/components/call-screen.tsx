@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { LocalTrack, RemoteTrack, Room as LiveKitRoom } from 'livekit-client'
 import { Coins, Gift, HeartHandshake, Mic, MicOff, MonitorUp, MonitorX, PhoneOff, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -17,6 +18,7 @@ import {
   endCall,
   getCall,
   getCallCreditBalance,
+  getCallToken,
   heartbeatCall,
   LOW_CREDIT_WARNING_THRESHOLD,
   markCallConnected,
@@ -53,9 +55,20 @@ export function CallScreen({
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState('')
   const [proposingPayment, setProposingPayment] = useState(false)
+  const [mediaConnected, setMediaConnected] = useState(false)
+  const [mediaError, setMediaError] = useState<string | null>(null)
+  const [retryConnection, setRetryConnection] = useState(0)
+  const [localVideoTrack, setLocalVideoTrack] = useState<LocalTrack | null>(null)
+  const [remoteVideoTrack, setRemoteVideoTrack] = useState<RemoteTrack | null>(null)
   const endedRef = useRef(false)
-  const confirmedConnectionRef = useRef(false)
+  const mediaStartedRef = useRef(false)
   const lowCreditWarnedRef = useRef(false)
+  const roomRef = useRef<LiveKitRoom | null>(null)
+  const speakerOnRef = useRef(true)
+  const remoteVideoTrackRef = useRef<RemoteTrack | null>(null)
+  const localVideoRef = useRef<HTMLVideoElement>(null)
+  const remoteVideoRef = useRef<HTMLVideoElement>(null)
+  const remoteAudioRef = useRef<HTMLDivElement>(null)
 
   // Authoritative call status lives on the backend — this is the one source of
   // truth for ringing → active → declined/ended, not local component state.
@@ -66,6 +79,7 @@ export function CallScreen({
   })
   const status = call?.status
   const connected = status === 'active'
+  const shouldConnect = status === 'connecting' || status === 'active'
 
   const { data: ownedGifts = [] } = useQuery({ queryKey: ['owned-gifts'], queryFn: getOwnedGifts, enabled: connected })
   const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
@@ -82,38 +96,137 @@ export function CallScreen({
     enabled: isPayingCaller,
   })
 
-  function hangUp() {
+  async function hangUp() {
     if (endedRef.current) return
     endedRef.current = true
-    void endCall(callId).catch(() => {})
-    onEnd()
+    try {
+      await endCall(callId)
+    } catch (error) {
+      showToast({
+        title: 'Could not end the call',
+        description: error instanceof ApiError ? error.message : 'The connection will close when the server times out.',
+        variant: 'error',
+      })
+    } finally {
+      onEnd()
+    }
   }
 
-  // No real LiveKit/WebRTC media connects here (this app never captures a real
-  // camera or mic), so there's no genuine "media joined" signal to react to.
-  // Once the backend has moved the call past ringing, we confirm the connection
-  // ourselves after a short simulated handshake, same beat the old fake ring
-  // timer used.
   useEffect(() => {
-    if (!status || status === 'ringing' || confirmedConnectionRef.current) return
-    if (status === 'declined' || status === 'ended') return
-    confirmedConnectionRef.current = true
-    const timer = setTimeout(() => {
-      markCallConnected(callId)
-        .then((updated) => queryClient.setQueryData(['call', callId], updated))
-        .catch(() => {})
-    }, 1200)
-    return () => clearTimeout(timer)
-  }, [status, callId, queryClient])
+    if (!shouldConnect || mediaStartedRef.current) return
+    mediaStartedRef.current = true
+    let cancelled = false
+    let room: LiveKitRoom | null = null
+
+    async function connect() {
+      try {
+        setMediaError(null)
+        setMediaConnected(false)
+        const [{ Room, RoomEvent, Track }, { url, token }] = await Promise.all([
+          import('livekit-client'),
+          getCallToken(callId),
+        ])
+        if (cancelled) return
+        room = new Room({ adaptiveStream: true, dynacast: true })
+        roomRef.current = room
+        room.on(RoomEvent.TrackSubscribed, (track) => {
+          if (track.kind === Track.Kind.Video) {
+            remoteVideoTrackRef.current = track
+            setRemoteVideoTrack(track)
+          }
+          if (track.kind === Track.Kind.Audio) {
+            const element = track.attach()
+            if (element instanceof HTMLAudioElement) {
+              element.autoplay = true
+              element.muted = !speakerOnRef.current
+              remoteAudioRef.current?.appendChild(element)
+            }
+          }
+        })
+        room.on(RoomEvent.TrackUnsubscribed, (track) => {
+          track.detach().forEach((element) => element.remove())
+          if (track === remoteVideoTrackRef.current) {
+            remoteVideoTrackRef.current = null
+            setRemoteVideoTrack(null)
+          }
+        })
+        room.on(RoomEvent.Disconnected, () => {
+          if (cancelled) return
+          setMediaConnected(false)
+          setMediaError('The media connection was lost. Ending the call.')
+          void endCall(callId).catch((error: unknown) => {
+            showToast({
+              title: 'Could not end the disconnected call',
+              description: error instanceof ApiError ? error.message : 'The server will time out the call.',
+              variant: 'error',
+            })
+          })
+        })
+        await room.connect(url, token)
+        await room.localParticipant.setMicrophoneEnabled(true)
+        if (mode === 'video') {
+          const publication = await room.localParticipant.setCameraEnabled(true)
+          if (publication?.track) setLocalVideoTrack(publication.track)
+        }
+        if (cancelled) return
+        const updated = await markCallConnected(callId)
+        if (cancelled) return
+        queryClient.setQueryData(['call', callId], updated)
+        setMediaConnected(true)
+      } catch (error) {
+        if (cancelled) return
+        setMediaError(error instanceof Error ? error.message : 'Could not connect your camera and microphone.')
+        mediaStartedRef.current = false
+        if (room) {
+          room.removeAllListeners()
+          room.disconnect()
+          if (roomRef.current === room) roomRef.current = null
+        }
+      }
+    }
+
+    void connect()
+    return () => {
+      cancelled = true
+      if (room) {
+        room.removeAllListeners()
+        room.disconnect()
+        if (roomRef.current === room) roomRef.current = null
+      }
+    }
+  }, [shouldConnect, callId, mode, queryClient, retryConnection])
+
+  useEffect(() => {
+    if (!localVideoTrack || !localVideoRef.current) return
+    localVideoTrack.attach(localVideoRef.current)
+    return () => {
+      localVideoTrack.detach(localVideoRef.current!)
+    }
+  }, [localVideoTrack])
+
+  useEffect(() => {
+    if (!remoteVideoTrack || !remoteVideoRef.current) return
+    remoteVideoTrack.attach(remoteVideoRef.current)
+    return () => {
+      remoteVideoTrack.detach(remoteVideoRef.current!)
+    }
+  }, [remoteVideoTrack])
+
+  useEffect(() => {
+    speakerOnRef.current = speakerOn
+    remoteAudioRef.current?.querySelectorAll('audio').forEach((audio) => {
+      audio.muted = !speakerOn
+    })
+  }, [speakerOn])
 
   useEffect(() => {
     if (endedRef.current) return
     if (status === 'declined') {
       showToast({ title: `${profile.displayName} declined`, variant: 'info' })
-      hangUp()
+      void hangUp()
     } else if (status === 'ended') {
       showToast({ title: 'Call ended', variant: 'info' })
-      hangUp()
+      void hangUp()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
@@ -128,7 +241,7 @@ export function CallScreen({
   // connected, warns them once it runs low, and ends the call once the backend
   // reports it exhausted — all private to this caller.
   useEffect(() => {
-    if (!connected || !isPayingCaller) return
+    if (!connected || !mediaConnected || !isPayingCaller) return
     const tick = setInterval(async () => {
       try {
         const updated = await heartbeatCall(callId)
@@ -158,7 +271,7 @@ export function CallScreen({
     }, CALL_CREDIT_TICK_SECONDS * 1000)
     return () => clearInterval(tick)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, isPayingCaller, callId])
+  }, [connected, mediaConnected, isPayingCaller, callId])
 
   async function handleSendGift(giftTypeId: string) {
     setGiftPickerOpen(false)
@@ -194,9 +307,52 @@ export function CallScreen({
     }
   }
 
+  async function toggleMicrophone() {
+    const nextMuted = !muted
+    try {
+      await roomRef.current?.localParticipant.setMicrophoneEnabled(!nextMuted)
+      setMuted(nextMuted)
+    } catch (error) {
+      showToast({
+        title: 'Could not change microphone',
+        description: error instanceof Error ? error.message : 'Check your microphone permissions.',
+        variant: 'error',
+      })
+    }
+  }
+
+  async function toggleCamera() {
+    const nextCameraOn = !cameraOn
+    try {
+      const publication = await roomRef.current?.localParticipant.setCameraEnabled(nextCameraOn)
+      if (publication?.track) setLocalVideoTrack(publication.track)
+      setCameraOn(nextCameraOn)
+    } catch (error) {
+      showToast({
+        title: 'Could not change camera',
+        description: error instanceof Error ? error.message : 'Check your camera permissions.',
+        variant: 'error',
+      })
+    }
+  }
+
+  async function toggleScreenShare() {
+    const nextSharing = !sharingScreen
+    try {
+      await roomRef.current?.localParticipant.setScreenShareEnabled(nextSharing)
+      setSharingScreen(nextSharing)
+    } catch (error) {
+      showToast({
+        title: 'Could not share screen',
+        description: error instanceof Error ? error.message : 'Screen sharing is unavailable.',
+        variant: 'error',
+      })
+    }
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') hangUp()
+      if (event.key === 'Escape') void hangUp()
     }
     document.addEventListener('keydown', onKeyDown)
     document.body.style.overflow = 'hidden'
@@ -211,12 +367,18 @@ export function CallScreen({
   // other way (navigation, etc.) without the hang-up button being pressed.
   useEffect(() => {
     return () => {
-      if (!endedRef.current) void endCall(callId).catch(() => {})
+      if (!endedRef.current) {
+        void endCall(callId).catch((error: unknown) => {
+          showToast({
+            title: 'Could not end the call',
+            description: error instanceof ApiError ? error.message : 'The server will time out the call.',
+            variant: 'error',
+          })
+        })
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callId])
-
-  const showVideoFeed = mode === 'video' && cameraOn
+  }, [callId, showToast])
 
   return createPortal(
     <>
@@ -227,7 +389,10 @@ export function CallScreen({
       aria-label={`${mode === 'video' ? 'Video' : 'Voice'} call with ${profile.displayName}`}
       className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-ink-900 text-white"
     >
-      {showVideoFeed && profile.photos[0] && (
+      {mode === 'video' && remoteVideoTrack && (
+        <video ref={remoteVideoRef} autoPlay playsInline className="absolute inset-0 size-full object-cover" />
+      )}
+      {mode === 'video' && !remoteVideoTrack && profile.photos[0] && (
         <div
           className="absolute inset-0 scale-110 bg-cover bg-center opacity-50 blur-xl"
           style={{ backgroundImage: `url(${profile.photos[0]})` }}
@@ -243,11 +408,23 @@ export function CallScreen({
       )}
 
       <div className="relative z-10 flex flex-col items-center gap-3 pt-20">
-        <Avatar name={profile.displayName} src={profile.photos[0]} size="xl" className="size-28 ring-4 ring-white/20" />
+        {(!remoteVideoTrack || mode === 'voice') && (
+          <Avatar name={profile.displayName} src={profile.photos[0]} size="xl" className="size-28 ring-4 ring-white/20" />
+        )}
         <p className="text-2xl font-bold">{profile.displayName}</p>
         <p className="text-sm text-white/70">
-          {connected ? formatElapsed(elapsed) : status === 'connecting' ? 'Connecting…' : mode === 'video' ? 'Ringing video call…' : 'Ringing voice call…'}
+          {connected ? formatElapsed(elapsed) : status === 'connecting' ? mediaError ? 'Media connection failed' : mediaConnected ? 'Waiting for the other member…' : 'Connecting your camera and microphone…' : mode === 'video' ? 'Ringing video call…' : 'Ringing voice call…'}
         </p>
+        {mediaError && <p role="alert" className="max-w-sm text-center text-sm text-red-200">{mediaError}</p>}
+        {mediaError && (
+          <button
+            type="button"
+            className="rounded-full bg-white/20 px-4 py-2 text-sm font-semibold"
+            onClick={() => setRetryConnection((value) => value + 1)}
+          >
+            Retry media connection
+          </button>
+        )}
         {isPayingCaller && callCredits !== undefined && (
           <Link
             to="/credits/shop"
@@ -261,12 +438,24 @@ export function CallScreen({
         )}
       </div>
 
+      {mode === 'video' && localVideoTrack && cameraOn && (
+        <video
+          ref={localVideoRef}
+          autoPlay
+          muted
+          playsInline
+          className="absolute bottom-28 right-4 z-10 aspect-video w-28 rounded-xl border border-white/40 object-cover sm:bottom-32 sm:right-8 sm:w-40"
+        />
+      )}
+      <div ref={remoteAudioRef} className="hidden" aria-hidden="true" />
+
       <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 px-4 pb-10 sm:gap-5 sm:pb-12">
         <button
           type="button"
-          onClick={() => setMuted((v) => !v)}
+          onClick={() => void toggleMicrophone()}
           aria-label={muted ? 'Unmute' : 'Mute'}
           aria-pressed={muted}
+          disabled={!mediaConnected}
           className={`flex size-12 cursor-pointer items-center justify-center rounded-full transition-colors sm:size-14 ${
             muted ? 'bg-white text-ink-900' : 'bg-white/15 text-white hover:bg-white/25'
           }`}
@@ -277,9 +466,10 @@ export function CallScreen({
         {mode === 'video' && (
           <button
             type="button"
-            onClick={() => setCameraOn((v) => !v)}
+            onClick={() => void toggleCamera()}
             aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
             aria-pressed={!cameraOn}
+            disabled={!mediaConnected}
             className={`flex size-12 cursor-pointer items-center justify-center rounded-full transition-colors sm:size-14 ${
               !cameraOn ? 'bg-white text-ink-900' : 'bg-white/15 text-white hover:bg-white/25'
             }`}
@@ -291,9 +481,10 @@ export function CallScreen({
         {mode === 'video' && (
           <button
             type="button"
-            onClick={() => setSharingScreen((v) => !v)}
+            onClick={() => void toggleScreenShare()}
             aria-label={sharingScreen ? 'Stop sharing your screen' : 'Share your screen'}
             aria-pressed={sharingScreen}
+            disabled={!mediaConnected}
             className={`flex size-12 cursor-pointer items-center justify-center rounded-full transition-colors sm:size-14 ${
               sharingScreen ? 'bg-white text-ink-900' : 'bg-white/15 text-white hover:bg-white/25'
             }`}
@@ -354,7 +545,7 @@ export function CallScreen({
 
         <button
           type="button"
-          onClick={hangUp}
+          onClick={() => void hangUp()}
           aria-label="End call"
           className="flex size-14 cursor-pointer items-center justify-center rounded-full bg-danger text-white shadow-float transition-colors hover:bg-danger/90 sm:size-16"
         >

@@ -161,17 +161,20 @@ export interface ReceivedGift {
 }
 
 export type WalletTransactionType =
-  | 'top-up'
+  | 'wallet-top-up'
   | 'gift-purchase'
   | 'gift-received'
   | 'redemption'
   | 'referral-bonus'
   | 'call-bonus'
   | 'payout'
+  | 'payout-refund'
+  | 'admin-adjustment'
   | 'meetup-payment-held'
   | 'meetup-payment-released'
   | 'meetup-payment-refunded'
   | 'video-unlock'
+  | 'video-sale'
   | 'vip-subscription'
   | 'coin-purchase'
   | 'call-credit-spend'
@@ -210,8 +213,7 @@ export interface PayoutRequest {
  * Nothing moves until she agrees: 'proposed' → (she accepts) 'held' → 'released',
  * or (she declines) 'declined' with no funds ever touched. While held, either side
  * can release it once the meetup happened, or the payer can ask for a refund.
- * This mock only ever has one logged-in account, so which side's wallet actually
- * moves depends on whether `fromId` or `toId` is the signed-in user (see wallet.ts).
+ * The server derives payer and recipient identity from the signed-in account.
  */
 export interface MeetupPayment {
   id: string
@@ -220,7 +222,7 @@ export interface MeetupPayment {
   toId: string
   toName: string
   amountNaira: number
-  status: 'proposed' | 'held' | 'released' | 'refunded' | 'declined'
+  status: 'proposed' | 'held' | 'released' | 'refunded' | 'declined' | 'disputed'
   createdAt: string
   resolvedAt?: string
 }

@@ -136,7 +136,7 @@ export function VipPage() {
           setInsufficientBalance(false)
         }}
         title="Choose a VIP plan"
-        description="This is a demo charge — it deducts from your wallet balance. No real payment is made."
+        description="Your selected plan will be charged from your Flingra wallet."
       >
         <div className="flex flex-col gap-3">
           <p className="text-sm text-ink-500">
