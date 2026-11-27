@@ -63,6 +63,11 @@ export function ProfileDetailPage() {
     queryKey: ['profile', profileId],
     queryFn: () => getDiscoverableProfile(profileId),
   })
+  const { data: presence } = useQuery({
+    queryKey: ['presence', profileId],
+    queryFn: () => getPresence(profileId),
+    enabled: Boolean(profile?.id),
+  })
   const { data: ownProfile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
   const { data: unlockedVideos = [] } = useQuery({ queryKey: ['unlocked-videos'], queryFn: listUnlockedVideos })
   const locked = !!profile && !canInteract(ownProfile, profile)
@@ -191,7 +196,6 @@ export function ProfileDetailPage() {
   }
 
   const photos = profile.photos.length > 0 ? profile.photos : undefined
-  const { data: presence } = useQuery({ queryKey: ['presence', profile.id], queryFn: () => getPresence(profile.id) })
   const isLive = presence?.isLive ?? false
   const streamId = presence?.streamId
 
