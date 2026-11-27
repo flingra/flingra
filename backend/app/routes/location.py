@@ -1,23 +1,112 @@
+from __future__ import annotations
+
 import logging
-from typing import Annotated
+import math
+import time
+from collections import OrderedDict
+from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from app.config import Settings
 from app.errors import ServiceUnavailable
 from app.routes.auth import CurrentAccount, get_app_settings
 
 router = APIRouter(prefix="/location", tags=["location"])
+
 GOOGLE_PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 GOOGLE_GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 GOOGLE_PLACES_FIELD_MASK = (
     "places.displayName,places.formattedAddress,places.location,places.addressComponents"
 )
+
+NIGERIA_COUNTRY_NAMES = frozenset({"ng", "nigeria"})
+AREA_COMPONENT_TYPES = (
+    "neighborhood",
+    "sublocality_level_1",
+    "sublocality",
+    "locality",
+    "administrative_area_level_2",
+    "administrative_area_level_1",
+)
+CITY_COMPONENT_TYPES = ("locality", "postal_town", "administrative_area_level_2")
+SEARCH_RESULT_LIMIT = 15
+SEARCH_BIAS_RADIUS_M = 50_000.0  # Places API maximum
+
+SEARCH_CACHE_TTL_S = 10 * 60
+REVERSE_CACHE_TTL_S = 60 * 60
+CACHE_MAX_ENTRIES = 512
+
 logger = logging.getLogger("uvicorn.error")
+# httpx logs full request URLs at INFO, and the Geocoding API only accepts its key as a
+# query parameter. Keep it out of the logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+# --------------------------------------------------------------------------- #
+# Response models
+# --------------------------------------------------------------------------- #
+
+
+class LocationResult(BaseModel):
+    name: str
+    area: str
+    latitude: float
+    longitude: float
+
+
+class LocationSearchResponse(BaseModel):
+    results: list[LocationResult]
+
+
+class ReverseGeocodeResponse(BaseModel):
+    area: str | None
+
+
+# --------------------------------------------------------------------------- #
+# Tiny in-memory TTL/LRU cache (per process) to cut repeat Google calls
+# --------------------------------------------------------------------------- #
+
+_MISS = object()
+
+
+class _TTLCache:
+    def __init__(self, *, max_entries: int, ttl_seconds: float) -> None:
+        self._items: OrderedDict[object, tuple[float, Any]] = OrderedDict()
+        self._max_entries = max_entries
+        self._ttl = ttl_seconds
+
+    def get(self, key: object) -> Any:
+        entry = self._items.get(key)
+        if entry is None:
+            return _MISS
+        expires_at, value = entry
+        if expires_at < time.monotonic():
+            del self._items[key]
+            return _MISS
+        self._items.move_to_end(key)
+        return value
+
+    def set(self, key: object, value: Any) -> None:
+        self._items[key] = (time.monotonic() + self._ttl, value)
+        self._items.move_to_end(key)
+        while len(self._items) > self._max_entries:
+            self._items.popitem(last=False)
+
+
+_search_cache = _TTLCache(max_entries=CACHE_MAX_ENTRIES, ttl_seconds=SEARCH_CACHE_TTL_S)
+_reverse_cache = _TTLCache(max_entries=CACHE_MAX_ENTRIES, ttl_seconds=REVERSE_CACHE_TTL_S)
+
+
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
 
 
 def _google_component_value(components: object, *component_types: str) -> str | None:
+    """First non-empty name for the earliest matching type (handles Places and Geocoding shapes)."""
     if not isinstance(components, list):
         return None
     for component_type in component_types:
@@ -38,163 +127,216 @@ def _google_component_value(components: object, *component_types: str) -> str | 
     return None
 
 
+def _in_nigeria(components: object, *, allow_unknown: bool) -> bool:
+    country = _google_component_value(components, "country")
+    if country is None:
+        return allow_unknown
+    return country.casefold() in NIGERIA_COUNTRY_NAMES
+
+
+def _format_area(components: object) -> str | None:
+    """'Neighbourhood, City' when both exist and differ; otherwise the best single name."""
+    area = _google_component_value(components, *AREA_COMPONENT_TYPES)
+    city = _google_component_value(components, *CITY_COMPONENT_TYPES)
+    suffix = city or _google_component_value(components, "administrative_area_level_1")
+    if area and suffix and area.casefold() != suffix.casefold():
+        return f"{area}, {suffix}"
+    return area
+
+
 def _google_maps_key(settings: Settings) -> str:
     if settings.google_maps_server_api_key is None:
         raise ServiceUnavailable("Google Maps location services are not configured.")
     return settings.google_maps_server_api_key.get_secret_value()
 
 
-@router.get("/search")
-def search_locations(
+async def _google_json(
+    method: str,
+    url: str,
+    *,
+    service: str,
+    unavailable_message: str,
+    timeout: httpx.Timeout,
+    **request_kwargs: Any,
+) -> dict[str, Any]:
+    """Call Google and return a JSON object, translating every failure into ServiceUnavailable."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.request(method, url, **request_kwargs)
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        detail = f"HTTP {exc.response.status_code}"
+    except httpx.HTTPError as exc:
+        detail = type(exc).__name__
+    except ValueError:
+        detail = "invalid JSON"
+    else:
+        if isinstance(payload, dict):
+            return payload
+        detail = "unexpected response shape"
+
+    # Never log request params: they can contain the API key or user coordinates.
+    logger.warning("%s failed: %s.", service, detail)
+    raise ServiceUnavailable(unavailable_message)
+
+
+def _coordinates(location: object) -> tuple[float, float] | None:
+    if not isinstance(location, dict):
+        return None
+    try:
+        latitude = float(location["latitude"])
+        longitude = float(location["longitude"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (math.isfinite(latitude) and math.isfinite(longitude)):
+        return None
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return None
+    return round(latitude, 6), round(longitude, 6)
+
+
+def _parse_place(place: object) -> LocationResult | None:
+    if not isinstance(place, dict):
+        return None
+    components = place.get("addressComponents")
+    if not _in_nigeria(components, allow_unknown=False):
+        return None
+    coordinates = _coordinates(place.get("location"))
+    if coordinates is None:
+        return None
+
+    display_name = place.get("displayName")
+    name = display_name.get("text") if isinstance(display_name, dict) else None
+    if not isinstance(name, str) or not name.strip():
+        name = place.get("formattedAddress")
+    if not isinstance(name, str) or not name.strip():
+        return None
+
+    latitude, longitude = coordinates
+    return LocationResult(
+        name=name,
+        area=_google_component_value(components, *AREA_COMPONENT_TYPES) or name,
+        latitude=latitude,
+        longitude=longitude,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Routes
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/search", response_model=LocationSearchResponse)
+async def search_locations(
     _: CurrentAccount,
     settings: Annotated[Settings, Depends(get_app_settings)],
     q: str = Query(min_length=2, max_length=120),
-) -> dict[str, list[dict[str, str | float]]]:
-    search_query = q if "nigeria" in q.casefold() else f"{q}, Nigeria"
+    latitude: float | None = Query(default=None, ge=-90, le=90),
+    longitude: float | None = Query(default=None, ge=-180, le=180),
+) -> LocationSearchResponse:
+    """Search Nigerian places. Optional latitude/longitude bias results toward the caller."""
     key = _google_maps_key(settings)
-    try:
-        response = httpx.post(
-            GOOGLE_PLACES_SEARCH_URL,
-            headers={
-                "X-Goog-Api-Key": key,
-                "X-Goog-FieldMask": GOOGLE_PLACES_FIELD_MASK,
-                "Content-Type": "application/json",
-            },
-            json={
-                "textQuery": search_query,
-                "languageCode": "en",
-                "regionCode": "NG",
-                "maxResultCount": 15,
-            },
-            timeout=httpx.Timeout(10.0, connect=3.0),
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict) or not isinstance(payload.get("places", []), list):
-            raise ValueError("Google Places returned an invalid response")
-    except httpx.HTTPStatusError as exc:
-        logger.warning("Google Places search returned HTTP %d.", exc.response.status_code)
-        raise ServiceUnavailable("Google Maps location search is temporarily unavailable.") from exc
-    except httpx.HTTPError as exc:
-        logger.warning("Google Places search failed (%s).", type(exc).__name__)
-        raise ServiceUnavailable("Google Maps location search is temporarily unavailable.") from exc
-    except ValueError as exc:
-        logger.warning("Google Places search returned invalid JSON.")
-        raise ServiceUnavailable("Google Maps location search is temporarily unavailable.") from exc
 
-    matches = []
-    seen = set()
-    for place in payload.get("places", []):
-        if not isinstance(place, dict):
+    text = " ".join(q.split())
+    if len(text) < 2:
+        return LocationSearchResponse(results=[])
+    search_query = text if "nigeria" in text.casefold() else f"{text}, Nigeria"
+
+    bias = (round(latitude, 2), round(longitude, 2)) if latitude is not None and longitude is not None else None
+    cache_key = (search_query.casefold(), bias)
+    cached = _search_cache.get(cache_key)
+    if cached is not _MISS:
+        return LocationSearchResponse(results=cached)
+
+    body: dict[str, Any] = {
+        "textQuery": search_query,
+        "languageCode": "en",
+        "regionCode": "NG",
+        "maxResultCount": SEARCH_RESULT_LIMIT,
+    }
+    if latitude is not None and longitude is not None:
+        body["locationBias"] = {
+            "circle": {
+                "center": {"latitude": latitude, "longitude": longitude},
+                "radius": SEARCH_BIAS_RADIUS_M,
+            }
+        }
+
+    payload = await _google_json(
+        "POST",
+        GOOGLE_PLACES_SEARCH_URL,
+        service="Google Places search",
+        unavailable_message="Google Maps location search is temporarily unavailable.",
+        timeout=httpx.Timeout(10.0, connect=3.0),
+        headers={
+            "X-Goog-Api-Key": key,
+            "X-Goog-FieldMask": GOOGLE_PLACES_FIELD_MASK,
+            "Content-Type": "application/json",
+        },
+        json=body,
+    )
+    places = payload.get("places", [])
+    if not isinstance(places, list):
+        logger.warning("Google Places search failed: unexpected places shape.")
+        raise ServiceUnavailable("Google Maps location search is temporarily unavailable.")
+
+    results: list[LocationResult] = []
+    seen: set[tuple[float, float]] = set()
+    for place in places:
+        match = _parse_place(place)
+        if match is None:
             continue
-        components = place.get("addressComponents")
-        country = _google_component_value(components, "country")
-        if country is None or country.casefold() not in {"ng", "nigeria"}:
-            continue
-        location = place.get("location")
-        if not isinstance(location, dict):
-            continue
-        try:
-            latitude = float(location["latitude"])
-            longitude = float(location["longitude"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        latitude = round(latitude, 6)
-        longitude = round(longitude, 6)
-        position = (latitude, longitude)
+        position = (match.latitude, match.longitude)
         if position in seen:
             continue
         seen.add(position)
-        area = _google_component_value(
-            components,
-            "neighborhood",
-            "sublocality_level_1",
-            "sublocality",
-            "locality",
-            "administrative_area_level_2",
-            "administrative_area_level_1",
-        )
-        display_name = place.get("displayName")
-        name = display_name.get("text") if isinstance(display_name, dict) else None
-        if not isinstance(name, str):
-            name = place.get("formattedAddress")
-        if isinstance(name, str):
-            matches.append(
-                {
-                    "name": name,
-                    "area": area or name,
-                    "latitude": latitude,
-                    "longitude": longitude,
-                }
-            )
-    return {"results": matches}
+        results.append(match)
+
+    _search_cache.set(cache_key, results)
+    return LocationSearchResponse(results=results)
 
 
-@router.get("/reverse")
-def reverse_geocode(
+@router.get("/reverse", response_model=ReverseGeocodeResponse)
+async def reverse_geocode(
     _: CurrentAccount,
     settings: Annotated[Settings, Depends(get_app_settings)],
     latitude: float = Query(ge=-90, le=90),
     longitude: float = Query(ge=-180, le=180),
-) -> dict[str, str | None]:
+) -> ReverseGeocodeResponse:
+    """Neighbourhood-level area name for a coordinate. Cached at roughly 100 m resolution."""
     key = _google_maps_key(settings)
-    try:
-        response = httpx.get(
-            GOOGLE_GEOCODING_URL,
-            params={
-                "latlng": f"{latitude},{longitude}",
-                "key": key,
-                "language": "en",
-                "region": "ng",
-            },
-            timeout=httpx.Timeout(5.0, connect=2.0),
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise ValueError("Google Geocoding returned an invalid response")
-    except httpx.HTTPStatusError as exc:
-        logger.warning("Google Geocoding returned HTTP %d.", exc.response.status_code)
-        raise ServiceUnavailable("Google Maps location lookup is temporarily unavailable.") from exc
-    except httpx.HTTPError as exc:
-        logger.warning("Google Geocoding failed (%s).", type(exc).__name__)
-        raise ServiceUnavailable("Google Maps location lookup is temporarily unavailable.") from exc
-    except ValueError as exc:
-        logger.warning("Google Geocoding returned invalid JSON.")
-        raise ServiceUnavailable("Google Maps location lookup is temporarily unavailable.") from exc
+
+    cache_key = (round(latitude, 3), round(longitude, 3))
+    cached = _reverse_cache.get(cache_key)
+    if cached is not _MISS:
+        return ReverseGeocodeResponse(area=cached)
+
+    payload = await _google_json(
+        "GET",
+        GOOGLE_GEOCODING_URL,
+        service="Google Geocoding",
+        unavailable_message="Google Maps location lookup is temporarily unavailable.",
+        timeout=httpx.Timeout(5.0, connect=2.0),
+        params={
+            "latlng": f"{latitude},{longitude}",
+            "key": key,
+            "language": "en",
+            "region": "ng",
+        },
+    )
 
     status = payload.get("status")
-    if status == "ZERO_RESULTS":
-        return {"area": None}
-    if status != "OK":
+    if status not in {"OK", "ZERO_RESULTS"}:
         logger.warning("Google Geocoding returned status %s.", status)
         raise ServiceUnavailable("Google Maps location lookup is temporarily unavailable.")
 
+    area: str | None = None
     results = payload.get("results")
-    if not isinstance(results, list) or not results or not isinstance(results[0], dict):
-        return {"area": None}
+    if status == "OK" and isinstance(results, list) and results and isinstance(results[0], dict):
+        components = results[0].get("address_components")
+        if _in_nigeria(components, allow_unknown=True):
+            area = _format_area(components)
 
-    components = results[0].get("address_components")
-    country = _google_component_value(components, "country")
-    if country is not None and country.casefold() not in {"ng", "nigeria"}:
-        return {"area": None}
-    area = _google_component_value(
-        components,
-        "neighborhood",
-        "sublocality_level_1",
-        "sublocality",
-        "locality",
-        "administrative_area_level_2",
-        "administrative_area_level_1",
-    )
-    city = _google_component_value(
-        components,
-        "locality",
-        "postal_town",
-        "administrative_area_level_2",
-    )
-    state = _google_component_value(components, "administrative_area_level_1")
-    suffix = city or state
-    if area and suffix and area.casefold() != suffix.casefold():
-        area = f"{area}, {suffix}"
-    return {"area": area}
+    _reverse_cache.set(cache_key, area)
+    return ReverseGeocodeResponse(area=area)
