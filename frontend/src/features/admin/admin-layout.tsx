@@ -1,272 +1,245 @@
-import { useEffect, useState } from 'react'
-import type { ReactNode, SelectHTMLAttributes } from 'react'
-import type { LucideIcon } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import {
+  ArrowLeftRight, ChevronRight, ClipboardCheck, Coins, CreditCard, FileText, Gift, HeartHandshake,
+  History, KeyRound, LayoutDashboard, LockKeyhole, LogOut, Menu, Newspaper, Radio, ScrollText,
+  ShieldAlert, ShieldCheck, UserRound, Users, Wallet, X, type LucideIcon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ApiError } from '@/lib/api/types'
+import { useAdminStore } from '@/lib/stores/admin-store'
 
-/* ---------- formatting ---------- */
+type AdminRole = 'super_admin' | 'reviewer' | 'safety_admin' | 'auditor'
+type NavItem = { to: string; label: string; icon: LucideIcon; roles: AdminRole[]; end?: boolean }
+type NavGroup = { label?: string; items: NavItem[] }
 
-export function humanize(value: string) {
-  const text = value.replace(/_/g, ' ')
-  return text.charAt(0).toUpperCase() + text.slice(1)
+const EVERYONE: AdminRole[] = ['super_admin', 'reviewer', 'safety_admin', 'auditor']
+const SUPER: AdminRole[] = ['super_admin']
+const SAFETY: AdminRole[] = ['super_admin', 'safety_admin']
+
+const NAV: NavGroup[] = [
+  {
+    items: [
+      { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, roles: EVERYONE, end: true },
+      { to: '/admin/security', label: 'Security', icon: KeyRound, roles: EVERYONE },
+    ],
+  },
+  {
+    label: 'Moderation',
+    items: [
+      { to: '/admin/reviews', label: 'Reviews', icon: ClipboardCheck, roles: ['super_admin', 'reviewer'] },
+      { to: '/admin/safety-reviews', label: 'Safety reviews', icon: ShieldAlert, roles: SAFETY },
+      { to: '/admin/safety-reports', label: 'Safety reports', icon: FileText, roles: SAFETY },
+      { to: '/admin/content', label: 'Content', icon: Newspaper, roles: SAFETY },
+      { to: '/admin/live-streams', label: 'Live streams', icon: Radio, roles: SAFETY },
+      { to: '/admin/meetup-disputes', label: 'Meetup disputes', icon: HeartHandshake, roles: SUPER },
+    ],
+  },
+  {
+    label: 'People',
+    items: [
+      { to: '/admin/users', label: 'Members', icon: UserRound, roles: SUPER },
+      { to: '/admin/admins', label: 'Admins', icon: Users, roles: SUPER },
+      { to: '/admin/privacy-requests', label: 'Privacy requests', icon: LockKeyhole, roles: SUPER },
+    ],
+  },
+  {
+    label: 'Finance',
+    items: [
+      { to: '/admin/payouts', label: 'Payouts', icon: Wallet, roles: SUPER },
+      { to: '/admin/wallet-adjustments', label: 'Wallet adjustments', icon: ArrowLeftRight, roles: SUPER },
+      { to: '/admin/coin-pricing', label: 'Coin pricing', icon: Coins, roles: SUPER },
+      { to: '/admin/subscriptions', label: 'Subscriptions', icon: CreditCard, roles: SUPER },
+      { to: '/admin/gifts', label: 'Gift catalog', icon: Gift, roles: SUPER },
+    ],
+  },
+  {
+    label: 'Audit',
+    items: [
+      { to: '/admin/audit', label: 'Audit', icon: ScrollText, roles: ['super_admin', 'safety_admin', 'auditor'], end: true },
+      { to: '/admin/audit/events', label: 'Platform audit', icon: History, roles: ['super_admin', 'auditor'] },
+    ],
+  },
+]
+
+const roleLabel = (role: string) => role.replace(/_/g, ' ')
+
+type SidebarProps = {
+  groups: NavGroup[]
+  role: string
+  signingOut: boolean
+  signOutFailed: boolean
+  onSignOut: () => void
 }
 
-export function formatDate(value?: string | null) {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-}
-
-/* ---------- feedback banners ---------- */
-
-const ALERT_STYLES = {
-  error: { box: 'border-red-200 bg-red-50 text-red-800', dot: 'bg-red-500' },
-  success: { box: 'border-emerald-200 bg-emerald-50 text-emerald-800', dot: 'bg-emerald-500' },
-}
-
-export function Alert({ tone, children, onDismiss }: { tone: 'error' | 'success'; children: ReactNode; onDismiss?: () => void }) {
-  const style = ALERT_STYLES[tone]
+function SidebarContent({ groups, role, signingOut, signOutFailed, onSignOut }: SidebarProps) {
   return (
-    <div role={tone === 'error' ? 'alert' : 'status'} className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${style.box}`}>
-      <span aria-hidden className={`mt-1.5 size-2 shrink-0 rounded-full ${style.dot}`} />
-      <div className="min-w-0 flex-1">{children}</div>
-      {onDismiss && (
-        <button type="button" onClick={onDismiss} className="rounded px-1.5 text-xs font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current">
-          Dismiss
-        </button>
-      )}
-    </div>
+    <>
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-ink-100 px-5">
+        <div className="grid size-9 place-items-center rounded-lg bg-primary-500 text-white">
+          <ShieldCheck className="size-5" />
+        </div>
+        <div className="leading-tight">
+          <p className="text-sm font-semibold text-ink-900">Flingra</p>
+          <p className="text-xs text-ink-500">Admin console</p>
+        </div>
+      </div>
+
+      <nav aria-label="Admin" className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
+        {groups.map((group, index) => (
+          <div key={group.label ?? index}>
+            {group.label && <p className="mb-1.5 px-3 text-xs font-medium text-ink-500">{group.label}</p>}
+            <ul className="space-y-0.5">
+              {group.items.map(({ to, label, icon: Icon, end }) => (
+                <li key={to}>
+                  <NavLink
+                    to={to}
+                    end={end}
+                    className={({ isActive }) =>
+                      `group relative flex h-9 items-center gap-3 rounded-lg px-3 text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary-500 ${
+                        isActive ? 'bg-primary-50 text-primary-700' : 'text-ink-600 hover:bg-ink-50 hover:text-ink-900'
+                      }`
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {isActive && <span aria-hidden className="absolute inset-y-1.5 -left-3 w-[3px] rounded-r-full bg-primary-500" />}
+                        <Icon className={`size-4 shrink-0 ${isActive ? 'text-primary-600' : 'text-ink-400 group-hover:text-ink-600'}`} />
+                        <span className="truncate">{label}</span>
+                      </>
+                    )}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
+
+      <div className="shrink-0 border-t border-ink-100 p-3">
+        <div className="flex items-center gap-3 px-2 py-1.5">
+          <div className="grid size-9 shrink-0 place-items-center rounded-full bg-ink-100 text-ink-600">
+            <UserRound className="size-4" />
+          </div>
+          <div className="min-w-0 flex-1 leading-tight">
+            {/* If your session has a name or email, show it here and move the role to the second line. */}
+            <p className="truncate text-sm font-medium capitalize text-ink-900">{roleLabel(role)}</p>
+            <p className="text-xs text-ink-500">{signingOut ? 'Signing out…' : 'Signed in'}</p>
+          </div>
+          <Button variant="ghost" size="icon" aria-label="Sign out" title="Sign out" onClick={onSignOut} disabled={signingOut}>
+            <LogOut className="size-4" />
+          </Button>
+        </div>
+        {signOutFailed && <p role="alert" className="px-2 pt-1 text-xs text-red-600">Couldn’t sign out. Try again.</p>}
+      </div>
+    </>
   )
 }
 
-export function useFeedback() {
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const clear = () => { setError(null); setNotice(null) }
-  const notify = (message: string) => { setError(null); setNotice(message) }
-  const fail = (e: unknown, fallback: string) => { setNotice(null); setError(e instanceof ApiError ? e.message : fallback) }
-  const banner = error || notice ? (
-    <div className="space-y-2">
-      {error && <Alert tone="error" onDismiss={() => setError(null)}>{error}</Alert>}
-      {notice && <Alert tone="success" onDismiss={() => setNotice(null)}>{notice}</Alert>}
-    </div>
-  ) : null
-  return { error, clear, notify, fail, banner }
-}
+export function AdminLayout() {
+  const session = useAdminStore((state) => state.session)
+  const logout = useAdminStore((state) => state.logout)
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+  const [signOutFailed, setSignOutFailed] = useState(false)
 
-/* ---------- confirmation dialog ---------- */
+  const role = session?.role as AdminRole | undefined
 
-type ConfirmOptions = { title: string; description?: ReactNode; confirmLabel?: string; tone?: 'default' | 'danger' }
+  const groups = useMemo(
+    () =>
+      role
+        ? NAV.map((group) => ({ ...group, items: group.items.filter((item) => item.roles.includes(role)) })).filter(
+            (group) => group.items.length > 0,
+          )
+        : [],
+    [role],
+  )
 
-export function useConfirm() {
-  const [pending, setPending] = useState<(ConfirmOptions & { resolve: (ok: boolean) => void }) | null>(null)
-
-  const confirm = (options: ConfirmOptions) => new Promise<boolean>((resolve) => setPending({ ...options, resolve }))
-  const close = (ok: boolean) => { pending?.resolve(ok); setPending(null) }
+  // The most specific nav item that matches the URL drives the breadcrumb.
+  const current = useMemo(() => {
+    const path = pathname.replace(/\/+$/, '') || '/'
+    return groups
+      .flatMap((group) => group.items.map((item) => ({ ...item, group: group.label })))
+      .filter((item) => path === item.to || (item.to !== '/admin' && path.startsWith(`${item.to}/`)))
+      .sort((a, b) => b.to.length - a.to.length)[0]
+  }, [groups, pathname])
 
   useEffect(() => {
-    if (!pending) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { pending.resolve(false); setPending(null) }
-    }
+    setDrawerOpen(false)
+  }, [pathname])
+
+  useEffect(() => {
+    if (!drawerOpen) return
+    const onKeyDown = (event: KeyboardEvent) => event.key === 'Escape' && setDrawerOpen(false)
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pending])
+  }, [drawerOpen])
 
-  const dialog = pending ? (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
-      <div className="absolute inset-0 bg-black/40" onClick={() => close(false)} />
-      <div className="relative w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-        <h2 id="confirm-title" className="text-base font-semibold text-ink-900">{pending.title}</h2>
-        {pending.description && <div className="mt-2 text-sm text-ink-600">{pending.description}</div>}
-        <div className="mt-6 flex justify-end gap-2">
-          <Button variant="outline" autoFocus onClick={() => close(false)}>Cancel</Button>
-          <Button variant={pending.tone === 'danger' ? 'destructive' : 'default'} onClick={() => close(true)}>{pending.confirmLabel ?? 'Confirm'}</Button>
-        </div>
-      </div>
-    </div>
-  ) : null
-
-  return { confirm, dialog }
-}
-
-/* ---------- layout pieces ---------- */
-
-export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
-  return (
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight text-ink-900">{title}</h1>
-        {description && <p className="mt-1 max-w-2xl text-sm text-ink-500">{description}</p>}
-      </div>
-      {actions}
-    </header>
-  )
-}
-
-export function Panel({ title, description, actions, flush, className = '', children }: {
-  title?: string; description?: string; actions?: ReactNode; flush?: boolean; className?: string; children: ReactNode
-}) {
-  return (
-    <section className={`overflow-hidden rounded-xl border border-ink-100 bg-white ${className}`}>
-      {(title || actions) && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
-          <div>
-            {title && <h2 className="text-sm font-semibold text-ink-900">{title}</h2>}
-            {description && <p className="mt-0.5 text-sm text-ink-500">{description}</p>}
-          </div>
-          {actions}
-        </div>
-      )}
-      <div className={flush ? '' : 'p-5'}>{children}</div>
-    </section>
-  )
-}
-
-export function Field({ label, hint, className = '', children }: { label: string; hint?: string; className?: string; children: ReactNode }) {
-  return (
-    <div className={className}>
-      <label className="block">
-        <span className="mb-1.5 block text-sm font-medium text-ink-900">{label}</span>
-        {children}
-      </label>
-      {hint && <p className="mt-1.5 text-xs text-ink-500">{hint}</p>}
-    </div>
-  )
-}
-
-export function Select({ className = '', ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      {...props}
-      className={`h-10 w-full rounded-lg border border-ink-200 bg-white px-3 text-sm text-ink-900 outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${className}`}
-    />
-  )
-}
-
-export function Segmented<T extends string>({ label, value, onChange, options }: {
-  label: string; value: T; onChange: (value: T) => void; options: { value: T; label: string }[]
-}) {
-  return (
-    <div role="group" aria-label={label} className="inline-flex rounded-lg bg-ink-100 p-1">
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          aria-pressed={value === option.value}
-          onClick={() => onChange(option.value)}
-          className={`rounded-md px-3 py-1.5 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary-500 ${
-            value === option.value ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-600 hover:text-ink-900'
-          }`}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-/* ---------- tables ---------- */
-
-export function Table({ head, actions, children }: { head: string[]; actions?: boolean; children: ReactNode }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-left text-sm">
-        <thead>
-          <tr className="border-b border-ink-100 bg-ink-50 text-xs text-ink-500">
-            {head.map((label, index) => (
-              <th key={label} scope="col" className={`px-5 py-3 font-medium ${actions && index === head.length - 1 ? 'text-right' : ''}`}>{label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-ink-100">{children}</tbody>
-      </table>
-    </div>
-  )
-}
-
-export function Td({ right, className = '', children }: { right?: boolean; className?: string; children: ReactNode }) {
-  return <td className={`px-5 py-3.5 align-middle ${right ? 'text-right' : ''} ${className}`}>{children}</td>
-}
-
-/* ---------- badges ---------- */
-
-type Tone = 'neutral' | 'success' | 'warning' | 'danger'
-const TONES: Record<Tone, string> = {
-  neutral: 'bg-ink-100 text-ink-600',
-  success: 'bg-emerald-50 text-emerald-700',
-  warning: 'bg-amber-50 text-amber-700',
-  danger: 'bg-red-50 text-red-700',
-}
-
-export function Badge({ tone = 'neutral', children }: { tone?: Tone; children: ReactNode }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${TONES[tone]}`}>
-      <span aria-hidden className="size-1.5 rounded-full bg-current" />
-      {children}
-    </span>
-  )
-}
-
-const GOOD = new Set(['active', 'approved', 'completed', 'enabled', 'reviewed', 'success', 'verified'])
-const WARN = new Set(['in_review', 'initiating', 'pending', 'processing', 'queued', 'suspended'])
-const BAD = new Set(['banned', 'declined', 'denied', 'disputed', 'failed', 'failure', 'rejected', 'reversed'])
-
-export function StatusBadge({ status }: { status?: string | null }) {
-  if (!status) return <span className="text-ink-400">—</span>
-  const key = status.toLowerCase()
-  const tone: Tone = GOOD.has(key) ? 'success' : WARN.has(key) ? 'warning' : BAD.has(key) ? 'danger' : 'neutral'
-  return <Badge tone={tone}>{humanize(status)}</Badge>
-}
-
-/* ---------- loading and empty states ---------- */
-
-export function EmptyState({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description?: string }) {
-  return (
-    <div className="flex flex-col items-center rounded-xl border border-dashed border-ink-200 bg-white px-6 py-14 text-center">
-      <div className="mb-3 grid size-10 place-items-center rounded-full bg-ink-100 text-ink-500"><Icon className="size-5" /></div>
-      <p className="text-sm font-medium text-ink-900">{title}</p>
-      {description && <p className="mt-1 max-w-sm text-sm text-ink-500">{description}</p>}
-    </div>
-  )
-}
-
-export function ListSkeleton({ rows = 4 }: { rows?: number }) {
-  return (
-    <div aria-busy="true" aria-label="Loading" className="divide-y divide-ink-100 rounded-xl border border-ink-100 bg-white">
-      {Array.from({ length: rows }, (_, index) => (
-        <div key={index} className="flex items-center justify-between gap-6 px-5 py-4">
-          <div className="space-y-2">
-            <div className="h-3.5 w-40 animate-pulse rounded bg-ink-100" />
-            <div className="h-3 w-56 animate-pulse rounded bg-ink-100" />
-          </div>
-          <div className="h-8 w-20 animate-pulse rounded-lg bg-ink-100" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/** Shows a skeleton while loading, the empty state when there are no rows (and no error), otherwise the content. */
-export function Async({ loading, count, failed, empty, children }: { loading: boolean; count: number; failed?: boolean; empty: ReactNode; children: ReactNode }) {
-  if (loading) return <ListSkeleton />
-  if (count === 0) return failed ? null : <>{empty}</>
-  return <>{children}</>
-}
-
-/* ---------- misc ---------- */
-
-export function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false)
-  async function copy() {
+  async function handleSignOut() {
+    setSigningOut(true)
+    setSignOutFailed(false)
     try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      await logout()
+      navigate('/admin/login', { replace: true })
     } catch {
-      /* clipboard unavailable */
+      setSignOutFailed(true)
+    } finally {
+      setSigningOut(false)
     }
   }
-  return <Button type="button" size="sm" variant="outline" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</Button>
+
+  if (!session) return null
+
+  const sidebar = (
+    <SidebarContent groups={groups} role={session.role} signingOut={signingOut} signOutFailed={signOutFailed} onSignOut={handleSignOut} />
+  )
+
+  return (
+    <div className="min-h-screen bg-ink-50 text-ink-900 lg:pl-64">
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-ink-100 bg-white lg:flex">{sidebar}</aside>
+
+      {drawerOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setDrawerOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85%] flex-col bg-white shadow-xl">
+            {sidebar}
+            <Button variant="ghost" size="icon" className="absolute right-3 top-3.5" aria-label="Close navigation" onClick={() => setDrawerOpen(false)}>
+              <X className="size-5" />
+            </Button>
+          </aside>
+        </div>
+      )}
+
+      <div className="flex min-h-screen flex-col">
+        <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b border-ink-100 bg-white/80 px-4 backdrop-blur sm:px-6 lg:px-8">
+          <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
+            <Menu className="size-5" />
+          </Button>
+          <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
+            <span className="text-ink-500">Admin</span>
+            {current?.group && (
+              <>
+                <ChevronRight className="size-3.5 shrink-0 text-ink-400" />
+                <span className="text-ink-500">{current.group}</span>
+              </>
+            )}
+            {current && (
+              <>
+                <ChevronRight className="size-3.5 shrink-0 text-ink-400" />
+                <span className="truncate font-medium text-ink-900">{current.label}</span>
+              </>
+            )}
+          </nav>
+          <span className="rounded-full border border-primary-100 bg-primary-50 px-2.5 py-1 text-xs font-medium capitalize text-primary-700">
+            {roleLabel(session.role)}
+          </span>
+        </header>
+
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  )
 }
