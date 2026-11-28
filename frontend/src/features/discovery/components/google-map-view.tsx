@@ -155,7 +155,7 @@ export function GoogleMapView({
         </Map>
         {hasUnmappedProfiles && (
           <p className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-full border border-ink-100 bg-white/90 px-3 py-1.5 text-xs font-medium text-ink-600 shadow-sm">
-            Some profiles aren’t pinned because they don’t have location coordinates.
+          
           </p>
         )}
       </div>
