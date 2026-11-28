@@ -1,21 +1,37 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { Button } from '@/components/ui/button'
 import { Crown, MapPin, Radio } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { PageSpinner } from '@/components/ui/spinner'
 import { EmptyState } from '@/components/ui/state-message'
 import { listLiveStreamsNearby } from '@/lib/api/livestream'
+import { getOwnProfile } from '@/lib/api/profiles'
+import { GoLiveDrawer } from '@/features/livestream/components/go-live-drawer'
 
 export function LivestreamsPage() {
+  const [goLiveOpen, setGoLiveOpen] = useState(false)
   const { data: streams, isLoading } = useQuery({ queryKey: ['livestreams-nearby'], queryFn: listLiveStreamsNearby })
+  const { data: profile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
+  const canGoLive = profile?.identity === 'woman'
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-      <h1 className="flex items-center gap-2 text-2xl font-bold text-ink-900">
-        <Radio className="size-6 text-danger" aria-hidden="true" /> Live now
-      </h1>
-      <p className="mt-1 text-sm text-ink-500">Livestreams from members near you, closest first.</p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-ink-900">
+            <Radio className="size-6 text-danger" aria-hidden="true" /> Live now
+          </h1>
+          <p className="mt-1 text-sm text-ink-500">Livestreams from members near you, closest first.</p>
+        </div>
+        {canGoLive && (
+          <Button onClick={() => setGoLiveOpen(true)} className="w-full bg-danger hover:bg-danger/90 sm:w-auto">
+            <Radio className="size-4" aria-hidden="true" /> Go live
+          </Button>
+        )}
+      </header>
 
       {isLoading && <PageSpinner label="Loading livestreams" />}
 
@@ -58,6 +74,7 @@ export function LivestreamsPage() {
           ))}
         </div>
       )}
+      {canGoLive && <GoLiveDrawer open={goLiveOpen} onClose={() => setGoLiveOpen(false)} />}
     </div>
   )
 }

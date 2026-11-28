@@ -94,6 +94,7 @@ def test_call_credit_purchase_and_server_billed_call_lifecycle(api_client, monke
     assert started.status_code == 201, started.json()
     call_id = started.json()["callId"]
     assert started.json()["status"] == "ringing"
+    assert client.get("/calls/history").json() == []
 
     callee = _login_as_candidate(client, callee_id)
     try:
@@ -171,6 +172,28 @@ def test_call_credit_purchase_and_server_billed_call_lifecycle(api_client, monke
         assert ended.status_code == 204
         assert client.get(f"/calls/{call_id}").json()["status"] == "ended"
         assert client.get("/calls/credits").json() == {"coins": 7}
+        caller_history = client.get("/calls/history")
+        assert caller_history.status_code == 200, caller_history.json()
+        caller_entries = caller_history.json()
+        assert len(caller_entries) == 1
+        assert {
+            key: caller_entries[0][key]
+            for key in ("callId", "participantId", "participantName", "participantIdentity", "callType", "direction", "status")
+        } == {
+            "callId": call_id,
+            "participantId": callee_id,
+            "participantName": "Candidate",
+            "participantIdentity": "woman",
+            "callType": "audio",
+            "direction": "outgoing",
+            "status": "completed",
+        }
+        assert caller_entries[0]["durationSeconds"] >= 0
+        callee_history = callee.get("/calls/history")
+        assert callee_history.status_code == 200, callee_history.json()
+        assert callee_history.json()[0]["participantId"] == caller_id
+        assert callee_history.json()[0]["direction"] == "incoming"
+        assert callee_history.json()[0]["status"] == "completed"
     finally:
         callee.close()
 
@@ -239,6 +262,10 @@ def test_call_lifecycle_ends_stale_connecting_calls(api_client, monkeypatch) -> 
             text("SELECT status FROM call_sessions WHERE id = :id"),
             {"id": call_id},
         ).scalar_one() == "ended"
+        history = client.get("/calls/history")
+        assert history.status_code == 200, history.json()
+        assert len(history.json()) == 1
+        assert history.json()[0]["status"] == "no-answer"
     finally:
         generator.close()
 

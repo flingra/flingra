@@ -1,98 +1,67 @@
-import { useEffect, useRef, useState } from 'react'
-import { NavLink } from 'react-router-dom'
-import { ChevronRight, Circle, Compass, Crown, MessageCircle, MonitorPlay, Plus, Radio, Settings, ShieldCheck, Wallet } from 'lucide-react'
+import { useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
+import { Circle, Compass, MessageCircle, MonitorPlay, Plus, Wallet } from 'lucide-react'
 import { CreatePostDrawer } from '@/features/profile/components/create-post-drawer'
-import { GoLiveDrawer } from '@/features/livestream/components/go-live-drawer'
 
 const NAV_ITEMS = [
-  { to: '/discover', icon: Compass, label: 'Discover' },
-  { to: '/messages', icon: MessageCircle, label: 'Messages' },
-  { to: '/live', icon: MonitorPlay, label: 'Live' },
-  { to: '/vip', icon: Crown, label: 'VIP' },
-  { to: '/status', icon: Circle, label: 'Status' },
-  { to: '/wallet', icon: Wallet, label: 'Wallet' },
-  { to: '/safety', icon: ShieldCheck, label: 'Safety' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/discover', icon: Compass, label: 'Discover', match: ['/discover', '/profiles'] },
+  { to: '/status', icon: Circle, label: 'Status', match: ['/status'] },
+  { to: '/live', icon: MonitorPlay, label: 'Live', match: ['/live'] },
+  { to: '/messages', icon: MessageCircle, label: 'Messages', match: ['/messages'] },
+  { to: '/wallet', icon: Wallet, label: 'Wallet', match: ['/wallet', '/gifts', '/referrals', '/payout', '/credits'] },
 ]
 
-// Sign out already lives in the header's account menu and in Settings — keeping
-// it out of this pill too leaves room for it to fit on small phones.
 export function BottomNav() {
   const [createOpen, setCreateOpen] = useState(false)
-  const [goLiveOpen, setGoLiveOpen] = useState(false)
-  const [hasMoreItems, setHasMoreItems] = useState(false)
-  const navRef = useRef<HTMLElement>(null)
-
-  useEffect(() => {
-    const nav = navRef.current
-    if (!nav) return
-
-    const updateScrollCue = () => {
-      setHasMoreItems(nav.scrollWidth > nav.clientWidth + nav.scrollLeft + 1)
-    }
-
-    updateScrollCue()
-    nav.addEventListener('scroll', updateScrollCue, { passive: true })
-    window.addEventListener('resize', updateScrollCue)
-    return () => {
-      nav.removeEventListener('scroll', updateScrollCue)
-      window.removeEventListener('resize', updateScrollCue)
-    }
-  }, [])
+  const { pathname } = useLocation()
 
   return (
     <>
-      <div className="fixed inset-x-0 bottom-3 z-30 flex items-center justify-center gap-2 px-2 sm:bottom-4 sm:gap-3 sm:px-4">
-        <nav
-          ref={navRef}
-          aria-label={hasMoreItems ? 'Primary navigation; scroll for more items' : 'Primary navigation'}
-          className="scrollbar-hide relative flex max-w-[calc(100vw-5.5rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-ink-900 px-2 py-2 pr-8 shadow-float sm:max-w-none sm:gap-1 sm:px-3 sm:py-2.5 sm:pr-3"
-        >
-          {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              aria-label={label}
-              className={({ isActive }) =>
-                `flex size-10 shrink-0 items-center justify-center rounded-full transition-colors sm:size-11 ${
-                  isActive ? 'bg-white text-ink-900' : 'text-white/70 hover:text-white'
-                }`
-              }
-            >
-              <Icon className="size-4.5 sm:size-5" aria-hidden="true" />
-            </NavLink>
-          ))}
+      <div className="fixed inset-x-0 bottom-0 z-30 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:bottom-4 sm:px-4 sm:pb-0 sm:pt-0">
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-1.5 rounded-2xl border border-ink-100 bg-white/95 p-2 shadow-float backdrop-blur sm:justify-center sm:rounded-full sm:border-0 sm:bg-ink-900 sm:p-2">
+          <nav
+            aria-label="Primary navigation"
+            className="flex min-w-0 flex-1 items-stretch justify-around sm:flex-none sm:gap-1"
+          >
+            {NAV_ITEMS.map(({ to, icon: Icon, label, match }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === '/messages'}
+                aria-label={label}
+                className="flex min-w-0 flex-1 sm:flex-none"
+              >
+                {({ isActive }) => {
+                  const pathMatches = match.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+                  const active = isActive || pathMatches
+                  return (
+                    <span
+                      className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 transition-colors sm:min-w-[5.5rem] sm:flex-row sm:gap-2 sm:rounded-full sm:px-3 sm:py-2.5 ${
+                        active
+                          ? 'bg-primary-50 text-primary-700 sm:bg-white sm:text-ink-900'
+                          : 'text-ink-500 hover:text-ink-900 sm:text-white/70 sm:hover:text-white'
+                      }`}
+                    >
+                      <Icon className="size-5 shrink-0" aria-hidden="true" />
+                      <span className="truncate text-[10px] font-medium leading-none sm:text-xs">{label}</span>
+                    </span>
+                  )
+                }}
+              </NavLink>
+            ))}
+          </nav>
           <button
             type="button"
-            onClick={() => setGoLiveOpen(true)}
-            aria-label="Go live"
-            className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-white/70 transition-colors hover:text-danger sm:size-11"
+            onClick={() => setCreateOpen(true)}
+            aria-label="Create post"
+            className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-primary-500 text-white shadow-soft transition-colors hover:bg-primary-600 sm:rounded-full"
           >
-            <Radio className="size-4.5 sm:size-5" aria-hidden="true" />
+            <Plus className="size-5" aria-hidden="true" />
           </button>
-          {hasMoreItems && (
-            <button
-              type="button"
-              aria-label="Show more navigation items"
-              onClick={() => navRef.current?.scrollBy({ left: 120, behavior: 'smooth' })}
-              className="absolute inset-y-0 right-0 z-10 flex w-9 cursor-pointer items-center justify-center rounded-r-full bg-gradient-to-l from-ink-900 via-ink-900/95 to-transparent text-white/80 sm:hidden"
-            >
-              <ChevronRight className="size-4" aria-hidden="true" />
-            </button>
-          )}
-        </nav>
-        <button
-          type="button"
-          onClick={() => setCreateOpen(true)}
-          aria-label="Create post"
-          className="flex size-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary-500 text-white shadow-float transition-colors hover:bg-primary-600 sm:size-14"
-        >
-          <Plus className="size-5 sm:size-6" aria-hidden="true" />
-        </button>
+        </div>
       </div>
 
       <CreatePostDrawer open={createOpen} onClose={() => setCreateOpen(false)} />
-      <GoLiveDrawer open={goLiveOpen} onClose={() => setGoLiveOpen(false)} />
     </>
   )
 }

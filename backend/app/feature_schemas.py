@@ -183,6 +183,21 @@ class CallSessionResponse(BaseModel):
     credit_balance: int | None = Field(default=None, serialization_alias="creditBalance")
 
 
+class CallHistoryItemResponse(BaseModel):
+    call_id: str = Field(serialization_alias="callId")
+    participant_id: str = Field(serialization_alias="participantId")
+    participant_name: str = Field(serialization_alias="participantName")
+    participant_photo: str | None = Field(serialization_alias="participantPhoto")
+    participant_identity: Literal["man", "woman", "private"] = Field(serialization_alias="participantIdentity")
+    call_type: Literal["audio", "video"] = Field(serialization_alias="callType")
+    direction: Literal["incoming", "outgoing"]
+    status: Literal["completed", "missed", "no-answer", "declined"]
+    created_at: datetime = Field(serialization_alias="createdAt")
+    started_at: datetime | None = Field(serialization_alias="startedAt")
+    ended_at: datetime | None = Field(serialization_alias="endedAt")
+    duration_seconds: int = Field(serialization_alias="durationSeconds")
+
+
 class VideoUnlockRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 

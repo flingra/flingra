@@ -14,6 +14,7 @@ import {
   listThreads,
 } from '@/lib/api/chat'
 import { ApiError } from '@/lib/api/types'
+import { MessagesTabs } from '@/features/messages/components/messages-tabs'
 
 export function MessagesInboxPage() {
   const queryClient = useQueryClient()
@@ -71,6 +72,7 @@ export function MessagesInboxPage() {
         <h1 className="text-2xl font-bold text-ink-900">Messages</h1>
         <p className="mt-1 text-sm text-ink-500">Your conversations and new connections.</p>
       </header>
+      <MessagesTabs />
 
       {requestsError && (
         <div className="mb-6">

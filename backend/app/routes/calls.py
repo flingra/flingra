@@ -13,6 +13,7 @@ from app.config import Settings
 from app.dependencies import db_session
 from app.errors import ApiException, ServiceUnavailable
 from app.feature_schemas import (
+    CallHistoryItemResponse,
     CallCreditPurchaseRequest,
     CallSessionResponse,
     CallStartRequest,
@@ -668,6 +669,69 @@ def start_call(
         token=token,
         credit_balance=_credit_balance(db, str(payer_id)) if payer_id else None,
     )
+
+
+@router.get("/history", response_model=list[CallHistoryItemResponse])
+def list_call_history(account: IdentityVerifiedAccount, db: DbSession) -> list[CallHistoryItemResponse]:
+    rows = db.execute(
+        text(
+            """
+            SELECT c.id, c.call_type, c.status, c.created_at, c.started_at, c.ended_at,
+                   c.caller_connected_at, c.callee_connected_at,
+                   CASE WHEN c.caller_id = :account_id THEN c.callee_id ELSE c.caller_id END AS participant_id,
+                   CASE WHEN c.caller_id = :account_id THEN 'outgoing' ELSE 'incoming' END AS direction,
+                   p.display_name, p.photos, p.identity
+            FROM call_sessions c
+            LEFT JOIN profiles p
+              ON p.account_id = CASE WHEN c.caller_id = :account_id THEN c.callee_id ELSE c.caller_id END
+            WHERE (c.caller_id = :account_id OR c.callee_id = :account_id)
+              AND c.status IN ('ended', 'declined')
+            ORDER BY c.created_at DESC, c.id DESC
+            LIMIT 100
+            """
+        ),
+        {"account_id": account.account_id},
+    ).mappings()
+
+    history = []
+    for row in rows:
+        direction = str(row["direction"])
+        connected = (
+            row["started_at"] is not None
+            or row["caller_connected_at"] is not None
+            or row["callee_connected_at"] is not None
+        )
+        if row["status"] == "declined":
+            status = "declined"
+        elif connected:
+            status = "completed"
+        else:
+            status = "missed" if direction == "incoming" else "no-answer"
+
+        duration_seconds = 0
+        if row["started_at"] is not None and row["ended_at"] is not None:
+            duration_seconds = max(
+                0,
+                int((_as_datetime(row["ended_at"]) - _as_datetime(row["started_at"])).total_seconds()),
+            )
+
+        history.append(
+            CallHistoryItemResponse(
+                call_id=str(row["id"]),
+                participant_id=str(row["participant_id"]),
+                participant_name=str(row["display_name"] or "Unavailable member"),
+                participant_photo=_first_photo(row["photos"]) or None,
+                participant_identity=row["identity"] or "private",
+                call_type=row["call_type"],
+                direction=direction,
+                status=status,
+                created_at=row["created_at"],
+                started_at=row["started_at"],
+                ended_at=row["ended_at"],
+                duration_seconds=duration_seconds,
+            )
+        )
+    return history
 
 
 @router.get("/incoming")

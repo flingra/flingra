@@ -31,10 +31,8 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
     )
   }
 
-  // Primary navigation (Discover, Status, Safety, Settings, sign out, create
-  // post) lives in the floating BottomNav on every breakpoint. The header
-  // keeps the secondary, account-scoped controls: notifications and the
-  // profile dropdown, also on every breakpoint.
+  // Primary navigation lives in the BottomNav. The header keeps notifications
+  // and account-scoped destinations in the profile dropdown.
   if (signedIn) {
     return (
       <header className="sticky top-0 z-30 border-b border-ink-100 bg-white/90 backdrop-blur">

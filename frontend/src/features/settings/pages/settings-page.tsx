@@ -1,48 +1,20 @@
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, Crown, LogOut, Lock, Shield, User, Wallet, BadgeCheck } from 'lucide-react'
-import { Avatar } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
-import { useSignOut } from '@/lib/hooks/use-sign-out'
-import { getOwnProfile } from '@/lib/api/profiles'
-import { useSessionStore } from '@/lib/stores/session-store'
+import { ChevronRight, Lock, Shield, User, BadgeCheck } from 'lucide-react'
 
 const ROWS = [
   { to: '/settings/profile', icon: User, label: 'Profile' },
   { to: '/settings/verification', icon: BadgeCheck, label: 'Verification' },
   { to: '/settings/security', icon: Lock, label: 'Security' },
   { to: '/settings/privacy', icon: Shield, label: 'Privacy & data' },
-  { to: '/wallet', icon: Wallet, label: 'Wallet & payments' },
 ]
 
 export function SettingsPage() {
-  const session = useSessionStore((state) => state.session)
-  const { isSigningOut, signOutAndRedirect } = useSignOut()
-  const { data: profile } = useQuery({ queryKey: ['own-profile'], queryFn: getOwnProfile, retry: false })
-
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
       <h1 className="text-2xl font-bold text-ink-900">Settings</h1>
+      <p className="mt-1 text-sm text-ink-500">Manage your profile and account preferences.</p>
 
-      <div className="mt-6 flex items-center gap-4 rounded-3xl border border-ink-100 bg-white p-6 shadow-soft">
-        <Avatar name={profile?.displayName ?? 'Me'} src={profile?.photos[0]} size="lg" />
-        <div className="min-w-0">
-          <p className="flex items-center gap-2 truncate text-lg font-semibold text-ink-900">
-            {profile?.displayName ?? session?.maskedContact}
-            {profile?.subscriptionTier === 'vip' && (
-              <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
-                <Crown className="size-3" aria-hidden="true" /> VIP
-              </span>
-            )}
-          </p>
-          <p className="truncate text-sm text-ink-500">{session?.maskedContact}</p>
-          <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-success">
-            <span className="size-1.5 rounded-full bg-success" aria-hidden="true" /> Account active
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-soft">
+      <div className="mt-6 overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-soft">
         {ROWS.map(({ to, icon: Icon, label }, index) => (
           <Link
             key={to}
@@ -57,15 +29,6 @@ export function SettingsPage() {
           </Link>
         ))}
       </div>
-
-      <Button
-        variant="outline"
-        className="mt-6 w-full text-danger"
-        onClick={() => void signOutAndRedirect()}
-        loading={isSigningOut}
-      >
-        <LogOut className="size-4" aria-hidden="true" /> {isSigningOut ? 'Signing out...' : 'Sign out'}
-      </Button>
     </div>
   )
 }

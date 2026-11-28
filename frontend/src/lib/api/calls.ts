@@ -23,6 +23,21 @@ export interface IncomingCall {
   createdAt: string
 }
 
+export interface CallHistoryItem {
+  callId: string
+  participantId: string
+  participantName: string
+  participantPhoto: string | null
+  participantIdentity: 'man' | 'woman' | 'private'
+  callType: 'audio' | 'video'
+  direction: 'incoming' | 'outgoing'
+  status: 'completed' | 'missed' | 'no-answer' | 'declined'
+  createdAt: string
+  startedAt: string | null
+  endedAt: string | null
+  durationSeconds: number
+}
+
 export const CALL_CREDIT_COST_PER_MINUTE = 1
 export const CALL_CREDIT_TICK_SECONDS = 60
 export const CALL_CREDIT_COST_PER_TICK = 1
@@ -72,6 +87,14 @@ export async function listIncomingCalls(): Promise<IncomingCall[]> {
   return calls.map((call) => ({
     ...call,
     callerPhoto: call.callerPhoto ? resolveMediaUrl(call.callerPhoto) : null,
+  }))
+}
+
+export async function listCallHistory(): Promise<CallHistoryItem[]> {
+  const calls = await apiRequest<CallHistoryItem[]>('/calls/history')
+  return calls.map((call) => ({
+    ...call,
+    participantPhoto: call.participantPhoto ? resolveMediaUrl(call.participantPhoto) : null,
   }))
 }
 

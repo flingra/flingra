@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronDown, LifeBuoy, LogOut, Settings, User } from 'lucide-react'
+import { ChevronDown, Crown, LifeBuoy, LogOut, Settings, User } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { useSignOut } from '@/lib/hooks/use-sign-out'
 
@@ -54,6 +54,14 @@ export function AccountMenu({ name, photo }: { name: string; photo?: string }) {
             className="flex items-center gap-3 px-4 py-2.5 text-sm text-ink-700 hover:bg-ink-50"
           >
             <User className="size-4" aria-hidden="true" /> My profile
+          </Link>
+          <Link
+            to="/vip"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-3 px-4 py-2.5 text-sm text-ink-700 hover:bg-ink-50"
+          >
+            <Crown className="size-4" aria-hidden="true" /> VIP &amp; membership
           </Link>
           <Link
             to="/settings"
