@@ -753,7 +753,7 @@ export function DiscoverPage() {
       {/* Map */}
       <div
         ref={mapRef}
-        className="relative mt-3 h-[54dvh] max-h-[480px] min-h-[360px] w-full overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-sm sm:mt-4 sm:h-[70vh] sm:max-h-none sm:min-h-[520px]"
+        className="relative isolate mt-3 h-[54dvh] max-h-[480px] min-h-[360px] w-full overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-sm sm:mt-4 sm:h-[70vh] sm:max-h-none sm:min-h-[520px]"
       >
         <div className="absolute left-1/2 top-3 z-[1200] w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 sm:top-4 sm:w-[calc(100%-2rem)]">
           <div
